@@ -1,0 +1,20 @@
+# ESP-IDF settings for the camera demo.
+# Serial setup uses the default UART0 console through the CH340 bridge.
+
+# The Freenove board carries a 4 MB flash; the IDF default is 2 MB.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+# Wi-Fi, mbedTLS, the certificate bundle and the camera driver do not fit a 1 MB app partition.
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+
+# MQTTS to mqtt.warbletiot.com:8883 verifies against the ESP certificate bundle,
+# which carries the broker's root (ISRG Root X2). Nothing is pinned.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+
+# Use PSRAM for camera frames and large MQTT buffers.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_QUAD=y
+CONFIG_SPIRAM_SPEED_40M=y
+
+# The WebSocket transport is unused.
+CONFIG_MQTT_TRANSPORT_WEBSOCKET=n

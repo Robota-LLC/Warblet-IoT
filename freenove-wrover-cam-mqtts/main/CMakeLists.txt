@@ -1,0 +1,23 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "chirp_store.c"
+        "chirp_prov.c"
+        "chirp_sign.c"
+        "chirp_mqtt.c"
+        "wifi_ladder.c"
+        "camera.c"
+    INCLUDE_DIRS "."
+    PRIV_REQUIRES
+        nvs_flash
+        json
+        esp_wifi
+        esp_netif
+        esp_event
+        esp_timer
+        mqtt
+        esp-tls
+        mbedtls
+        lwip
+        esp_driver_uart
+)

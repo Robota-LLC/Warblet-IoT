@@ -1,0 +1,49 @@
+{
+  "_": "For each compiled demo, the license texts in this directory that its built image contains. THIRD-PARTY-NOTICES.md says which component each covers. The catalog publisher puts LICENSE, THIRD-PARTY-NOTICES.md and these texts into the demo's download bundle.",
+  "nucleo-wba65-thread": [
+    "SLA0044.txt",
+    "BSD-3-Clause-STMicroelectronics.txt",
+    "BSD-3-Clause-OpenThread.txt",
+    "Apache-2.0.txt",
+    "COPYING.NEWLIB.txt",
+    "GCC-Runtime-Library-Exception.txt"
+  ],
+  "nucleo-wba65-baremetal": [
+    "Apache-2.0.txt",
+    "COPYING.NEWLIB.txt",
+    "GCC-Runtime-Library-Exception.txt"
+  ],
+  "firebeetle-c5": [
+    "Apache-2.0.txt",
+    "MIT-FreeRTOS-Kernel.txt",
+    "BSD-3-Clause-lwIP.txt",
+    "BSD-3-Clause-wpa_supplicant.txt",
+    "MIT-cJSON.txt",
+    "COPYING.NEWLIB.txt",
+    "GCC-Runtime-Library-Exception.txt"
+  ],
+  "freenove-wrover-cam": [
+    "Apache-2.0.txt",
+    "MIT-FreeRTOS-Kernel.txt",
+    "BSD-3-Clause-lwIP.txt",
+    "BSD-3-Clause-wpa_supplicant.txt",
+    "MIT-cJSON.txt",
+    "MIT-http_parser.txt",
+    "COPYING.NEWLIB.txt",
+    "GCC-Runtime-Library-Exception.txt",
+    "BSD-3-Clause-TLSF.txt",
+    "MIT-Cadence-Xtensa.txt"
+  ],
+  "freenove-wrover-cam-mqtts": [
+    "Apache-2.0.txt",
+    "MIT-FreeRTOS-Kernel.txt",
+    "BSD-3-Clause-lwIP.txt",
+    "BSD-3-Clause-wpa_supplicant.txt",
+    "MIT-cJSON.txt",
+    "MIT-http_parser.txt",
+    "COPYING.NEWLIB.txt",
+    "GCC-Runtime-Library-Exception.txt",
+    "BSD-3-Clause-TLSF.txt",
+    "MIT-Cadence-Xtensa.txt"
+  ]
+}

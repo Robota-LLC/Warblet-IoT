@@ -1,0 +1,33 @@
+{
+  "slug": "demo-firebeetle-c5",
+  "chips": ["ESP32-C5"],
+  "board": "DFRobot FireBeetle 2 ESP32-C5",
+  "network": "wifi",
+  "result": "Send the chip's temperature to your dashboard.",
+  "spec": {
+    "transport": "tcp",
+    "securityLevel": 2,
+    "retentionDays": 7,
+    "uiConfig": {
+      "controls": [
+        {"type": "toggle", "label": "LED", "onText": "led:on", "offText": "led:off"},
+        {"type": "button", "label": "Blink", "text": "led:blink"}
+      ]
+    }
+  },
+  "firmware": {
+    "kind": "esp-idf",
+    "images": [
+      {"file": "build/merged-binary.bin", "offset": "0x0", "use": "blank"},
+      {"file": "build/firebeetle-c5-demo.bin", "offset": "0x10000", "use": "provisioned"}
+    ]
+  },
+  "provision": {
+    "protocol": "chirp-prov/1.6",
+    "host": "tcp.warbletiot.com",
+    "commands": ["led:on", "led:off", "led:blink"],
+    "knobs": {
+      "level": {"max": 2}
+    }
+  }
+}

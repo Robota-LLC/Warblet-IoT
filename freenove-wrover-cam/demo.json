@@ -1,0 +1,32 @@
+{
+  "slug": "demo-wrover-cam",
+  "chips": ["ESP32"],
+  "board": "Freenove ESP32-WROVER CAM",
+  "network": "wifi",
+  "result": "Send camera images to your dashboard.",
+  "spec": {
+    "transport": "http",
+    "securityLevel": 2,
+    "retentionDays": 7,
+    "uiConfig": {
+      "controls": [
+        {"type": "button", "label": "Snap", "text": "snap"}
+      ]
+    }
+  },
+  "firmware": {
+    "kind": "esp-idf",
+    "images": [
+      {"file": "build/merged-binary.bin", "offset": "0x0", "use": "blank"},
+      {"file": "build/freenove-wrover-cam-demo.bin", "offset": "0x10000", "use": "provisioned"}
+    ]
+  },
+  "provision": {
+    "protocol": "chirp-prov/1.6",
+    "host": "https.warbletiot.com",
+    "commands": ["snap"],
+    "knobs": {
+      "level": {"max": 2}
+    }
+  }
+}

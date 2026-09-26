@@ -1,0 +1,5 @@
+# Freenove ESP32-WROVER CAM — Warblet reference firmware, MQTTS
+cmake_minimum_required(VERSION 3.16)
+
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project(freenove-wrover-cam-mqtts-demo)

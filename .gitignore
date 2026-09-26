@@ -1,0 +1,7 @@
+# Settings copied off a board hold Wi-Fi passwords, device tokens and signing keys.
+chirp_cfg.json
+
+# Build output.
+build/
+__pycache__/
+*.pyc

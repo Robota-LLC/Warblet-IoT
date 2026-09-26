@@ -1,0 +1,36 @@
+{
+  "slug": "demo-nucleo-wba65",
+  "chips": ["STM32WBA65"],
+  "board": "NUCLEO-WBA65RI",
+  "network": "host-relay",
+  "result": "Send sample temperature readings through a Python relay on your computer.",
+  "usb": {
+    "dfuPort": "User USB-C (CN9)",
+    "consolePort": "ST-LINK USB-C (CN15)",
+    "powerPort": "ST-LINK USB-C (CN15)",
+    "baud": 115200,
+    "consoleUse": "http-relay",
+    "bootEntry": "This board has no BOOT button. On a running demo, send CHIRP~ dfu on the ST-LINK console. On a blank board, connect BOOT0 (CN1 pin 9 or CN3 pin 7) to 3V3 (CN3 pin 16), then press RESET.",
+    "bootHelp": "/docs/connect-a-board#nucleo-wba65"
+  },
+  "spec": {
+    "transport": "http",
+    "securityLevel": 2,
+    "retentionDays": 7,
+    "uiConfig": {}
+  },
+  "firmware": {
+    "kind": "stm32-dfu",
+    "images": [
+      {"file": "build/chirpwba-demo.bin", "address": "0x08000000", "use": "blank"}
+    ]
+  },
+  "provision": {
+    "protocol": "chirp-prov/1.6",
+    "host": "http.warbletiot.com",
+    "commands": [],
+    "knobs": {
+      "level": {"max": 2}
+    }
+  }
+}
