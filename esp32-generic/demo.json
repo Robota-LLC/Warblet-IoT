@@ -1,0 +1,56 @@
+{
+  "slug": "demo-esp32-generic",
+  "chips": ["ESP32", "ESP32-S3", "ESP32-C3", "ESP32-C6"],
+  "board": "Any ESP32, ESP32-S3, ESP32-C3 or ESP32-C6 module",
+  "network": "wifi",
+  "starter": true,
+  "result": "Send the chip's temperature to your dashboard.",
+  "spec": {
+    "transport": "http",
+    "securityLevel": 2,
+    "retentionDays": 7,
+    "uiConfig": {}
+  },
+  "firmware": {
+    "kind": "micropython",
+    "runtimes": [
+      {
+        "chip": "ESP32",
+        "name": "MicroPython 1.28.0 ESP32_GENERIC",
+        "url": "https://micropython.org/resources/firmware/ESP32_GENERIC-20260406-v1.28.0.bin",
+        "sha256": "cd7820d02c35d34dd403b44263129c6a511b350aea8446c229890753fe240784",
+        "offset": "0x1000"
+      },
+      {
+        "chip": "ESP32-S3",
+        "name": "MicroPython 1.28.0 ESP32_GENERIC_S3",
+        "url": "https://micropython.org/resources/firmware/ESP32_GENERIC_S3-20260406-v1.28.0.bin",
+        "sha256": "8c6039d40024cae3c6b04bb434f77901548f5487df9789af15548c54f9e11d7f",
+        "offset": "0x0"
+      },
+      {
+        "chip": "ESP32-C3",
+        "name": "MicroPython 1.28.0 ESP32_GENERIC_C3",
+        "url": "https://micropython.org/resources/firmware/ESP32_GENERIC_C3-20260406-v1.28.0.bin",
+        "sha256": "c749c22b6fe00cb8211a3b227ed6c0ce9babb518fd8f5a661f7496eb878fa895",
+        "offset": "0x0"
+      },
+      {
+        "chip": "ESP32-C6",
+        "name": "MicroPython 1.28.0 ESP32_GENERIC_C6",
+        "url": "https://micropython.org/resources/firmware/ESP32_GENERIC_C6-20260406-v1.28.0.bin",
+        "sha256": "d338042d2dd87a00dad2163071f44bf67da1401e1d1d0686f2bb2e336e78f0e6",
+        "offset": "0x0"
+      }
+    ],
+    "files": ["main.py", "chirp_prov.py", "chirp_send.py", "chirp_sign.py"]
+  },
+  "provision": {
+    "protocol": "chirp-prov/1.6",
+    "host": "https.warbletiot.com",
+    "commands": [],
+    "knobs": {
+      "level": {"max": 2}
+    }
+  }
+}

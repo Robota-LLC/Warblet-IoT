@@ -1,0 +1,40 @@
+{
+  "slug": "demo-xiao-c6",
+  "chips": ["ESP32-C6"],
+  "board": "Seeed XIAO ESP32-C6",
+  "network": "wifi",
+  "result": "Send the chip's temperature to your dashboard.",
+  "spec": {
+    "transport": "mqtt",
+    "securityLevel": 2,
+    "retentionDays": 7,
+    "uiConfig": {
+      "controls": [
+        {"type": "toggle", "label": "LED", "onText": "led:on", "offText": "led:off"},
+        {"type": "button", "label": "Blink", "text": "led:blink"}
+      ]
+    }
+  },
+  "firmware": {
+    "kind": "micropython",
+    "runtimes": [
+      {
+        "chip": "ESP32-C6",
+        "name": "MicroPython 1.28.0 ESP32_GENERIC_C6",
+        "url": "https://micropython.org/resources/firmware/ESP32_GENERIC_C6-20260406-v1.28.0.bin",
+        "sha256": "d338042d2dd87a00dad2163071f44bf67da1401e1d1d0686f2bb2e336e78f0e6",
+        "offset": "0x0"
+      }
+    ],
+    "files": ["main.py", "chirp_mqtt.py", "chirp_prov.py", "chirp_sign.py"]
+  },
+  "provision": {
+    "protocol": "chirp-prov/1.6",
+    "host": "mqtt.warbletiot.com",
+    "commands": ["led:on", "led:off", "led:blink"],
+    "knobs": {
+      "level": {"max": 2},
+      "tls": {"configKey": "tls", "default": true}
+    }
+  }
+}
