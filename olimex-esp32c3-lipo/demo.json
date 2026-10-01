@@ -1,0 +1,35 @@
+{
+  "slug": "demo-olimex-c3",
+  "chips": ["ESP32-C3"],
+  "board": "Olimex ESP32-C3-DevKit-Lipo rev C",
+  "network": "wifi",
+  "result": "See button presses on your dashboard.",
+  "firstMessage": "Press BUT1 to send a button press.",
+  "spec": {
+    "transport": "http",
+    "securityLevel": 2,
+    "retentionDays": 7,
+    "uiConfig": {}
+  },
+  "firmware": {
+    "kind": "micropython",
+    "runtimes": [
+      {
+        "chip": "ESP32-C3",
+        "name": "MicroPython 1.28.0 ESP32_GENERIC_C3",
+        "url": "https://micropython.org/resources/firmware/ESP32_GENERIC_C3-20260406-v1.28.0.bin",
+        "sha256": "c749c22b6fe00cb8211a3b227ed6c0ce9babb518fd8f5a661f7496eb878fa895",
+        "offset": "0x0"
+      }
+    ],
+    "files": ["main.py", "chirp_prov.py", "chirp_send.py", "chirp_sign.py"]
+  },
+  "provision": {
+    "protocol": "chirp-prov/1.6",
+    "host": "https.warbletiot.com",
+    "commands": [],
+    "knobs": {
+      "level": {"max": 2}
+    }
+  }
+}

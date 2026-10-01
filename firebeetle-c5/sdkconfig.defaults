@@ -1,0 +1,14 @@
+# ESP-IDF settings for this demo.
+
+# The C5's native USB-Serial-JTAG is the console and provisioning link; there is no bridge chip.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# FireBeetle 2 ESP32-C5 carries a 4 MB module; the IDF default is 2 MB.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+# Use the custom application partition size and preserve the NVS layout.
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+
+# Raw TCP, no TLS: the certificate bundle is dropped to keep the image small.
+# mbedtls stays for HMAC-SHA256 and base64.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=n
