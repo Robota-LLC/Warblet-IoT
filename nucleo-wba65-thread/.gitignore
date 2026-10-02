@@ -1,0 +1,7 @@
+# ST sources and libraries, fetched by `make fetch` (tools/fetch_st.sh) at the
+# commits it pins. They are not ours and are not committed.
+/Drivers/
+/Middlewares/
+/Projects/
+/Utilities/
+/.st/
