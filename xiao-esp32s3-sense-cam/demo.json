@@ -1,0 +1,39 @@
+{
+  "slug": "demo-xiao-s3-cam",
+  "chips": ["ESP32-S3"],
+  "board": "Seeed Studio XIAO ESP32-S3 Sense",
+  "network": "wifi",
+  "result": "Press a button and the photo appears on your dashboard.",
+  "firstMessage": "Press BOOT on the board to take a photo.",
+  "spec": {
+    "transport": "mqtt",
+    "securityLevel": 2,
+    "retentionDays": 7,
+    "uiConfig": {
+      "controls": [
+        {"type": "button", "label": "Snap", "text": "snap"}
+      ]
+    }
+  },
+  "routine": {
+    "file": "doorbell-photo.star",
+    "name": "Doorbell: email the photo",
+    "scope": "spec",
+    "minIntervalMs": 0
+  },
+  "firmware": {
+    "kind": "esp-idf",
+    "images": [
+      {"file": "build/xiao-esp32s3-sense-cam-full.bin", "offset": "0x0", "use": "blank"},
+      {"file": "build/xiao-esp32s3-sense-cam-update.bin", "offset": "0x10000", "use": "provisioned"}
+    ]
+  },
+  "provision": {
+    "protocol": "chirp-prov/1.6",
+    "host": "mqtt.warbletiot.com",
+    "commands": ["snap"],
+    "knobs": {
+      "level": {"max": 2}
+    }
+  }
+}

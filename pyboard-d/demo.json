@@ -1,0 +1,26 @@
+{
+  "slug": "demo-pyboard-d",
+  "chips": ["STM32F722"],
+  "board": "Pyboard D SF2W",
+  "network": "wifi",
+  "result": "Send the chip's temperature to your dashboard.",
+  "spec": {
+    "transport": "http",
+    "securityLevel": 2,
+    "retentionDays": 7,
+    "uiConfig": {}
+  },
+  "firmware": {
+    "kind": "micropython",
+    "runtimes": [],
+    "files": ["main.py", "chirp_prov.py", "chirp_send.py", "chirp_sign.py"]
+  },
+  "provision": {
+    "protocol": "chirp-prov/1.6",
+    "host": "http.warbletiot.com",
+    "commands": [],
+    "knobs": {
+      "level": {"max": 2}
+    }
+  }
+}
