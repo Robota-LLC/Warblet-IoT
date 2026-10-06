@@ -1,0 +1,27 @@
+# ESP-IDF settings for the XIAO ESP32-S3 Sense photo doorbell.
+
+# The S3's native USB-Serial-JTAG is the console and setup link; there is no bridge chip.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# The XIAO ESP32-S3 Sense carries an 8 MB flash; the IDF default is 2 MB.
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+
+# Wi-Fi, mbedTLS, the certificate bundle and the camera driver do not fit a 1 MB app partition.
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+
+# MQTTS to mqtt.warbletiot.com:8883 verifies against the ESP certificate bundle,
+# which carries the broker's root (ISRG Root X2). Nothing is pinned.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+
+# The ESP32-S3R8 has 8 MB of octal PSRAM inside the chip: camera frames and
+# large MQTT buffers live there.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+
+# The WebSocket transport is unused.
+CONFIG_MQTT_TRANSPORT_WEBSOCKET=n
+
+# The Wi-Fi and MQTT event handlers run on the system event task. Its default
+# 2304-byte stack had 21% left after an hour on this board; 3072 adds room.
+CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=3072
