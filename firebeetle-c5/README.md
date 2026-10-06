@@ -9,7 +9,13 @@ The board joins Wi-Fi and sends its chip temperature to Warblet every 30 seconds
 - A DFRobot FireBeetle 2 ESP32-C5 with 4 MB flash and no in-package PSRAM.
 - A USB-C data cable.
 - A Wi-Fi network and a Warblet account.
-- ESP-IDF v5.5 on your computer.
+- ESP-IDF v5.5, to build from source.
+
+## Quick start
+
+Open [Set up a device](https://warbletiot.com/flash) in desktop Chrome or Edge, connect the board and select this demo. Follow the prompts to install it and send your network settings. Open the device page to see the result.
+
+To customize the firmware first, use the build and flash steps below.
 
 ## Pins and settings
 
@@ -29,7 +35,7 @@ idf.py merge-bin -o firebeetle-c5-full.bin
 
 ESP32-C5 requires the `--preview` flag with `set-target` in this toolchain.
 
-`test/provtest.c` checks the provisioning parser shared with the two camera demos on a computer, without a board. The compile command is at the top of the file.
+For a host-side provisioning parser check, follow the compile command in [test/provtest.c](test/provtest.c). No board is needed.
 
 ## Flash
 
@@ -60,11 +66,11 @@ CHIRP?
 CHIRP+ {"ssid":"YOUR_WIFI","pass":"YOUR_WIFI_PASSWORD","hwid":"YOUR_DEVICE_ID","token":"YOUR_DEVICE_TOKEN"}
 ```
 
-The board saves settings in NVS flash and restarts. Keep settings and keys private. A later push can contain only changed fields. An optional `key` holds a base64-encoded 32-byte signing key. Use either `claim` or `token`, not both. A push with any malformed field, such as a key that does not decode to 32 bytes or a network without an `ssid`, is refused whole with `CHIRP= err bad-json` and nothing is saved.
+The board saves settings in NVS flash and restarts. Later pushes can contain only changed fields. The optional `key` is a base64-encoded 32-byte signing key; use either `claim` or `token`, not both. Invalid settings are refused without saving.
 
 An `aps` list can hold up to eight networks. The demo tries visible networks from strongest to weakest signal, then any remaining networks in saved order. Sending `ssid` without `aps` replaces the list with one network. A stored `host` overrides the default `tcp.warbletiot.com`.
 
-## What goes over the wire
+## Data and commands
 
 The destination is `tcp.warbletiot.com:7700`. Lines end with a newline. At connection time the board sends:
 
@@ -88,7 +94,7 @@ Commands arrive as `down:` followed by base64. For example, `down:bGVkOm9u` mean
 
 ## Decoder
 
-Paste [decoder.star](decoder.star) into the device spec’s decoder editor. It returns `temp_c` and handles negative readings.
+Browser setup adds the demo spec. For manual setup, paste [decoder.star](decoder.star) into your device spec’s decoder editor. It returns `temp_c` and handles negative readings.
 
 ## Make it real
 
@@ -98,7 +104,9 @@ The reading function returns an error if no reading is available. `report_temper
 
 ## Security notes
 
-The device credential, the signing key, and the Wi-Fi passwords are stored unencrypted in the NVS partition. Anyone who can reach the USB port can read them with `esptool read_flash`, replace them with a `CHIRP+` push, or reflash the board: physical access is full access. For a product, turn on flash encryption with NVS encryption and secure boot, lock down the provisioning console, and give every device its own token and key. This demo’s raw TCP link is also unencrypted on the network.
+The TCP connection is unencrypted. A signature protects message authenticity, not confidentiality.
+
+NVS stores Wi-Fi passwords, the device token and signing key unencrypted. USB access allows reading or replacing them. For deployment, use separate device credentials and configure flash/NVS encryption, secure boot and console access for your hardware.
 
 ## Troubleshooting
 

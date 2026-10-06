@@ -30,7 +30,7 @@ Run from this demo’s directory. Replace `<PORT>` with the board’s serial por
 
 Use MicroPython v1.14 for PYBD-SF2W. If it is already installed, copy the app files below. A board without this runtime needs a PYBD-SF2 runtime installed through its DFU bootloader first.
 
-Copy the files, then press RESET:
+Eject or unmount `PYBFLASH` before writing through the serial prompt. Copy the files, then press RESET:
 
 ```sh
 mpremote connect <PORT> fs cp main.py chirp_prov.py chirp_send.py chirp_sign.py :
@@ -53,7 +53,7 @@ The board saves `chirp_cfg.json` and restarts. Keep settings and keys private. A
 
 An `aps` list can hold up to eight networks, tried in order. Sending `ssid` without `aps` replaces the list with one network. A stored `host` overrides the default `http.warbletiot.com`.
 
-## What goes over the wire
+## Data and commands
 
 The app sends `POST /ingest/{hwid}` with `Content-Type: application/octet-stream` and the token in `X-Chirp-Token`. A credential beginning with `CHIRP-` also goes in `X-Chirp-Claim`.
 
@@ -65,7 +65,7 @@ The destination is `http.warbletiot.com:80`. This sender does not use TLS: the t
 
 ## Decoder
 
-Paste [decoder.star](decoder.star) into the device spec’s decoder editor. It returns `temp_c` and handles negative readings.
+Browser setup adds the demo spec. For manual setup, paste [decoder.star](decoder.star) into your device spec’s decoder editor. It returns `temp_c` and handles negative readings.
 
 ## Make it real
 
@@ -75,9 +75,7 @@ Keep Celsius as the return unit, or change `encode_temperature()` and `decoder.s
 
 ## Security notes
 
-`chirp_cfg.json` holds the Wi-Fi passwords, the device token, and the signing key as plain text in the board’s flash file system. Anyone who can reach the USB port can read them, replace them with a `CHIRP+` push, or reflash the board: physical access is full access. This demo sends over plain HTTP, so the token and readings are also visible on the network. For a product, turn on the chip’s flash encryption and secure boot, lock down the USB console, and give every device its own token and key.
-
-Do not commit a copy of `chirp_cfg.json` taken off a board; the repository’s `.gitignore` excludes that name.
+`chirp_cfg.json` stores Wi-Fi passwords, the device token and signing key unencrypted. USB access allows reading or replacing them. Keep this file out of Git, use a separate credential for each device, and protect the console and stored credentials before deploying a product. The HTTP connection also exposes the token and readings to anyone on the network path.
 
 ## Troubleshooting
 

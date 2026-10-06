@@ -36,6 +36,8 @@ The result is `build/chirpwba-demo.bin`. This is C firmware with register header
 
 The headers in `include/cmsis/` (Arm) and `include/st/` (STMicroelectronics) are unmodified vendor files under Apache-2.0, with the license text beside them. The MIT license does not cover them; see [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md).
 
+`make test` checks the firmware’s signing code against known HMAC values on your computer. It needs a host C compiler such as `gcc`, not the Arm compiler.
+
 ## Flash
 
 The image loads at `0x08000000`. Connect ST-LINK USB-C (CN15). For a first install through ST-LINK, use STM32CubeProgrammer:
@@ -46,10 +48,9 @@ STM32_Programmer_CLI -c port=SWD mode=UR -d build/chirpwba-demo.bin 0x08000000 -
 
 For browser flashing, connect user USB-C (CN9) as well. The board must be in its ROM DFU bootloader:
 
-1. With this demo running, send `CHIRP~ dfu` on the ST-LINK serial port.
-2. On a blank board, connect BOOT0 (CN1 pin 9 or CN3 pin 7) to 3V3 (CN3 pin 16), then press RESET. The board has no BOOT button.
-3. Open https://warbletiot.com/flash in Chrome or Edge. Select `build/chirpwba-demo.bin` at `0x08000000`, write it, and leave DFU mode.
-4. Remove the BOOT0 jumper, if used, and reset to run the app.
+1. Enter DFU either by sending `CHIRP~ dfu` on the ST-LINK serial port while this demo is running, or by connecting BOOT0 (CN1 pin 9 or CN3 pin 7) to 3V3 (CN3 pin 16) and pressing RESET. The board has no BOOT button.
+2. Open https://warbletiot.com/flash in Chrome or Edge. Select `build/chirpwba-demo.bin` at `0x08000000`, write it, and leave DFU mode.
+3. Remove the BOOT0 jumper, if used, and reset to run the app.
 
 On Windows, browser access to the ROM bootloader may require a WinUSB driver. If the boot-pin route does not work, use the ST-LINK command above. These images require a compatible non-secure flash configuration; check `TZEN=0` and `BOOT_LOCK=0` in STM32CubeProgrammer before flashing.
 
@@ -102,25 +103,24 @@ with serial.Serial(PORT, 115200, timeout=1) as port:
 
 Keep the relay running to receive reports. If you set a custom `host` on the board, change the relay’s `HOST` too. The serial requests contain the device credential; keep captured logs private.
 
-## What goes over the wire
+## Data and commands
 
 The relay removes the `CHIRP^ ` prefix from each header line and converts the `body` line from hex to bytes. It sends `POST /ingest/{hwid}` to `http.warbletiot.com:80`.
 
-The body is an unsigned 16-bit number, high byte first, in tenths of a degree. `00 c9` means 20.1 °C. A token uses `X-Chirp-Token`; a claim uses `X-Chirp-Claim`. With a signing key, `X-Chirp-Signature` holds a hex HMAC-SHA256 of the signed input: a nonce line, a tag line, then the body (`<nonce>\ntag=<tag>\n<body>`). This board sends no nonce and no tag, so both fields are empty, but both lines are still there: it signs the six bytes `\ntag=\n` followed by the two body bytes. Only the body is sent; Warblet rebuilds the same bytes to check the signature.
-
-For example, with the test key `AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=` (the bytes 0x00 to 0x1f; never use it on a real device) and the body `00 c9`, the signed bytes are `0a 74 61 67 3d 0a 00 c9` and the header is `X-Chirp-Signature: 227c7ed07675979193145d78675ecab09be24ad8eac4d2dc3c777fe01fdadbb6`. To check it on your computer:
-
-```sh
-python -c "import base64, hashlib, hmac; key = base64.b64decode('AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8='); print(hmac.new(key, b'\ntag=\n' + bytes([0x00, 0xc9]), hashlib.sha256).hexdigest())"
-```
-
-`make test` builds the firmware's signing code for your computer and checks it against this value. It needs a host C compiler such as `gcc`, not the Arm compiler.
+The body is an unsigned 16-bit number, high byte first, in tenths of a degree: `00 c9` means 20.1 °C. The credential goes in `X-Chirp-Token` or `X-Chirp-Claim`. With a signing key, `X-Chirp-Signature` is a hex HMAC-SHA256 of `"\ntag=\n" + body`; include the empty nonce and tag lines when porting.
 
 This demo has no nonce or replay protection. HTTP is unencrypted, so it cannot satisfy `enforceTls`. It does not receive downlink commands.
 
+<details>
+<summary>Check your port’s signature</summary>
+
+For the example key `AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=` and body `00 c9`, the signed bytes are `0a 74 61 67 3d 0a 00 c9`. The result is `X-Chirp-Signature: 227c7ed07675979193145d78675ecab09be24ad8eac4d2dc3c777fe01fdadbb6`. This key is public; never use it for a device.
+
+</details>
+
 ## Decoder
 
-Paste [decoder.star](decoder.star) into the device spec’s decoder editor. It returns `temp_c` from the unsigned two-byte value. The dashboard reading is simulated until you attach a sensor and change the reading function.
+Browser setup adds the demo spec. For manual setup, paste [decoder.star](decoder.star) into your device spec’s decoder editor. It returns `temp_c` from the unsigned two-byte value. The dashboard reading is simulated until you attach a sensor and change the reading function.
 
 ## Make it real
 
@@ -128,9 +128,13 @@ Replace `next_tenths()` in `src/chirp_send.c` with your sensor reading in tenths
 
 For negative readings, change the unsigned packing and decoder to a signed format. For a different payload size, also update `Content-Length` and the serial body formatter in `print_http_request()`. Keep hardware setup separate from the request formatting when adding a sensor.
 
+For another board, adapt [include/board.h](include/board.h), the startup code and [ld/stm32wba65ri.ld](ld/stm32wba65ri.ld). Reserve a settings page outside the application image and match the UART pins and clock to your hardware.
+
 ## Security notes
 
-The stored configuration, including the claim code or token, the signing key, and the Thread network key or dataset, sits unencrypted in the last 8 KB flash page at `0x081FE000`. The console prints only short SHA-256 fingerprints of the secrets. ST-LINK, the ROM bootloader, and the `CHIRP~ dfu` command all give full access to the flash: physical access is full access. For a product, set readout protection (RDP), keep secrets in TrustZone-protected storage, remove or authenticate the DFU and provisioning commands, and give every device its own token and key. The relayed HTTP uplink is unencrypted between the relay and Warblet.
+Settings and credentials are stored unencrypted at `0x081FE000`. ST-LINK, the ROM bootloader and USB setup allow reading or replacing them. Protect debug and setup access and use separate device credentials before deployment.
+
+The HTTP connection from the computer relay to Warblet is unencrypted. Signing does not encrypt the payload.
 
 ## Troubleshooting
 

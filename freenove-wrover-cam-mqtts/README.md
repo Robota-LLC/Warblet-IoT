@@ -10,7 +10,13 @@ The camera keeps an MQTT-over-TLS connection to Warblet. A `snap` command asks i
 - An OV2640 or GC0308 camera module seated in the ribbon socket.
 - A USB data cable for the board’s CH340 serial connection.
 - A 2.4 GHz Wi-Fi network and a Warblet account.
-- ESP-IDF v5.5 on your computer.
+- ESP-IDF v5.5, to build from source.
+
+## Quick start
+
+Open [Set up a device](https://warbletiot.com/flash) in desktop Chrome or Edge, connect the board and select this demo. Follow the prompts to install it and send your network settings. Open the device page to see the result.
+
+To customize the firmware first, use the build and flash steps below.
 
 ## Camera pins and settings
 
@@ -69,11 +75,11 @@ CHIRP?
 CHIRP+ {"ssid":"YOUR_WIFI","pass":"YOUR_WIFI_PASSWORD","hwid":"YOUR_DEVICE_ID","token":"YOUR_DEVICE_TOKEN"}
 ```
 
-The board saves settings in NVS flash and restarts. Keep settings and keys private. A later push can contain only changed fields. An optional `key` holds a base64-encoded 32-byte signing key. Use either `claim` or `token`, not both. A push with any malformed field, such as a key that does not decode to 32 bytes or a network without an `ssid`, is refused whole with `CHIRP= err bad-json` and nothing is saved.
+The board saves settings in NVS flash and restarts. Later pushes can contain only changed fields. The optional `key` is a base64-encoded 32-byte signing key; use either `claim` or `token`, not both. Invalid settings are refused without saving.
 
 An `aps` list can hold up to eight networks. The demo tries visible networks from strongest to weakest signal, then any remaining networks in saved order. Sending `ssid` without `aps` replaces the list with one network. A stored `host` overrides the default `mqtt.warbletiot.com`.
 
-## What goes over the wire
+## Data and commands
 
 The board connects to `mqtt.warbletiot.com:8883` using TLS and the ESP-IDF certificate bundle. This sender has no plaintext setting. The device ID is both the client ID and username; the token or claim code is the password.
 
@@ -101,7 +107,9 @@ Keep the interface in `main/camera.h`: capture returns a byte pointer and length
 
 ## Security notes
 
-The device credential, the signing key, and the Wi-Fi passwords are stored unencrypted in the NVS partition. Anyone who can reach the USB port can read them with `esptool read_flash`, replace them with a `CHIRP+` push, or reflash the board: physical access is full access. For a product, turn on flash encryption with NVS encryption and secure boot, lock down the provisioning console, and give every device its own token and key. The MQTTS connection checks the broker’s certificate against the ESP-IDF certificate bundle and the host name.
+The MQTTS connection verifies the server certificate and hostname using the ESP-IDF certificate bundle.
+
+NVS stores Wi-Fi passwords, the device token and signing key unencrypted. USB access allows reading or replacing them. For deployment, use separate device credentials and configure flash/NVS encryption, secure boot and console access for your hardware.
 
 ## Troubleshooting
 

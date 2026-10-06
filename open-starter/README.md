@@ -2,9 +2,9 @@
 
 ## What happens
 
-Every 10 seconds the board sends Warblet one line of plain text: a count, then the last thing it heard, like `3 hello`. Type something in the Message box on the board's device page, and the board says it back in its next line. The board sends no token and no signature and needs no clock: this is Warblet's Open level, the quickest way to see the whole loop of a connected board, from the line it sends to a command coming back.
+Every 10 seconds, the board sends Warblet a count and the last message it received, such as `3 hello`. Send text from the device page’s **Message** box to see it echoed in a later reading. This demo uses Open authentication: no token, signature or clock is required.
 
-The same demo comes three ways: MicroPython files that warbletiot.com/flash sets up for you, one Arduino sketch, and one C file on the sockets API. Each one first asks Warblet for a command, then sends its line, so what you type shows up in the very next line.
+Choose MicroPython for browser setup, Arduino for a sketch, or C for an existing sockets-based project. Each version checks for one command before sending its next reading.
 
 ## What you need
 
@@ -12,41 +12,21 @@ The same demo comes three ways: MicroPython files that warbletiot.com/flash sets
 - For Arduino or C: a board with Wi-Fi that you already program that way.
 - A 2.4 GHz Wi-Fi network and a Warblet account.
 
-The MicroPython files also run on a Pyboard D SF2W with its MicroPython 1.14. The setup page does not set it up: copy the files onto it yourself (see "On a Pyboard D" below).
-
-## The wire
-
-| | |
-|---|---|
-| **Transport** | plain HTTP to `http.warbletiot.com`, port 80 |
-| **Security cap** | Open (L0): no token, no signature |
-| **Announce** | `CHIRP! v=1 hw=<id> radios=wifi t=demo-open-starter` |
-
-The whole protocol is two requests every 10 seconds, plus one UDP form for a link with no TCP:
-
-```text
-POST http://http.warbletiot.com/ingest/<id>/down  -> 200 and a command as the body, or 204 for none
-POST http://http.warbletiot.com/ingest/<id>       body "<count> <heard>"  -> 202
-UDP  udp.warbletiot.com:7701                      "CHIRP1 <id> - <count> <heard>"  (nothing comes back)
-```
-
-Asking for a command is a `POST` with no body. A `GET` of that address is refused, so something that only repeats an address, like a proxy or a browser, never takes your command. The `-` in the UDP form is where a token would go. Each request is `HTTP/1.0` with a `Host` header and a `Content-Length`; Warblet answers and closes the connection, so the reply ends when the connection does. The board reads only the status and the body, never a header.
-
-The id is yours: letters, digits and `- _ . :`, up to 128 characters. A few lowercase words and some random digits make a good one; make it up yourself rather than copying one, because everyone who uses the same id is the same device. The examples here write `<your-board-id>`, which Warblet refuses, so replace it. If Find device cannot find your id after the board has sent a line, someone else holds it: pick another.
+For a Pyboard D SF2W with MicroPython 1.14, use the [manual installation](#on-a-pyboard-d) below.
 
 ## Set it up with MicroPython
 
 ### From the setup page
 
 1. Open https://warbletiot.com/flash in Chrome or Edge, connect the board, and pick the Open starter.
-2. Type your Wi-Fi name and password. The page writes MicroPython and the two files, sends your Wi-Fi and an id over USB (CHIRP-PROV v1.6, with no token), and adds the board to your account at Open with this demo's spec.
-3. Open the device page: a line arrives every 10 seconds. Type in the Message box and send it.
+2. Enter your Wi-Fi name and password. Setup installs the runtime and files as needed, assigns an ID and adds the board to your account with the Open starter spec.
+3. Open the device page, wait for a reading, then send text from **Message**.
 
-The command list on the device page shows your message as Sent once Warblet has handed it to the plain-HTTP door. That is as far as the server can see. The board's next line is how you know it arrived.
+A command shown as Sent is not a receipt from the board. The echoed reading confirms that the board received your message.
 
 ### By hand
 
-Write MicroPython 1.28.0 for your chip. Erasing flash removes stored files and settings.
+Run these commands from `open-starter/`. Replace `<PORT>` with your serial port, such as `COM5` or `/dev/ttyACM0`. Download the MicroPython 1.28.0 image for your chip below; erasing flash removes files and settings.
 
 | Chip | Image | Offset | SHA-256 |
 |---|---|---|---|
@@ -71,19 +51,19 @@ Then give the board your Wi-Fi and its id. Either connect it at warbletiot.com/f
 CHIRP+ {"ssid":"YOUR_WIFI","pass":"YOUR_WIFI_PASSWORD","hwid":"<your-board-id>"}
 ```
 
-The board answers `CHIRP= ok`, saves `open_cfg.json` and restarts. An `aps` list can hold up to eight networks, tried in order. A push that carries a `claim` or a `token` is answered `CHIRP= err unsupported`, because this firmware never sends one. You can also write `open_cfg.json` yourself with the same three fields.
+The board answers `CHIRP= ok`, saves `open_cfg.json` and restarts. An `aps` list can hold up to eight networks, tried in order. This firmware refuses `claim` and `token` fields with `CHIRP= err unsupported`. You can also write `open_cfg.json` with the same three fields.
 
 Then claim the board: on your Warblet dashboard, use Find device with its id and tick **Open starter**, so the board arrives with its decoder and the Message box.
 
 ### On a Pyboard D
 
-The two files have run on a Pyboard D SF2W with MicroPython 1.14. The setup page does not offer this board, so set it up by hand; the console's "connect this board at warbletiot.com/flash" is meant for the ESP32 boards. The board shows its flash to your computer as a drive named `PYBFLASH`:
+For a Pyboard D SF2W with MicroPython 1.14, install the files manually. The board exposes its flash as a drive named `PYBFLASH`:
 
 1. Copy `main.py` and `open_setup.py` onto `PYBFLASH`.
 2. Write `open_cfg.json` there too, with your Wi-Fi and your id: `{"ssid":"YOUR_WIFI","pass":"YOUR_WIFI_PASSWORD","hwid":"<your-board-id>"}`.
 3. When the copy has finished, eject `PYBFLASH` (unmount it on macOS or Linux), then reset the board from a serial terminal at 115200 baud: press Ctrl-C, then type `import machine; machine.reset()`. It joins Wi-Fi and sends its first line a few seconds later.
 
-A `CHIRP+` push from a serial terminal works on this board too: the board saves it and restarts, and keeps it. Copy files through the drive rather than writing them from the board's own prompt: while your computer has the drive open, files written from the prompt can be lost at the board's next soft restart.
+You can also send settings with `CHIRP+` at 115200 baud. Eject `PYBFLASH` before resetting or editing files from the board’s prompt to avoid conflicting writes.
 
 ## Set it up with Arduino
 
@@ -92,7 +72,7 @@ A `CHIRP+` push from a serial terminal works on this board too: the board saves 
 3. Pick your board and upload. Open the Serial Monitor at 115200 baud to watch each line and Warblet's answer.
 4. Claim the board with Find device and tick **Open starter**.
 
-The sketch needs no library beyond your board's own Wi-Fi one, and uses only `WiFi.begin()`, `WiFi.status()` and `WiFiClient` from it. The `#include` lines at the top pick that library; for a board they do not cover, include its Wi-Fi library there. The sketch has run on an ESP8266 board, built with the ESP8266 Arduino core 3.1.2.
+The sketch uses your board’s Wi-Fi library (`WiFi.begin()`, `WiFi.status()` and `WiFiClient`). Its include block covers ESP8266, ESP32 and the listed Arduino Wi-Fi headers; adapt it for another board. For ESP8266, use Arduino core 3.1.2.
 
 ## Set it up in C
 
@@ -109,11 +89,11 @@ for (;;) {
 }
 ```
 
-On a platform with `<sys/socket.h>`, ESP-IDF among them, it builds as it is. On an lwIP project, build with `-DWARBLET_LWIP`, turn on `LWIP_SOCKET`, `LWIP_DNS`, `LWIP_SO_RCVTIMEO` and `LWIP_SO_SNDTIMEO`, and keep `LWIP_COMPAT_SOCKETS` on. Make sure your Wi-Fi joins again by itself after a drop: the file handles Warblet, not your network. Claim the board with Find device and tick **Open starter**.
+The C file requires a POSIX-style sockets API. ESP-IDF supplies it; an lwIP project uses `-DWARBLET_LWIP` and the settings below. Your application must bring up the network and reconnect after a drop. After the first successful send, use **Find device** and select **Open starter**.
 
 ### On ESP-IDF
 
-The C file has run on an ESP32-C5 with ESP-IDF 5.5. Start from ESP-IDF's Wi-Fi station example, `examples/wifi/getting_started/station`:
+For ESP-IDF 5.5, start from `examples/wifi/getting_started/station`:
 
 1. Copy `warblet_open.c` into the example's `main` folder and add it to `main/CMakeLists.txt`. ESP-IDF has `<sys/socket.h>`, so the file builds as it is, without `-DWARBLET_LWIP`:
 
@@ -123,17 +103,17 @@ The C file has run on an ESP32-C5 with ESP-IDF 5.5. Start from ESP-IDF's Wi-Fi s
                           INCLUDE_DIRS ".")
    ```
 
-2. Make the board join again after every drop. In `event_handler()` the example stops after `EXAMPLE_ESP_MAXIMUM_RETRY` tries: delete that limit, so a disconnect always calls `esp_wifi_connect()`. The example also writes your Wi-Fi password to the monitor: take it out of the two `ESP_LOGI` lines at the end of `wifi_init_sta()`.
+2. In `event_handler()`, reconnect on Wi-Fi disconnect rather than stopping at the example’s retry limit. Remove Wi-Fi passwords from logging.
 3. Put the loop above in a function of its own, `static void warblet_task(void *arg)`, with `vTaskDelay(pdMS_TO_TICKS(10000))` as the delay, and start it at the end of `app_main()`: `xTaskCreate(warblet_task, "warblet", 6144, NULL, 5, NULL);`
-4. Pick the chip first, because picking it starts a fresh configuration: the ESP32-C5 is a preview target in ESP-IDF 5.5, so `idf.py --preview set-target esp32c5`. Then type your network's name and password in `idf.py menuconfig` under Example Configuration, and build and flash. The monitor shows `1 hello -> 202`, then a new line about every 10 seconds.
+4. Select the target before configuring Wi-Fi. For ESP32-C5 on ESP-IDF 5.5, run `idf.py --preview set-target esp32c5`, then `idf.py menuconfig` → **Example Configuration**. Run `idf.py build` and `idf.py -p <PORT> flash monitor`. A successful send prints a line such as `1 hello -> 202`.
 
 ### On an NXP MCUXpresso SDK project
 
-The C file has run on an NXP RW612 with the MCUXpresso SDK's lwIP 2.2 and FreeRTOS, in a project that joins Wi-Fi with the SDK's connection manager (`wlan.h`):
+For an NXP RW612 project using the MCUXpresso SDK, lwIP 2.2, FreeRTOS and the Wi-Fi connection manager (`wlan.h`):
 
 1. Add `warblet_open.c` to your `source` folder and define `WARBLET_LWIP` for it, so it takes its sockets from lwIP and closes them with `lwip_close()`.
 2. In `lwipopts.h`, make sure `LWIP_SOCKET`, `LWIP_DNS`, `LWIP_SO_RCVTIMEO` and `LWIP_SO_SNDTIMEO` are 1, and leave `LWIP_COMPAT_SOCKETS` on (lwIP's default): the file calls `socket()`, `connect()` and `getaddrinfo()` by those names.
-3. Give it one task with 1,024 words of stack (it used under 450 on the RW612). Wait for an address, then run the loop above with `PRINTF` and `vTaskDelay(pdMS_TO_TICKS(10000))`:
+3. Start with 1,024 words of task stack and measure usage in your application. Wait for an IP address, then call the helper every 10 seconds:
 
    ```c
    static void warblet_task(void *arg)
@@ -150,13 +130,33 @@ The C file has run on an NXP RW612 with the MCUXpresso SDK's lwIP 2.2 and FreeRT
    ```
 
    Start it before `vTaskStartScheduler()`: `xTaskCreate(warblet_task, "warblet", 1024, NULL, tskIDLE_PRIORITY + 1, NULL);`
-4. Once the connection manager has been told to disconnect, it stays off the network until something calls `wlan_connect()` again. The file keeps trying Warblet every 10 seconds; joining Wi-Fi again is your firmware's job.
+4. Have your application call `wlan_connect()` when a reconnect is needed. The Warblet helper retries requests; it does not manage Wi-Fi.
 
 ### Your own lines
 
 The file also has `warblet_post()`, `warblet_get_command()` and `warblet_post_udp()`, so you can send your own lines. Its buffers are static, so call it from one task.
 
 A board that can only send UDP can send its line with `warblet_post_udp()`, but nothing comes back over UDP, so it cannot say back what you type.
+
+## Data and commands
+
+| Field | Value |
+|---|---|
+| **Transport** | plain HTTP to `http.warbletiot.com`, port 80 |
+| **Security cap** | Open (L0): no token, no signature |
+| **Announce** | `CHIRP! v=1 hw=<id> radios=wifi t=demo-open-starter` |
+
+Each cycle collects one command, then sends a reading. The optional UDP helper sends data without receiving commands:
+
+```text
+POST http://http.warbletiot.com/ingest/<id>/down  -> 200 and a command as the body, or 204 for none
+POST http://http.warbletiot.com/ingest/<id>       body "<count> <heard>"  -> 202
+UDP  udp.warbletiot.com:7701                      "CHIRP1 <id> - <count> <heard>"  (nothing comes back)
+```
+
+Use `POST`, with an empty body, to collect a command; unauthenticated `GET` is refused. The examples use HTTP/1.0 with `Host` and `Content-Length` headers and read the reply until the connection closes. In the UDP format, `-` occupies the credential field.
+
+Choose a unique device ID using letters, digits or `- _ . :`, up to 128 characters. Replace `<your-board-id>` everywhere; angle brackets are not valid. Two boards with the same ID share one identity and compete for commands.
 
 ## The decoder
 
@@ -166,12 +166,12 @@ Setting the board up from the setup page, or claiming it with **Open starter** t
 
 Open is for learning and quick experiments. When the board starts to matter:
 
-1. **A token.** On the device page, open the **Security** setting, then **Keys and recovery**, and press **Rotate token**. The new token is shown once. Put it in the firmware as one more header line in the request each source builds in its `http()` helper: right after `Host: %s\r\n`, add `X-Chirp-Token: <token>\r\n`, so both requests carry it. Then raise the level. In the same Security setting, the line "This is the level for every device of …" names the board's spec as a link: open it, and under **Authentication target** set **Device authentication** to Token. Until a line arrives with the token, the Security setting shows **Send a valid token**. The first line that carries it moves the device to Token, and from then on a request without the token is refused. Other boards on the same spec keep reporting at Open until each one sends its own token.
+1. **Add a token.** On the device page, use **Security → Keys and recovery → Rotate token** and save the token shown once. Modify the source’s `http()` helper to include `X-Chirp-Token: <token>\r\n` in both requests. Then open the linked spec and set **Device authentication** to **Token** under **Authentication target**. The device moves to Token after a valid authenticated reading; other devices using that spec upgrade when their own valid readings arrive.
 
-   A board that cannot set a header can put `?token=<token>` at the end of both addresses instead. That costs more: an address is written into logs on its way, so the token sits in them, and over plain HTTP anyone on the network path reads it there, as they would read the header. With the token in the address, asking for a command must be a `POST`, which this demo already does.
-2. **HTTPS.** A board that can do TLS can send the same two requests to `https.warbletiot.com` on port 443. Then nobody on the network can read them.
+   Prefer a header over a token in the URL, which can be retained in request logs. Plain HTTP exposes either form to anyone on the network path.
+2. **Add HTTPS.** Use a TLS-capable client to connect to `https.warbletiot.com:443`, verifying both the certificate and hostname. These examples use plain sockets; changing only the hostname or port does not enable TLS. The [generic ESP32 demo](../esp32-generic/README.md) provides an HTTPS example.
 
-Signed messages and the other transports are in the other demos and at warbletiot.com/docs.
+See the other demos and [Warblet docs](https://warbletiot.com/docs) for signed messages and other transports.
 
 ## Limits
 
@@ -181,8 +181,8 @@ Signed messages and the other transports are in the other demos and at warbletio
 - Lines sent before the board is claimed are seen, not stored. The count keeps going, so the first stored line can be `4 hello`.
 - When the board restarts, the count starts again at 1 and what it heard goes back to `hello`.
 - The board never sends a line twice. Between restarts, a gap in the counts is a line that never arrived.
-- The Message box sends up to 256 characters. A command sent through the API can be longer, or not text at all, and one a routine sends can be empty: the board then says back nothing after the count. The Arduino sketch and the C file keep its first 1,024 bytes, up to any zero byte, and say them back as they are; a character the cut splits shows as � marks on the device page. The MicroPython files keep about the first 1,900 bytes, less up to 3 more so that it ends on a whole character; a command that is still not UTF-8 text leaves what the board heard unchanged.
-- A Ctrl-C byte (0x03) on the USB console stops the MicroPython program, on purpose. Press RESET to start it again.
+- Keep commands short and use UTF-8 text. The Message box allows 256 characters. Larger API commands can be truncated: Arduino and C keep at most 1,024 bytes, stopping at a zero byte; MicroPython keeps roughly 1,900 bytes and ignores invalid UTF-8.
+- Ctrl-C stops the MicroPython program; press RESET to start it again.
 
 ## Make it real
 
@@ -192,9 +192,9 @@ To drive a relay, a display or a buzzer, act where a command arrives: under `if 
 
 ## Security notes
 
-`open_cfg.json` holds your Wi-Fi passwords as plain text in the board's flash, and the Arduino sketch holds them in the program. Anyone who can reach the USB port can read them, replace them with a `CHIRP+` push, or reflash the board: physical access is full access. Do not commit a copy of `open_cfg.json` or your filled-in constants; the repository's `.gitignore` excludes `open_cfg.json`.
+`open_cfg.json` stores Wi-Fi passwords unencrypted; the Arduino sketch embeds them in firmware. Physical access can expose or replace them. Keep configs and filled-in constants out of Git. Open authentication also lets anyone who knows the device ID submit readings and collect commands.
 
-## What the board prints
+## Troubleshooting
 
 Each line ends with Warblet's answer:
 
@@ -205,7 +205,7 @@ Each line ends with Warblet's answer:
 | `-> 202` (Arduino, C) | Warblet has it: stored once the board is claimed, seen before that. |
 | `-> 400` | The id has a character it cannot have. |
 | `-> 401` | The device is at Token, and this line carried no token or an old one. Put the device's token in the firmware (see Step up), or take the device back to Open: set its spec's **Device authentication** to Open, then press **Lower to Open** in the device's Security setting. |
-| `-> 429` | Too fast, or today's storage is used up. Open allows about one line every 5 seconds. Before a board is claimed, it also shares its network's allowance of new ids: about 24, then about one more every 2.5 minutes. Past that, a board whose id is new gets 429 and is not recorded, so Find device cannot find it yet; it keeps trying and gets in by itself when its turn comes. A claimed board is not counted. |
-| `-> 502` | Warblet's plain-HTTP door could not reach the rest of Warblet. The next line tries again. |
-| `-> -1` or `open: will try again` | No Wi-Fi, no name lookup, or no answer in time. Each read waits up to 15 seconds; on lwIP (ESP-IDF and NXP's MCUXpresso SDK) a connection nobody answers gives up after about 20 seconds. The board tries again 10 seconds later. |
-| `open: not set up yet` | The board has no Wi-Fi or id yet. Connect it at warbletiot.com/flash. |
+| `-> 429` | Slow down or check account storage limits. Newly seen IDs can also be rate-limited; wait and retry before using Find device. |
+| `-> 502` | Temporary service error; the next reading retries. |
+| `-> -1` or `open: will try again` | Check Wi-Fi, DNS and internet access. The board retries automatically. |
+| `open: not set up yet` | Send Wi-Fi settings and a unique ID. |
