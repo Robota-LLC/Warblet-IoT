@@ -1,4 +1,4 @@
-# Open starter: say hello and get the echo
+# Open starter: loopback
 
 ## What happens
 
