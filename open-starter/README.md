@@ -1,4 +1,4 @@
-# Open starter: say hello, and say back what you type
+# Open starter: say hello and get the echo
 
 ## What happens
 

@@ -24,7 +24,7 @@ Check your board’s pinout before running the app. `LED_PIN = 2` is a default, 
 
 `INTERVAL_S` in `main.py` sets the reporting interval, and `COMMAND_POLL_S` how often the board asks for a command. `read_temperature_c()` tries the Celsius API, then converts the ESP32 Fahrenheit API to Celsius. Die temperature measures the chip, not the room.
 
-## Build
+## Build by hand
 
 The app runs as MicroPython source. Install the computer tools:
 

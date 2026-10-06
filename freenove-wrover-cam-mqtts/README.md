@@ -34,7 +34,7 @@ GPIO4 carries camera data; it is not a flash LED. The app requires PSRAM. It use
 
 `SENSOR_JPEG_QUALITY` and `SOFTWARE_JPEG_QUALITY` control compression. Frame size is set to `FRAMESIZE_QVGA` in `camera_init()`. Capture checks frame age and tries up to three times; it can return an older frame after that limit. Keep the transmitted message within 256 KiB.
 
-## Build
+## Build by hand
 
 Open an ESP-IDF v5.5 terminal, then change to this demo’s directory.
 

@@ -16,7 +16,7 @@ No external sensor is needed. `LED_OK = 2` and `LED_ERR = 1` select the green an
 
 `open_sensor()` uses `pyb.ADCAll(12, 0x70000)` for the internal channels. Keep the channel mask: omitting it also configures external ADC pins and can interfere with other hardware.
 
-## Build
+## Build by hand
 
 The app runs as MicroPython source. Install the computer tools:
 

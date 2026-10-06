@@ -35,7 +35,7 @@ The button uses an internal pull-up and 40 ms debounce. Hold it for a moment: a 
 
 This demo does not read battery voltage or charge status. Use an external sensor if your project needs them.
 
-## Build
+## Build by hand
 
 The app runs as MicroPython source. Install the computer tools:
 

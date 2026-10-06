@@ -22,7 +22,7 @@ To customize the firmware first, use the build and flash steps below.
 
 The onboard LED is GPIO15, active low; BOOT is GPIO9 with an internal pull-up. Set pins and `INTERVAL_S` in `main.py`. The button is checked every 20 ms with 40 ms debounce; commands are checked every 200 ms, with additional delay during network work. Holding BOOT during reset enters the bootloader.
 
-## Build
+## Build by hand
 
 The app runs as MicroPython source. Install the computer tools:
 

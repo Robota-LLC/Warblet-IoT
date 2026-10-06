@@ -18,7 +18,7 @@ The console is USART1 through ST-LINK: PB12 TX and PA8 RX, AF7, at 115200 baud. 
 
 `CHIRP_REPORT_INTERVAL_MS`, `CHIRP_REPORT_DEFAULT_HOST`, and `CHIRP_REPORT_UDP_PORT` are in `chirp/src/chirp_report.c`. The serial adapter in `chirp/src/board_serial.c` uses DMA to receive full command lines while the radio is active.
 
-## Build
+## Build by hand
 
 Run `make fetch` to download the pinned STM32CubeWBA 1.10.0 dependencies, then build. You need Git 2.25 or newer, a POSIX shell (such as Git Bash on Windows), GNU Make and the Arm compiler. Keep the checkout path short on Windows.
 

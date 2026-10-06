@@ -18,7 +18,7 @@ Every 30 seconds the board prints an HTTP request to its serial port. A Python r
 
 `SEND_PERIOD_MS` and `DEFAULT_HOST` are at the top of `src/chirp_send.c`. No sensor wiring is needed for the simulated reading.
 
-## Build
+## Build by hand
 
 Run from this directory with GNU Make and the Arm compiler on your PATH:
 

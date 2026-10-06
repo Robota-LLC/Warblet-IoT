@@ -53,7 +53,7 @@ The demo detects OV2640 and OV3660 sensors at startup. For OV3660, `camera_init(
 
 `camera_capture()` discards frames older than `FRAME_STALE_MS` (2000 ms), with up to three capture attempts. Repeated frame-age warnings are covered in Troubleshooting.
 
-## Build
+## Build by hand
 
 Open an ESP-IDF v5.5 terminal, then change to this demo's directory.
 

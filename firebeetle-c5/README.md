@@ -23,7 +23,7 @@ The user LED is GPIO15, labelled D13, and is set in `main/chirp_led.c`. The LED 
 
 The temperature comes from the chip, so no sensor wiring is needed. It measures the chip rather than the room. `REPORT_PERIOD_MS` in `main/chirp_send.c` sets the interval.
 
-## Build
+## Build by hand
 
 Open an ESP-IDF v5.5 terminal, then change to this demo’s directory.
 
