@@ -4,6 +4,8 @@
 
 The camera keeps an MQTT-over-TLS connection to Warblet. A `snap` command asks it to capture and send a JPEG tagged `snap`. It also sends a 320 × 240 picture every 300 seconds, tagged `heartbeat`.
 
+Camera failures leave Wi-Fi, MQTT and USB setup running. A separate `health` report states whether the camera is initializing, ready, unavailable or stalled. Failed cameras send health every 300 seconds, after connecting, and when camera state or a requested capture changes. A successful image carries camera readiness and stays the latest message; the firmware does not overwrite it with a healthy status report.
+
 ## What you need
 
 - A Freenove ESP32-WROVER CAM with 4 MB flash and 8 MB PSRAM.
@@ -87,9 +89,18 @@ The board connects to `mqtt.warbletiot.com:8883` using TLS and the ESP-IDF certi
 |---|---|---|
 | Scheduled image | `chirp/{hwid}/up/heartbeat` | JPEG frame |
 | Requested image | `chirp/{hwid}/up/snap` | JPEG frame |
+| Camera health | `chirp/{hwid}/up/health` | JSON status, error, attempts, uptime and snap result |
 | Command | `chirp/{hwid}/down` | `snap` |
 
 With a signing key, the published bytes are a 32-byte raw HMAC-SHA256 followed by the JPEG. The signed input is `"\ntag=<tag>\n" + JPEG`: an empty nonce line, because MQTT carries no nonce, then the tag line. Both lines are included in the signature calculation, not inserted into the frame. The platform verifies and removes the signature before storing the JPEG.
+
+Health JSON uses the same envelope and signs the `health` tag. For example:
+
+```json
+{"warbletCameraHealth":1,"camera":"unavailable","error":-1,"attempts":3,"uptime_s":125,"snap":"failed"}
+```
+
+`snap` is `none` until a requested capture fails, and clears after any successful image publish. A received JPEG likewise clears that earlier failure. `ready` means the camera initialized or captured a frame; it does not confirm broker delivery. Each health report is under 192 bytes. A healthy board sends 288 scheduled images per day; a failed camera sends 288 health reports instead, plus health after transitions, connections and requested captures. Regular fault health uses under 56 KiB per day and 288 messages from the account's default 500,000-message daily budget.
 
 These messages have no nonce and no replay protection. They use QoS 0, which has no delivery acknowledgement. Confirm receipt on the device page. The 256 KiB message limit includes the 32 signature bytes when present.
 
@@ -97,13 +108,19 @@ Set a dashboard button’s text to `snap`. The command handler logs and ignores 
 
 ## Decoder
 
-The JPEG can be displayed without a decoder. The optional [decoder.star](decoder.star) returns `bytes`, the stored frame size, alongside the picture. Raw images are available through `/v1/devices/{id}/raw/latest`.
+The JPEG can be displayed without a decoder. [decoder.star](decoder.star) returns `bytes` alongside a picture and marks the camera ready. It decodes tagged health messages into their status fields. The report time is the platform's stored message timestamp. An existing installed spec keeps its decoder until you update it; its old size-only decoder still accepts health messages as `bytes`.
+
+The latest raw message can be health JSON. To request the latest picture through the API, filter messages by `heartbeat` or `snap`, then use that message's raw endpoint.
 
 ## Make it real
 
 Replace `camera_init()`, `camera_capture()`, and `camera_release()` in `main/camera.c` with your sensor’s setup, read, and cleanup functions.
 
-Keep the interface in `main/camera.h`: capture returns a byte pointer and length, valid until release. `send_camera_frame()` publishes the data before releasing it. For non-image data, replace the JPEG check and update `decoder.star`. Set the interval with `REPORT_PERIOD_MS` in `main/chirp_mqtt.c`.
+Keep the interface in `main/camera.h`: capture returns a byte pointer and length, valid until release. `report_camera()` publishes completed captures before releasing them. For non-image data, replace the JPEG check and update `decoder.star`. Set the image interval with `REPORT_PERIOD_MS` in `main/chirp_mqtt.c` and the health interval in `report_camera()`.
+
+The camera worker allows three initialization attempts per boot, at least 60 seconds apart after a returned failure. A returned capture failure releases the driver and uses the remaining initialization budget. A camera operation that exceeds 20 seconds is quarantined: the firmware reports `stalled`, keeps networking running and makes no overlapping driver calls until restart. PWDN and RESET are unconnected, so firmware cannot power-cycle the camera module.
+
+The camera owns this demo's GPIO interrupt service and removes it before driver initialization, including software-JPEG fallback. If you add other GPIO interrupt users, give that service a shared owner before reusing this cleanup.
 
 ## Security notes
 
@@ -117,7 +134,8 @@ NVS stores Wi-Fi passwords, the device token and signing key unencrypted. USB ac
 |---|---|
 | No networks stored | Send Wi-Fi settings and a device credential. |
 | JPEG format unsupported at startup | The driver tries RGB565 and software JPEG; check whether the next camera initialization succeeds. |
-| Camera probe or capture fails | Power off, check the ribbon seating, then restart. Check PSRAM settings too. |
+| Camera probe or capture fails | Check the reported camera status. After three failed setup attempts, power off, check ribbon seating and power, then restart. Check PSRAM settings too. |
+| Camera stalled | Networking continues, but the timed-out driver is isolated until restart. Power off and check the camera connection before restarting. |
 | Picture is mirrored | Check `CAM_HMIRROR` for software-encoded frames. |
 | Frame-age message | Capture is discarding an old queued frame. Repeated stale results can mean the sensor is delivering slowly. |
 | Message over the byte cap | Reduce frame dimensions or JPEG size. |

@@ -22,6 +22,7 @@ extern "C" {
 /* Requested frames use the command name as a tag; scheduled frames use heartbeat. */
 #define CHIRP_TAG_SNAP      CHIRP_CMD_SNAP
 #define CHIRP_TAG_HEARTBEAT "heartbeat"
+#define CHIRP_TAG_HEALTH    "health"
 
 /* A failed capture is not a failed session; neither stops the other. */
 typedef enum {
@@ -35,8 +36,9 @@ typedef enum {
 chirp_send_result_t chirp_mqtt_send_bytes(const uint8_t *bytes, size_t length,
                                           const char *tag);
 
-/* Called every 300 s and once per command. Call chirp_mqtt_send_bytes() with
- * the same `tag` and return its result. */
+/* Called with health every second for maintenance (the application limits
+ * telemetry), with heartbeat every 300 s, and with snap for each command.
+ * NULL requests immediate health after a new connection. */
 typedef chirp_send_result_t (*chirp_report_fn)(const char *tag);
 
 /* Return a constant tag pointer to request a report, or NULL to skip it.

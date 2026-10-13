@@ -178,7 +178,7 @@ chirp_send_result_t chirp_mqtt_send_bytes(const uint8_t *bytes, size_t length,
     if (bytes == NULL || length == 0 || tag == NULL) {
         return CHIRP_SKIPPED;
     }
-    if (length > FRAME_MAX_BYTES) {
+    if (length > FRAME_MAX_BYTES - (s_config.has_key ? CHIRP_SIG_SIZE : 0)) {
         ESP_LOGW(TAG, "message is %u bytes, over the %d byte cap -- dropped",
                  (unsigned)length, FRAME_MAX_BYTES);
         return CHIRP_SKIPPED;
@@ -192,7 +192,9 @@ chirp_send_result_t chirp_mqtt_send_bytes(const uint8_t *bytes, size_t length,
     uint8_t       *envelope = NULL;
 
     if (s_config.has_key) {
-        envelope = heap_caps_malloc(CHIRP_SIG_SIZE + length, MALLOC_CAP_SPIRAM);
+        envelope = heap_caps_malloc(CHIRP_SIG_SIZE + length,
+                                    length < 1024 ? MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT
+                                                  : MALLOC_CAP_SPIRAM);
         if (envelope == NULL) {
             ESP_LOGW(TAG, "no room for a %u byte envelope -- message dropped",
                      (unsigned)(CHIRP_SIG_SIZE + length));
@@ -247,6 +249,8 @@ static void send_task(void *arg)
     uint32_t    backoff = BACKOFF_MIN_MS;
     bool        started = false;
     const char *tag     = CHIRP_TAG_HEARTBEAT;
+    int64_t next_image = 0;
+    bool force_health = true;
 
     for (;;) {
         if (!wifi_ladder_wait_connected(portMAX_DELAY)) {
@@ -284,6 +288,8 @@ static void send_task(void *arg)
             backoff = BACKOFF_MIN_MS;
             /* Tag the first report after connection as heartbeat. */
             tag     = CHIRP_TAG_HEARTBEAT;
+            next_image = 0;
+            force_health = true;
             ESP_LOGI(TAG, "mqtts session up in %" PRId64 " ms -- internal heap "
                           "%u -> %u, psram %u -> %u",
                      now_ms() - t0, (unsigned)dram0,
@@ -292,9 +298,16 @@ static void send_task(void *arg)
                      (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
         }
 
-        /* A failed capture costs a log line; a failed publish drops the
-         * session and BIT_LOST reconnects. */
-        if (s_report(tag) == CHIRP_CONNECTION_FAILED) {
+        /* Health maintenance never waits for the camera worker. Images keep
+         * their own cadence; a failed publish reconnects independently. */
+        chirp_send_result_t result = s_report(force_health ? NULL : CHIRP_TAG_HEALTH);
+        force_health = false;
+        if (result != CHIRP_CONNECTION_FAILED &&
+            (strcmp(tag, CHIRP_TAG_SNAP) == 0 || now_ms() >= next_image)) {
+            result = s_report(tag);
+            if (strcmp(tag, CHIRP_TAG_HEARTBEAT) == 0) next_image = now_ms() + REPORT_PERIOD_MS;
+        }
+        if (result == CHIRP_CONNECTION_FAILED) {
             ESP_LOGW(TAG, "dropping the session");
             xEventGroupClearBits(s_bits, BIT_CONNECTED);
             xEventGroupSetBits(s_bits, BIT_LOST);
@@ -303,7 +316,7 @@ static void send_task(void *arg)
         /* Wait for a command or the next scheduled report. */
         EventBits_t b = xEventGroupWaitBits(s_bits, BIT_SNAP | BIT_LOST, pdTRUE,
                                             pdFALSE,
-                                            pdMS_TO_TICKS(REPORT_PERIOD_MS));
+                                            pdMS_TO_TICKS(1000));
         if (b & BIT_LOST) {
             continue;  /* reconnect at the top rather than sleep out the gap */
         }

@@ -7,6 +7,7 @@ idf_component_register(
         "chirp_mqtt.c"
         "wifi_ladder.c"
         "camera.c"
+        "camera_health.c"
     INCLUDE_DIRS "."
     PRIV_REQUIRES
         nvs_flash

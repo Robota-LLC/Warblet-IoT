@@ -21,6 +21,9 @@ esp_err_t camera_capture(const uint8_t **out, size_t *out_len);
 /* Returns the frame buffer to the driver. Safe to call with nothing held. */
 void camera_release(void);
 
+/* After a returned capture failure, release the driver before retrying setup. */
+void camera_deinit(void);
+
 #ifdef __cplusplus
 }
 #endif
