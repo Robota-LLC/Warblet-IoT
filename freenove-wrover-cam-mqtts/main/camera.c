@@ -7,7 +7,6 @@
 #include "esp_camera.h"
 #include "esp_log.h"
 #include "esp_timer.h"
-#include "driver/gpio.h"
 
 static const char *TAG = "camera";
 
@@ -50,11 +49,6 @@ static bool         s_soft_jpeg;  /* this sensor has no JPEG encoder */
 esp_err_t camera_init(void)
 {
     s_soft_jpeg = false;
-    /* This demo's GPIO ISR service belongs only to the camera. On retry,
-     * ll_cam_set_pin enables VSYNC before replacing/disabling its handler.
-     * Remove the previous service first so an already-outputting failed sensor
-     * cannot flood that service during the reconfiguration window. */
-    gpio_uninstall_isr_service();
     camera_config_t cfg = {
         .pin_pwdn     = CAM_PIN_PWDN,
         .pin_reset    = CAM_PIN_RESET,
@@ -93,7 +87,6 @@ esp_err_t camera_init(void)
         ESP_LOGW(TAG, "this sensor has no JPEG encoder — capturing RGB565 and "
                       "encoding in software instead");
         cfg.pixel_format = PIXFORMAT_RGB565;
-        gpio_uninstall_isr_service();
         err = esp_camera_init(&cfg);
         s_soft_jpeg = (err == ESP_OK);
     }

@@ -90,7 +90,7 @@ static chirp_send_result_t report_camera(const char *tag)
         camera_state_t previous_state = s_health.state;
         int previous_error = s_health.error;
         camera_health_timeout(&s_health, ESP_ERR_TIMEOUT, done.completed_ms);
-        bool completed = camera_health_complete(&s_health, done.error, now);
+        bool completed = camera_health_complete(&s_health, done.error);
         if (s_health.state != previous_state || s_health.error != previous_error ||
             (done.job.operation == CAMERA_FRAME && strcmp(done.job.tag, CHIRP_TAG_SNAP) == 0))
             s_health_dirty = true;

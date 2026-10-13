@@ -8,7 +8,7 @@ void camera_health_reset(camera_health_t *h)
 bool camera_health_begin_init(camera_health_t *h, int64_t now)
 {
     if (h->operation != CAMERA_IDLE || h->state == CAMERA_READY ||
-        h->state == CAMERA_STALLED || h->attempts >= CAMERA_MAX_ATTEMPTS || now < h->retry_ms) {
+        h->state == CAMERA_STALLED || h->attempts >= CAMERA_MAX_ATTEMPTS) {
         return false;
     }
     h->attempts++;
@@ -26,14 +26,13 @@ bool camera_health_begin_frame(camera_health_t *h, int64_t now)
     return true;
 }
 
-bool camera_health_complete(camera_health_t *h, int error, int64_t now)
+bool camera_health_complete(camera_health_t *h, int error)
 {
     /* Never reuse a timed-out driver, even if a late completion arrives. */
     if (h->state == CAMERA_STALLED || h->operation == CAMERA_IDLE) return false;
     h->operation = CAMERA_IDLE;
     h->error = error;
     h->state = error == 0 ? CAMERA_READY : CAMERA_UNAVAILABLE;
-    h->retry_ms = now + CAMERA_RETRY_MS;
     return true;
 }
 

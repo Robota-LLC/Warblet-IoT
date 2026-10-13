@@ -74,7 +74,7 @@ int main(void) {
     assert(s_health.state == CAMERA_STALLED && !s_jobs->full);
 
     fresh(); report_camera(NULL);
-    for (unsigned attempt = 1; attempt <= 3; attempt++) {
+    for (unsigned attempt = 1; attempt <= CAMERA_MAX_ATTEMPTS; attempt++) {
         camera_job_t job = pop_job(); assert(job.operation == CAMERA_INIT);
         finish(job, ESP_FAIL, NULL, 0); report_camera("health");
         assert(s_health.attempts == attempt && strstr(last_health, "unavailable"));

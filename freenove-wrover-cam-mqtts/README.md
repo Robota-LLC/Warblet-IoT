@@ -97,7 +97,7 @@ With a signing key, the published bytes are a 32-byte raw HMAC-SHA256 followed b
 Health JSON uses the same envelope and signs the `health` tag. For example:
 
 ```json
-{"warbletCameraHealth":1,"camera":"unavailable","error":-1,"attempts":3,"uptime_s":125,"snap":"failed"}
+{"warbletCameraHealth":1,"camera":"unavailable","error":-1,"attempts":1,"uptime_s":125,"snap":"failed"}
 ```
 
 `snap` is `none` until a requested capture fails, and clears after any successful image publish. A received JPEG likewise clears that earlier failure. `ready` means the camera initialized or captured a frame; it does not confirm broker delivery. Each health report is under 192 bytes. A healthy board sends 288 scheduled images per day; a failed camera sends 288 health reports instead, plus health after transitions, connections and requested captures. Regular fault health uses under 56 KiB per day and 288 messages from the account's default 500,000-message daily budget.
@@ -118,9 +118,7 @@ Replace `camera_init()`, `camera_capture()`, and `camera_release()` in `main/cam
 
 Keep the interface in `main/camera.h`: capture returns a byte pointer and length, valid until release. `report_camera()` publishes completed captures before releasing them. For non-image data, replace the JPEG check and update `decoder.star`. Set the image interval with `REPORT_PERIOD_MS` in `main/chirp_mqtt.c` and the health interval in `report_camera()`.
 
-The camera worker allows three initialization attempts per boot, at least 60 seconds apart after a returned failure. A returned capture failure releases the driver and uses the remaining initialization budget. A camera operation that exceeds 20 seconds is quarantined: the firmware reports `stalled`, keeps networking running and makes no overlapping driver calls until restart. PWDN and RESET are unconnected, so firmware cannot power-cycle the camera module.
-
-The camera owns this demo's GPIO interrupt service and removes it before driver initialization, including software-JPEG fallback. If you add other GPIO interrupt users, give that service a shared owner before reusing this cleanup.
+The camera worker makes one initialization attempt per boot, including the software-JPEG fallback when supported. After a returned setup or capture failure, it reports `unavailable` and waits for restart before another setup attempt. Reinitializing an already-failed sensor proved unsafe on the tested board, so the firmware does not retry automatically. A camera operation that exceeds 20 seconds is quarantined: the firmware reports `stalled` and makes no overlapping driver calls until restart. PWDN and RESET are unconnected, so firmware cannot power-cycle the camera module. Power off to inspect or reseat the camera before restarting; a software restart alone does not reset the sensor's power.
 
 ## Security notes
 
@@ -134,7 +132,7 @@ NVS stores Wi-Fi passwords, the device token and signing key unencrypted. USB ac
 |---|---|
 | No networks stored | Send Wi-Fi settings and a device credential. |
 | JPEG format unsupported at startup | The driver tries RGB565 and software JPEG; check whether the next camera initialization succeeds. |
-| Camera probe or capture fails | Check the reported camera status. After three failed setup attempts, power off, check ribbon seating and power, then restart. Check PSRAM settings too. |
+| Camera probe or capture fails | Check the reported camera status. Power off, check ribbon seating and power, then restart. Check PSRAM settings too. |
 | Camera stalled | Networking continues, but the timed-out driver is isolated until restart. Power off and check the camera connection before restarting. |
 | Picture is mirrored | Check `CAM_HMIRROR` for software-encoded frames. |
 | Frame-age message | Capture is discarding an old queued frame. Repeated stale results can mean the sensor is delivering slowly. |
