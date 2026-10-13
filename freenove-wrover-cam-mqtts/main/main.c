@@ -115,6 +115,9 @@ static chirp_send_result_t report_camera(const char *tag)
             request_frame(CHIRP_TAG_HEARTBEAT, now);
         }
     }
+    /* Publishing a completed frame can consume the MQTT socket timeout.
+     * A newly queued operation starts now, not before that blocking send. */
+    now = esp_timer_get_time() / 1000;
     if (camera_health_timeout(&s_health, ESP_ERR_TIMEOUT, now)) {
         s_health_dirty = true;
         if (s_pending_snap) s_health.snap_failed = true;

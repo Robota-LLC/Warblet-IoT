@@ -9,6 +9,7 @@ static unsigned wifi_started, mqtt_started, camera_calls, health_sent, images_se
 static char last_health[192];
 static char sequence[256];
 static unsigned sequence_size;
+static unsigned publish_delay_ms;
 static chirp_send_result_t publish_result = CHIRP_SENT;
 
 QueueHandle_t xQueueCreate(unsigned count, unsigned size) {
@@ -45,6 +46,7 @@ chirp_send_result_t chirp_mqtt_send_bytes(const uint8_t *bytes, size_t length, c
     if (!strcmp(tag, "health")) { assert(length < sizeof(last_health)); memcpy(last_health, bytes, length); last_health[length] = 0; health_sent++; }
     else images_sent++;
     sequence[sequence_size++] = !strcmp(tag, "health") ? 'H' : 'I';
+    clock_ms += publish_delay_ms;
     return publish_result;
 }
 static void fresh(void) {
@@ -53,6 +55,7 @@ static void fresh(void) {
     s_health_dirty = true; s_next_health = 0; clock_ms = 0;
     wifi_started = mqtt_started = health_sent = images_sent = released = 0;
     sequence_size = 0;
+    publish_delay_ms = 0;
     app_main(); assert(mqtt_started == 1 && camera_calls == 0);
 }
 static camera_job_t pop_job(void) { camera_job_t job; assert(xQueueReceive(s_jobs, &job, 0)); return job; }
@@ -120,6 +123,16 @@ int main(void) {
     report_camera("heartbeat"); job = pop_job();
     finish(job, ESP_OK, jpeg, sizeof(jpeg)); report_camera("health");
     assert(!s_health.snap_failed && sequence[sequence_size - 1] == 'I');
+
+    fresh(); report_camera(NULL); job = pop_job();
+    finish(job, ESP_OK, NULL, 0); report_camera("health"); job = pop_job();
+    finish(job, ESP_OK, jpeg, sizeof(jpeg));
+    publish_delay_ms = 15000;
+    report_camera("snap"); /* old capture publish blocks before next request */
+    job = pop_job(); assert(s_health.started_ms == 15000);
+    publish_delay_ms = 0;
+    clock_ms += 12000; finish(job, ESP_OK, jpeg, sizeof(jpeg)); report_camera("health");
+    assert(s_health.state == CAMERA_READY); /* 12s capture, not false 27s timeout */
 
     fail_worker = true; fresh(); report_camera(NULL);
     assert(mqtt_started == 1 && strstr(last_health, "stalled"));
