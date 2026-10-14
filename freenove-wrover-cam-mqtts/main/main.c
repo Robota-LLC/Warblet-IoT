@@ -42,9 +42,9 @@ static bool s_worker_available;
 static bool s_pending_snap;
 static int64_t s_next_health;
 
-/* Only this worker starts a driver operation. Its idle priority leaves higher
- * priority networking tasks able to preempt it. A timed-out operation is
- * quarantined, never forcibly deleted or overlapped. */
+/* Only this worker starts a driver operation. Run above idle so synchronous
+ * I2C completions wake it promptly; networking still has higher priority.
+ * A timed-out operation is quarantined, never deleted or overlapped. */
 static void camera_worker(void *arg)
 {
     camera_job_t job;
@@ -209,7 +209,7 @@ void app_main(void)
     s_done = xQueueCreate(1, sizeof(camera_done_t));
     if (s_jobs == NULL || s_done == NULL ||
         xTaskCreatePinnedToCore(camera_worker, "camera_worker", 6144, NULL,
-                               tskIDLE_PRIORITY, NULL, 1) != pdPASS) {
+                               tskIDLE_PRIORITY + 1, NULL, 1) != pdPASS) {
         s_health.state = CAMERA_STALLED;
         s_health.error = ESP_ERR_NO_MEM;
         ESP_LOGE(TAG, "camera worker unavailable; networking remains active");
