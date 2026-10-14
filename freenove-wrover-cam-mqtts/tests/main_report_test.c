@@ -23,7 +23,7 @@ int xQueueSend(QueueHandle_t q, const void *item, unsigned ticks) {
     assert(q && !q->full); memcpy(q->data, item, q->size); q->full = true; return 1;
 }
 int xTaskCreatePinnedToCore(void (*fn)(void *), const char *name, unsigned stack, void *arg, unsigned priority, void *handle, int core) {
-    assert(wifi_started && priority == tskIDLE_PRIORITY && core == 1); return fail_worker ? 0 : pdPASS;
+    assert(wifi_started && priority == tskIDLE_PRIORITY + 1 && core == 1); return fail_worker ? 0 : pdPASS;
 }
 int64_t esp_timer_get_time(void) { return clock_ms * 1000; }
 int uart_driver_install(int port, int rx, int tx, int count, void *q, int flags) { return ESP_OK; }
