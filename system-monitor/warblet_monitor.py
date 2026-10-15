@@ -301,7 +301,7 @@ def saved():
         return {}, "cannot be read (%s)" % (error.strerror or error)
     except ValueError:                           # not JSON, or not even text
         return {}, "is not what --setup writes"
-    if not isinstance(me, dict) or not re.fullmatch(ID, str(me.get("id"))):
+    if not isinstance(me, dict) or not isinstance(me.get("id"), str) or not re.fullmatch(ID, me["id"]):
         return {}, "is not what --setup writes"
     if not isinstance(me.get("key"), str) or not re.fullmatch(CODE, me["key"]):
         return {"id": me["id"]}, "holds no Warblet code"
