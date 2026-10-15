@@ -256,7 +256,8 @@ def setup():
     """Ask for the code from Warblet and keep it where only you can read it."""
     if not can_ask():
         sys.exit("warblet: no terminal here to paste the code into; run it once by hand in a terminal "
-                 "(on Windows, PowerShell or Command Prompt): " + typed("--setup"))
+                 "(on Windows, PowerShell or Command Prompt): "
+                 + typed("--setup --new-id" if "--new-id" in sys.argv else "--setup"))
     old = None if "--new-id" in sys.argv else saved()   # the id is kept from a good file only
     key = getpass.getpass("Paste the code from Warblet (it stays hidden): ").strip()
     while not re.fullmatch(CODE, key):
