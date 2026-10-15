@@ -13,6 +13,8 @@ def decode(payload, meta):
         if name != "disks" and value != None:
             fields[name] = value
     for disk, numbers in data.get("disks", {}).items():
+        if len(disk) > 60:                       # a long path keeps its end, the part
+            disk = "..." + disk[-57:]            # a person knows, so names stay short
         fields[disk + " used %"] = numbers["used_pct"]
         fields[disk + " free GB"] = numbers["free_gb"]
     return fields

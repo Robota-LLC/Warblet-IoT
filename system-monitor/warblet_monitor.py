@@ -62,8 +62,21 @@ def disks():
     for line in open("/proc/mounts"):            # "/dev/mmcblk0p2 / ext4 rw,noatime 0 0"
         device, path, kind, options = line.split()[:4]
         if kind in LOCAL and "ro" not in options.split(",") and device not in found:
-            found[device] = path.replace("\\040", " ")   # a space is written \040
+            # A space is written \040, a tab \011, a backslash \134: decode them all.
+            found[device] = re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), path)
     return list(found.values())
+
+
+def label(path):
+    """The name a disk is sent under: "C:" for "C:\\", and a path longer than 60
+    bytes cut to "..." and its end, the part a person knows. Its fields' names
+    ("<disk> used %") stay short enough for the dashboard's history."""
+    path = path.rstrip("\\") or path
+    if len(path.encode()) > 60:
+        while len(path.encode()) > 57:
+            path = path[1:]
+        path = "..." + path
+    return path
 
 
 def memory_pct():
@@ -124,7 +137,7 @@ def readings():
             total, used, free = shutil.disk_usage(path)
             if SYSTEM == "Darwin":               # APFS volumes share one container's space:
                 used = total - free              # count what all of them use, not one
-            data["disks"][path.rstrip("\\")] = {  # "C:\" is sent as "C:"
+            data["disks"][label(path)] = {
                 "used_pct": round(100 * used / (used + free), 1),   # the way df counts
                 "free_gb": round(free / 2**30, 1)}
         except Exception as error:               # a locked drive, another user's mount:
