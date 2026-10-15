@@ -107,6 +107,8 @@ def readings():
     try:
         for path in disks()[:8]:                 # 8 disks at most
             total, used, free = shutil.disk_usage(path)
+            if SYSTEM == "Darwin":               # APFS volumes share one container's space:
+                used = total - free              # count what all of them use, not one
             data["disks"][path.rstrip("\\")] = {  # "C:\" is sent as "C:"
                 "used_pct": round(100 * used / (used + free), 1),   # the way df counts
                 "free_gb": round(free / 2**30, 1)}
