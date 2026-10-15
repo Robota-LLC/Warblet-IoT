@@ -222,13 +222,13 @@ def report(me):
     say("report ->", status, reply.decode(errors="replace").strip())
     if b"unclaimed" in reply:
         once("unclaimed", "Warblet does not know this computer: its code was mistyped, used, expired,"
-             " or its spec or device was deleted. It tries again once an hour; get a new code and run:",
-             typed("--setup"))
+             " or its spec or device was deleted. Get a new code and run:", typed("--setup"),
+             "(this copy tries again once an hour, with what that saves)")
         return UNKNOWN_S
     if status == 401:
-        once("401", "Warblet refused the code. If you rotated the token, run --setup and paste it."
-             " If this computer never reached your account, another device has its id: get a new"
-             " code and run:", typed("--setup --new-id"))
+        once("401", "Warblet refused the code. If you rotated the token, run --setup and paste it;"
+             " this copy uses it from its next report. If this computer never reached your account,"
+             " another device has its id: get a new code and run:", typed("--setup --new-id"))
     return REPORT_S
 
 
@@ -303,6 +303,10 @@ def main():
         sys.exit("warblet: cannot use %s; run %s (this computer then gets a new id)" % (KEY_FILE, typed("--setup")))
     say("reporting as", me["id"], "- see it at https://warbletiot.com/app")
     while True:
+        now = saved()                            # --setup, run again by hand, saved another
+        if now and now != me:                    # code: this copy uses it too (a service)
+            me = now
+            say("reporting as", me["id"], "with what --setup saved")
         wait = REPORT_S                          # a failed report waits a minute too
         try:
             wait = report(me)
