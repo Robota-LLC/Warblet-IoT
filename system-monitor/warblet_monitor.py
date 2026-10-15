@@ -142,6 +142,9 @@ def readings():
     data["disks"], containers, left = {}, set(), []
     try:
         paths = disks()
+        if not paths:                            # a Raspberry Pi with its overlay root on
+            once("no disks", "found no disk to report: it sends local disks it can write to, and"
+                 " a read-only or overlay root is not one; the other readings still go")
     except Exception as error:
         paths = []
         once("disks", "cannot list the disks:", error)
