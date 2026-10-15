@@ -11,7 +11,7 @@
 #   python3 warblet_monitor.py --setup            paste a new code or token
 #   python3 warblet_monitor.py --setup --new-id   ... and take a new id as well
 import ctypes, getpass, json, os, platform, re, secrets, shutil  # all part of Python
-import socket, subprocess, sys, time, urllib.error, urllib.request, zlib
+import socket, subprocess, sys, threading, time, urllib.error, urllib.request, zlib
 from pathlib import Path
 
 HOST = "https.warbletiot.com"                     # Warblet's HTTPS door
@@ -73,6 +73,32 @@ def disks():
             # A space is written \040, a tab \011, a backslash \134: decode them all.
             found[device] = re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), path)
     return list(found.values())
+
+
+STUCK = {}                                       # disks that did not answer, by path
+
+
+def usage(path):
+    """shutil.disk_usage, waiting WAIT_S at most. A disk whose driver hangs (a USB
+    disk through NTFS-3G, or another FUSE driver) is left out, not waited for."""
+    if path in STUCK and STUCK[path].is_alive():   # still not answering: not asked again
+        raise TimeoutError("it did not answer in %d s" % WAIT_S)
+    answer = []
+
+    def ask():
+        try:
+            answer.append(shutil.disk_usage(path))
+        except Exception as error:               # said by readings(), as any disk's is
+            answer.append(error)
+    asking = threading.Thread(target=ask, daemon=True)
+    asking.start()
+    asking.join(WAIT_S)
+    if not answer:
+        STUCK[path] = asking
+        raise TimeoutError("it did not answer in %d s" % WAIT_S)
+    if isinstance(answer[0], Exception):
+        raise answer[0]
+    return answer[0]
 
 
 def label(path, clash=0):
@@ -150,7 +176,7 @@ def readings():
         once("disks", "cannot list the disks:", error)
     for path in paths:
         try:
-            total, used, free = shutil.disk_usage(path)
+            total, used, free = usage(path)
             if SYSTEM == "Darwin":               # APFS volumes share one container's space:
                 used = total - free              # count what all of them use, not one
                 if (total, free) in containers:  # and its numbers name the container:
