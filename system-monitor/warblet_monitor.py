@@ -20,6 +20,8 @@ KEY_FILE = Path.home() / ".warblet-monitor.json"  # this computer's id and code
 CODE = r"[A-Za-z0-9_-]{8,200}"                    # a code or a token from Warblet
 ID = r"[A-Za-z0-9:_.-]{1,128}"                    # an id Warblet accepts
 REPORT_S = 60      # a report every minute
+UNKNOWN_S = 3600   # once an hour while Warblet does not know this computer: only
+                   # --setup here mends that, and each try hands Warblet its name and disks
 WAIT_S = 15        # each step of a request waits 15 seconds at most
 SYSTEM = platform.system()                        # "Linux", "Darwin" or "Windows"
 LOCAL = {"ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "vfat", "exfat",
@@ -210,6 +212,7 @@ def call(path, body, headers):
 
 
 def report(me):
+    """Send one report and say Warblet's answer. Returns how long to wait."""
     # The code from Warblet is this computer's token. Sent as a claim as well, it
     # adds the computer to your account the first time; after that it is ignored.
     headers = {"X-Chirp-Token": me["key"], "X-Chirp-Claim": me["key"],
@@ -217,12 +220,15 @@ def report(me):
     status, reply = call(me["id"], json.dumps(readings()).encode(), headers)
     say("report ->", status, reply.decode(errors="replace").strip())
     if b"unclaimed" in reply:
-        once("unclaimed", "Warblet does not know this computer: its code was mistyped, used, over 3 days old,"
-             " or its spec or device was deleted. Get a new code and run:", typed("--setup"))
-    elif status == 401:
+        once("unclaimed", "Warblet does not know this computer: its code was mistyped, used, expired,"
+             " or its spec or device was deleted. It tries again once an hour; get a new code and run:",
+             typed("--setup"))
+        return UNKNOWN_S
+    if status == 401:
         once("401", "Warblet refused the code. If you rotated the token, run --setup and paste it."
              " If this computer never reached your account, another device has its id: get a new"
              " code and run:", typed("--setup --new-id"))
+    return REPORT_S
 
 
 def typed(options=""):
@@ -312,11 +318,12 @@ def main():
             sys.exit("warblet: %s %s; save your code again: %s" % (KEY_FILE, problem, typed("--setup")))
     say("reporting as", me["id"], "- see it at https://warbletiot.com/app")
     while True:
+        wait = REPORT_S                          # a failed report waits a minute too
         try:
-            report(me)
+            wait = report(me)
         except Exception as error:               # no network, no answer: try again
             say("will try again:", error)
-        time.sleep(REPORT_S)                     # a failed report waits a minute too
+        time.sleep(wait)
 
 
 if __name__ == "__main__":
