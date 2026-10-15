@@ -65,7 +65,9 @@ def disks():
                 found.append(path)
         return found
     found = {}
-    for line in open("/proc/mounts"):            # "/dev/mmcblk0p2 / ext4 rw,noatime 0 0"
+    # "/dev/mmcblk0p2 / ext4 rw,noatime 0 0". A path's bytes are kept as they are,
+    # even ones that are not UTF-8 (a stick named on an old system).
+    for line in open("/proc/mounts", encoding="utf-8", errors="surrogateescape"):
         device, path, kind, options = line.split()[:4]
         if kind in LOCAL and "ro" not in options.split(",") and device not in found:
             # A space is written \040, a tab \011, a backslash \134: decode them all.
@@ -80,6 +82,8 @@ def label(path, clash=0):
     long paths end the same, the second also carries four hex digits of its own
     checksum, the same every minute, so neither disk hides the other."""
     path = path.rstrip("\\") or path
+    # A byte that is not UTF-8 is shown as the replacement mark, U+FFFD.
+    path = path.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
     mark = "~%04x" % (zlib.crc32(("%d %s" % (clash, path)).encode()) & 0xFFFF) if clash else ""
     if len(path.encode()) + len(mark) > 60:
         while len(path.encode()) > 57 - len(mark):
@@ -158,7 +162,7 @@ def readings():
                 "used_pct": round(100 * used / (used + free), 1),   # the way df counts
                 "free_gb": round(free / 2**30, 1)}
         except Exception as error:               # a locked drive, another user's mount:
-            once(path, "cannot read disk", path, "-", error)   # the others still go
+            once(path, "cannot read disk", label(path), "-", error)   # the others still go
     return data
 
 
