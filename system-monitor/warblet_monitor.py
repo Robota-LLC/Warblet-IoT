@@ -7,8 +7,9 @@
 # Python 3.8 or newer, nothing to install: Linux (Raspberry Pi OS too), macOS
 # and Windows.
 #
-#   python3 warblet_monitor.py           the first time, it asks for your code
-#   python3 warblet_monitor.py --setup   paste a new code or token
+#   python3 warblet_monitor.py                    the first time, it asks for your code
+#   python3 warblet_monitor.py --setup            paste a new code or token
+#   python3 warblet_monitor.py --setup --new-id   ... and take a new id as well
 import ctypes, getpass, json, os, platform, re, secrets, shutil  # all part of Python
 import socket, subprocess, sys, time, urllib.error, urllib.request
 from pathlib import Path
@@ -163,10 +164,12 @@ def report(me):
     status, reply = call(me["id"], json.dumps(readings()).encode(), headers)
     say("report ->", status, reply.decode(errors="replace").strip())
     if b"unclaimed" in reply:
-        say("Warblet does not know this computer: its code was used or is over 3 days "
-            "old. Get a new one and run: python3 warblet_monitor.py --setup")
+        once("unclaimed", "Warblet does not know this computer: its code was mistyped, used, over 3 days old,"
+             " or its spec or device was deleted. Get a new code and run: python3 warblet_monitor.py --setup")
     elif status == 401:
-        say("Warblet refused the code. If you rotated the token, run --setup and paste it.")
+        once("401", "Warblet refused the code. If you rotated the token, run --setup and paste it."
+             " If this computer never reached your account, another device has its id: get a new"
+             " code and run: python3 warblet_monitor.py --setup --new-id")
 
 
 def setup():
@@ -174,12 +177,14 @@ def setup():
     if not sys.stdin.isatty():
         sys.exit("warblet: not set up yet; run it once by hand: python3 warblet_monitor.py")
     old = json.loads(KEY_FILE.read_text()) if KEY_FILE.exists() else {}
-    key = ""
-    while not key:
+    key = getpass.getpass("Paste the code from Warblet (it stays hidden): ").strip()
+    while not re.fullmatch(r"[A-Za-z0-9_-]{8,200}", key):   # a code or a token
+        print("That is not a Warblet code: it looks like CHIRP-8FKQ2WMR, letters, digits, - and _.")
         key = getpass.getpass("Paste the code from Warblet (it stays hidden): ").strip()
+    # The id: this computer's name and 64 random bits, since many Pis share a name.
     name = re.sub(r"[^a-z0-9]+", "-", socket.gethostname().lower()).strip("-")[:40]
-    me = {"id": old.get("id") or "%s-%s" % (name or "computer", secrets.token_hex(3)),
-          "key": key}
+    keep = None if "--new-id" in sys.argv else old.get("id")
+    me = {"id": keep or "%s-%s" % (name or "computer", secrets.token_hex(8)), "key": key}
     with open(os.open(KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
         json.dump(me, f)
     os.chmod(KEY_FILE, 0o600)                    # also when the file was already there
