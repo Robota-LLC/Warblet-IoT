@@ -191,10 +191,32 @@ def typed(options=""):
     return (("python" if SYSTEM == "Windows" else "python3") + " warblet_monitor.py " + options).strip()
 
 
+def can_ask():
+    """Can a person paste the code here? Not in a service, a scheduled task, cron,
+    pythonw or Git Bash: there is no terminal to type into."""
+    if sys.stdin is None or not sys.stdin.isatty():
+        return False
+    if SYSTEM != "Windows":
+        return True
+    import msvcrt                                # Windows calls NUL a terminal too:
+    try:                                         # ask for the console behind the input
+        handle = msvcrt.get_osfhandle(sys.stdin.fileno())
+    except (OSError, ValueError):
+        return False
+    return bool(ctypes.windll.kernel32.GetConsoleMode(ctypes.c_void_p(handle), ctypes.byref(ctypes.c_ulong())))
+
+
 def setup():
     """Ask for the code from Warblet and keep it where only you can read it."""
-    if not sys.stdin.isatty():
-        sys.exit("warblet: not set up yet; run it once by hand: " + typed())
+    if not can_ask():
+        again = typed(" ".join(o for o in ("--setup", "--new-id") if o in sys.argv))
+        if SYSTEM == "Windows":
+            where = "console", "PowerShell or Command Prompt: %s (in Git Bash: winpty %s)" % (again, again)
+        else:
+            where = "terminal", "a terminal: " + again
+        lead = "cannot run --setup" if "--setup" in sys.argv else "not set up yet"
+        sys.exit("warblet: %s: there is no %s here to paste the code into; run it by hand in %s"
+                 % ((lead,) + where))
     old = json.loads(KEY_FILE.read_text()) if KEY_FILE.exists() else {}
     key = getpass.getpass("Paste the code from Warblet (it stays hidden): ").strip()
     while not re.fullmatch(r"[A-Za-z0-9_-]{8,200}", key):   # a code or a token
