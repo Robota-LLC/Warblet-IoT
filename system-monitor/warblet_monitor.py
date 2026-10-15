@@ -11,7 +11,7 @@
 #   python3 warblet_monitor.py --setup            paste a new code or token
 #   python3 warblet_monitor.py --setup --new-id   ... and take a new id as well
 import ctypes, getpass, json, os, platform, re, secrets, shutil  # all part of Python
-import socket, subprocess, sys, time, urllib.error, urllib.request
+import socket, subprocess, sys, time, urllib.error, urllib.request, zlib
 from pathlib import Path
 
 HOST = "https.warbletiot.com"                     # Warblet's HTTPS door
@@ -68,16 +68,19 @@ def disks():
     return list(found.values())
 
 
-def label(path):
+def label(path, clash=0):
     """The name a disk is sent under: "C:" for "C:\\", and a path longer than 60
     bytes cut to "..." and its end, the part a person knows. Its fields' names
-    ("<disk> used %") stay short enough for the dashboard's history."""
+    ("<disk> used %") stay short enough for the dashboard's history. When two
+    long paths end the same, the second also carries four hex digits of its own
+    checksum, the same every minute, so neither disk hides the other."""
     path = path.rstrip("\\") or path
-    if len(path.encode()) > 60:
-        while len(path.encode()) > 57:
+    mark = "~%04x" % (zlib.crc32(("%d %s" % (clash, path)).encode()) & 0xFFFF) if clash else ""
+    if len(path.encode()) + len(mark) > 60:
+        while len(path.encode()) > 57 - len(mark):
             path = path[1:]
         path = "..." + path
-    return path
+    return path + mark
 
 
 def memory_pct():
@@ -138,7 +141,11 @@ def readings():
             total, used, free = shutil.disk_usage(path)
             if SYSTEM == "Darwin":               # APFS volumes share one container's space:
                 used = total - free              # count what all of them use, not one
-            data["disks"][label(path)] = {
+            name, clash = label(path), 0
+            while name in data["disks"]:         # two long paths that end the same
+                clash += 1
+                name = label(path, clash)
+            data["disks"][name] = {
                 "used_pct": round(100 * used / (used + free), 1),   # the way df counts
                 "free_gb": round(free / 2**30, 1)}
         except Exception as error:               # a locked drive, another user's mount:
