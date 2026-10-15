@@ -139,13 +139,12 @@ def readings():
             data[name] = round(read(), 1)
         except Exception:                        # not on this computer: leave it out
             pass
-    data["disks"] = {}
+    data["disks"], containers, left = {}, set(), []
     try:
-        paths = disks()[:8]                      # 8 disks at most
+        paths = disks()
     except Exception as error:
         paths = []
         once("disks", "cannot list the disks:", error)
-    containers = set()
     for path in paths:
         try:
             total, used, free = shutil.disk_usage(path)
@@ -154,6 +153,9 @@ def readings():
                 if (total, free) in containers:  # and its numbers name the container:
                     continue                     # send each container once
                 containers.add((total, free))
+            if len(data["disks"]) == 8:          # 8 disks at most, once merged
+                left.append(label(path))
+                continue
             name, clash = label(path), 0
             while name in data["disks"]:         # two long paths that end the same
                 clash += 1
@@ -163,6 +165,8 @@ def readings():
                 "free_gb": round(free / 2**30, 1)}
         except Exception as error:               # a locked drive, another user's mount:
             once(path, "cannot read disk", label(path), "-", error)   # the others still go
+    if left:
+        once("left out " + " ".join(left), "8 disks at most, so these are not sent:", ", ".join(left))
     return data
 
 
