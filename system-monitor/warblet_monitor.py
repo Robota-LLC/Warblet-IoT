@@ -96,7 +96,7 @@ def memory_pct():
             info[name] = int(value.split()[0])
         return 100 - 100 * info["MemAvailable"] / info["MemTotal"]
     if SYSTEM == "Darwin":                       # "System-wide memory free percentage: 63%"
-        return 100 - int(re.search(r"percentage: (\d+)", run("memory_pressure")).group(1))
+        return 100 - int(re.search(r"percentage: (\d+)", run("/usr/bin/memory_pressure")).group(1))
 
     class Status(ctypes.Structure):              # Windows' MEMORYSTATUSEX
         _fields_ = [("size", ctypes.c_ulong), ("load", ctypes.c_ulong)] + \
@@ -110,7 +110,7 @@ def uptime_h():
     if SYSTEM == "Linux":
         seconds = float(open("/proc/uptime").read().split()[0])
     elif SYSTEM == "Darwin":                     # "{ sec = 1760400000, usec = 0 } ..."
-        seconds = time.time() - int(re.search(r"sec = (\d+)", run("sysctl -n kern.boottime")).group(1))
+        seconds = time.time() - int(re.search(r"sec = (\d+)", run("/usr/sbin/sysctl -n kern.boottime")).group(1))
     else:
         ctypes.windll.kernel32.GetTickCount64.restype = ctypes.c_ulonglong
         seconds = ctypes.windll.kernel32.GetTickCount64() / 1000
