@@ -72,7 +72,7 @@ You can also send settings with `CHIRP+` at 115200 baud. Eject `PYBFLASH` before
 3. Pick your board and upload. Open the Serial Monitor at 115200 baud to watch each line and Warblet's answer.
 4. Claim the board with Find device and tick **Open starter**.
 
-The sketch uses your board’s Wi-Fi library (`WiFi.begin()`, `WiFi.status()` and `WiFiClient`). Its include block covers ESP8266, ESP32 and the listed Arduino Wi-Fi headers; adapt it for another board. For ESP8266, use Arduino core 3.1.2.
+The sketch uses your board’s Wi-Fi library (`WiFi.begin()`, `WiFi.status()` and `WiFiClient`). Its include block covers ESP8266, ESP32 and the listed Arduino Wi-Fi headers; adapt it for another board. The sketch has run on an ESP8266 board, built with the ESP8266 Arduino core 3.1.2, and on a Seeed XIAO ESP32-S3, built with the ESP32 Arduino core 3.3.12.
 
 ## Set it up in C
 
