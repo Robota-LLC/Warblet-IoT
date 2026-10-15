@@ -17,6 +17,8 @@ from pathlib import Path
 HOST = "https.warbletiot.com"                     # Warblet's HTTPS door
 URL = "https://" + HOST + "/ingest/"
 KEY_FILE = Path.home() / ".warblet-monitor.json"  # this computer's id and code
+CODE = r"[A-Za-z0-9_-]{8,200}"                    # a code or a token from Warblet
+ID = r"[A-Za-z0-9:_.-]{1,128}"                    # an id Warblet accepts
 REPORT_S = 60      # a report every minute
 WAIT_S = 15        # each step of a request waits 15 seconds at most
 SYSTEM = platform.system()                        # "Linux", "Darwin" or "Windows"
@@ -217,21 +219,49 @@ def setup():
         lead = "cannot run --setup" if "--setup" in sys.argv else "not set up yet"
         sys.exit("warblet: %s: there is no %s here to paste the code into; run it by hand in %s"
                  % ((lead,) + where))
-    old = json.loads(KEY_FILE.read_text()) if KEY_FILE.exists() else {}
+    old, problem = saved() if KEY_FILE.exists() else ({}, None)
+    keep = None if "--new-id" in sys.argv else old.get("id")
+    if problem and not keep and "--new-id" not in sys.argv:
+        say(KEY_FILE, problem + ", so this computer gets a new id")
     key = getpass.getpass("Paste the code from Warblet (it stays hidden): ").strip()
-    while not re.fullmatch(r"[A-Za-z0-9_-]{8,200}", key):   # a code or a token
+    while not re.fullmatch(CODE, key):
         print("That is not a Warblet code: it looks like CHIRP-8FKQ2WMR, letters, digits, - and _.")
         key = getpass.getpass("Paste the code from Warblet (it stays hidden): ").strip()
     # The id: this computer's name and 64 random bits, since many Pis share a name.
     name = re.sub(r"[^a-z0-9]+", "-", socket.gethostname().lower()).strip("-")[:40]
-    keep = None if "--new-id" in sys.argv else old.get("id")
     me = {"id": keep or "%s-%s" % (name or "computer", secrets.token_hex(8)), "key": key}
-    fd = os.open(KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)   # a new file: only you
-    os.chmod(KEY_FILE, 0o600)                    # one already there: before anything is written
-    with open(fd, "w") as f:
-        json.dump(me, f)
+    temp = KEY_FILE.with_name(KEY_FILE.name + ".new")
+    try:
+        if temp.exists():                        # left by a save that was cut short
+            temp.unlink()
+        fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)   # only you, from the start
+        with open(fd, "w") as f:
+            json.dump(me, f)
+        os.replace(temp, KEY_FILE)               # all at once: never half a file
+    except OSError as error:                     # a full disk: what was there stays
+        try:
+            temp.unlink()
+        except OSError:
+            pass
+        sys.exit("warblet: cannot save %s (%s); the old one is unchanged" % (KEY_FILE, error.strerror or error))
     say("saved in", KEY_FILE, "- only you (and an administrator) can read it")
     return me
+
+
+def saved():
+    """The id and code --setup saved, checked the way a paste is. Returns them and
+    None, or what is still usable in the file and why it cannot be used."""
+    try:
+        me = json.loads(KEY_FILE.read_text(encoding="utf-8"))
+    except OSError as error:
+        return {}, "cannot be read (%s)" % (error.strerror or error)
+    except ValueError:                           # not JSON, or not even text
+        return {}, "is not what --setup writes"
+    if not isinstance(me, dict) or not re.fullmatch(ID, str(me.get("id"))):
+        return {}, "is not what --setup writes"
+    if not isinstance(me.get("key"), str) or not re.fullmatch(CODE, me["key"]):
+        return {"id": me["id"]}, "holds no Warblet code"
+    return {"id": me["id"], "key": me["key"]}, None
 
 
 def main():
@@ -240,7 +270,9 @@ def main():
     if "--setup" in sys.argv or not KEY_FILE.exists():
         me = setup()
     else:
-        me = json.loads(KEY_FILE.read_text())
+        me, problem = saved()
+        if problem:
+            sys.exit("warblet: %s %s; save your code again: %s" % (KEY_FILE, problem, typed("--setup")))
     say("reporting as", me["id"], "- see it at https://warbletiot.com/app")
     while True:
         try:
