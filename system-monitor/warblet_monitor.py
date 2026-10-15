@@ -25,7 +25,10 @@ LOCAL = {"ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "vfat", "exfat",
 
 
 def say(*words):
-    print(time.strftime("%H:%M:%S"), *words, flush=True)
+    try:
+        print(time.strftime("%H:%M:%S"), *words, flush=True)
+    except (OSError, ValueError):                # its terminal closed, its log's disk full:
+        pass                                     # it keeps reporting, unseen
 
 
 SAID = set()
