@@ -185,9 +185,10 @@ def setup():
     name = re.sub(r"[^a-z0-9]+", "-", socket.gethostname().lower()).strip("-")[:40]
     keep = None if "--new-id" in sys.argv else old.get("id")
     me = {"id": keep or "%s-%s" % (name or "computer", secrets.token_hex(8)), "key": key}
-    with open(os.open(KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+    fd = os.open(KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)   # a new file: only you
+    os.chmod(KEY_FILE, 0o600)                    # one already there: before anything is written
+    with open(fd, "w") as f:
         json.dump(me, f)
-    os.chmod(KEY_FILE, 0o600)                    # also when the file was already there
     say("saved in", KEY_FILE, "- only you (and an administrator) can read it")
     return me
 
