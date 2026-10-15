@@ -255,14 +255,8 @@ def can_ask():
 def setup():
     """Ask for the code from Warblet and keep it where only you can read it."""
     if not can_ask():
-        again = typed(" ".join(o for o in ("--setup", "--new-id") if o in sys.argv))
-        if SYSTEM == "Windows":
-            where = "console", "PowerShell or Command Prompt: %s (in Git Bash: winpty %s)" % (again, again)
-        else:
-            where = "terminal", "a terminal: " + again
-        lead = "cannot run --setup" if "--setup" in sys.argv else "not set up yet"
-        sys.exit("warblet: %s: there is no %s here to paste the code into; run it by hand in %s"
-                 % ((lead,) + where))
+        sys.exit("warblet: no terminal here to paste the code into; run it once by hand in a terminal "
+                 "(on Windows, PowerShell or Command Prompt): " + typed("--setup"))
     old = None if "--new-id" in sys.argv else saved()   # the id is kept from a good file only
     key = getpass.getpass("Paste the code from Warblet (it stays hidden): ").strip()
     while not re.fullmatch(CODE, key):
