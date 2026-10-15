@@ -290,7 +290,7 @@ def saved():
         me = json.loads(KEY_FILE.read_text(encoding="utf-8"))
         if re.fullmatch(ID, me["id"]) and re.fullmatch(CODE, me["key"]):
             return {"id": me["id"], "key": me["key"]}
-    except (OSError, ValueError, TypeError, KeyError):   # unreadable, not JSON, not text
+    except Exception:                            # unreadable, not JSON, not text, too deep
         pass
     return None
 
