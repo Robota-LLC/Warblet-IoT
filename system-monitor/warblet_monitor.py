@@ -263,17 +263,14 @@ def setup():
         lead = "cannot run --setup" if "--setup" in sys.argv else "not set up yet"
         sys.exit("warblet: %s: there is no %s here to paste the code into; run it by hand in %s"
                  % ((lead,) + where))
-    old, problem = saved() if KEY_FILE.exists() else ({}, None)
-    keep = None if "--new-id" in sys.argv else old.get("id")
-    if problem and not keep and "--new-id" not in sys.argv:
-        say(KEY_FILE, problem + ", so this computer gets a new id")
+    old = None if "--new-id" in sys.argv else saved()   # the id is kept from a good file only
     key = getpass.getpass("Paste the code from Warblet (it stays hidden): ").strip()
     while not re.fullmatch(CODE, key):
         print("That is not a Warblet code: it looks like CHIRP-8FKQ2WMR, letters, digits, - and _.")
         key = getpass.getpass("Paste the code from Warblet (it stays hidden): ").strip()
     # The id: this computer's name and 64 random bits, since many Pis share a name.
     name = re.sub(r"[^a-z0-9]+", "-", socket.gethostname().lower()).strip("-")[:40]
-    me = {"id": keep or "%s-%s" % (name or "computer", secrets.token_hex(8)), "key": key}
+    me = {"id": old["id"] if old else "%s-%s" % (name or "computer", secrets.token_hex(8)), "key": key}
     temp = KEY_FILE.with_name(KEY_FILE.name + ".new")
     try:
         if temp.exists():                        # left by a save that was cut short
@@ -293,30 +290,23 @@ def setup():
 
 
 def saved():
-    """The id and code --setup saved, checked the way a paste is. Returns them and
-    None, or what is still usable in the file and why it cannot be used."""
+    """The id and code --setup saved, checked the way a paste is; None if the file
+    cannot be read or is not that."""
     try:
         me = json.loads(KEY_FILE.read_text(encoding="utf-8"))
-    except OSError as error:
-        return {}, "cannot be read (%s)" % (error.strerror or error)
-    except ValueError:                           # not JSON, or not even text
-        return {}, "is not what --setup writes"
-    if not isinstance(me, dict) or not isinstance(me.get("id"), str) or not re.fullmatch(ID, me["id"]):
-        return {}, "is not what --setup writes"
-    if not isinstance(me.get("key"), str) or not re.fullmatch(CODE, me["key"]):
-        return {"id": me["id"]}, "holds no Warblet code"
-    return {"id": me["id"], "key": me["key"]}, None
+        if re.fullmatch(ID, me["id"]) and re.fullmatch(CODE, me["key"]):
+            return {"id": me["id"], "key": me["key"]}
+    except (OSError, ValueError, TypeError, KeyError):   # unreadable, not JSON, not text
+        pass
+    return None
 
 
 def main():
     if "--new-id" in sys.argv and "--setup" not in sys.argv:
         sys.exit("warblet: --new-id goes with --setup: " + typed("--setup --new-id"))
-    if "--setup" in sys.argv or not KEY_FILE.exists():
-        me = setup()
-    else:
-        me, problem = saved()
-        if problem:
-            sys.exit("warblet: %s %s; save your code again: %s" % (KEY_FILE, problem, typed("--setup")))
+    me = setup() if "--setup" in sys.argv or not KEY_FILE.exists() else saved()
+    if not me:
+        sys.exit("warblet: cannot use %s; run %s (this computer then gets a new id)" % (KEY_FILE, typed("--setup")))
     say("reporting as", me["id"], "- see it at https://warbletiot.com/app")
     while True:
         wait = REPORT_S                          # a failed report waits a minute too
