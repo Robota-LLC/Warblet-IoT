@@ -10,7 +10,7 @@ Your computer sends disk usage and system readings to [Warblet](https://warbleti
 - Python 3.8 or newer. The script uses only the standard library; there is nothing to build.
 - Internet access and a Warblet account.
 - `curl` for the download command shown during setup.
-- A terminal for the first run, and an email address for disk alerts.
+- A terminal for the first run, and an alert email address.
 
 ## Set it up
 
@@ -38,7 +38,7 @@ The report includes hostname, operating system, memory use and uptime when avail
 
 Up to eight local disks report used percentage and free space. Windows uses fixed drives; Linux uses supported writable local filesystems; macOS uses `/` and visible, writable local volumes. Network shares are excluded. Free space labelled **GB** uses 1,073,741,824 bytes per unit.
 
-The disk routine emails once per disk at **90% or higher**. It rearms only after usage drops **below 85%**. Change `LIMIT` in the routine to adjust the threshold; rearming remains five percentage points below it.
+The routine is listed as **System monitor: email when a disk is nearly full**. It emails once per disk at **90% or higher** and rearms only after usage drops **below 85%**. Change `LIMIT` in the routine to adjust the threshold; rearming remains five percentage points below it.
 
 For an always-on computer, enable **Tell me if this board goes quiet** on its device page; a sleeping computer also looks quiet.
 
@@ -60,7 +60,7 @@ Paste the replacement token. This preserves the device ID. A copied key file, in
 
 - **`accepted`:** Warblet accepted the report; check the dashboard for readings.
 - **`unclaimed`:** stop the script, prepare a new setup code, then restart with `--setup`.
-- **`401`:** check the saved token; after rotation, replace it with `--setup`.
+- **`401`:** if you rotated the token, run `--setup` and paste the new one. If this computer never reached your account, another device has its ID: get a new setup code and run `python3 warblet_monitor.py --setup --new-id` (on Windows, use `python`).
 - **`will try again`:** check internet access. The script waits a minute before another report attempt.
 - **`not set up yet`:** run once in an interactive terminal before starting it through a scheduler.
 
