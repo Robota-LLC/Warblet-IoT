@@ -136,11 +136,15 @@ def readings():
     except Exception as error:
         paths = []
         once("disks", "cannot list the disks:", error)
+    containers = set()
     for path in paths:
         try:
             total, used, free = shutil.disk_usage(path)
             if SYSTEM == "Darwin":               # APFS volumes share one container's space:
                 used = total - free              # count what all of them use, not one
+                if (total, free) in containers:  # and its numbers name the container:
+                    continue                     # send each container once
+                containers.add((total, free))
             name, clash = label(path), 0
             while name in data["disks"]:         # two long paths that end the same
                 clash += 1
