@@ -176,17 +176,22 @@ def report(me):
     say("report ->", status, reply.decode(errors="replace").strip())
     if b"unclaimed" in reply:
         once("unclaimed", "Warblet does not know this computer: its code was mistyped, used, over 3 days old,"
-             " or its spec or device was deleted. Get a new code and run: python3 warblet_monitor.py --setup")
+             " or its spec or device was deleted. Get a new code and run:", typed("--setup"))
     elif status == 401:
         once("401", "Warblet refused the code. If you rotated the token, run --setup and paste it."
              " If this computer never reached your account, another device has its id: get a new"
-             " code and run: python3 warblet_monitor.py --setup --new-id")
+             " code and run:", typed("--setup --new-id"))
+
+
+def typed(options=""):
+    """The command a person types here: python on Windows, python3 elsewhere."""
+    return (("python" if SYSTEM == "Windows" else "python3") + " warblet_monitor.py " + options).strip()
 
 
 def setup():
     """Ask for the code from Warblet and keep it where only you can read it."""
     if not sys.stdin.isatty():
-        sys.exit("warblet: not set up yet; run it once by hand: python3 warblet_monitor.py")
+        sys.exit("warblet: not set up yet; run it once by hand: " + typed())
     old = json.loads(KEY_FILE.read_text()) if KEY_FILE.exists() else {}
     key = getpass.getpass("Paste the code from Warblet (it stays hidden): ").strip()
     while not re.fullmatch(r"[A-Za-z0-9_-]{8,200}", key):   # a code or a token
@@ -205,6 +210,8 @@ def setup():
 
 
 def main():
+    if "--new-id" in sys.argv and "--setup" not in sys.argv:
+        sys.exit("warblet: --new-id goes with --setup: " + typed("--setup --new-id"))
     if "--setup" in sys.argv or not KEY_FILE.exists():
         me = setup()
     else:
