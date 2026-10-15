@@ -1,21 +1,34 @@
 # System monitor: email when a disk passes LIMIT percent full. One email per
 # disk, then nothing more until that disk is back under LIMIT - 5, so a disk
-# that sits at 91% does not mail you every minute.
+# that sits at 91% does not mail you every minute. A computer that goes a week
+# without reporting is let go: if it comes back with the disk still full, you
+# hear about it again.
 
 LIMIT = 90
+WEEK = 7 * 24 * 60                       # in minutes
 
 def routine(event, state, mem):
+    now = event["ts_ms"] // 60000        # minutes: a short number to keep
+    for key in list(mem.keys()):         # computers silent for a week
+        if now - mem[key] > WEEK:
+            mem.pop(key)
     for name, used in event["fields"].items():
         if not name.endswith(" used %"):
             continue
         disk = name[:-len(" used %")]
-        key = event["hw_id"] + " " + disk        # one latch per computer and disk
-        if used >= LIMIT and not mem.get(key):
+        # One latch per computer and disk, under a short name (mem holds 4 KiB,
+        # room for about 180 full disks), keeping the minute it was last full.
+        key = hex(crypto.sha256(event["hw_id"] + " " + disk))[:10]
+        if used >= LIMIT and key not in mem:
             free = event["fields"].get(disk + " free GB", "?")
             alert("%s: %s is %s%% full" % (event["hw_id"], disk, used),
-                  ("%s on %s is %s%% full, %s GB free. You will hear again " +
-                   "only after it drops under %d%% and fills up again.") %
-                  (disk, event["hw_id"], used, free, LIMIT - 5))
-            mem[key] = True
-        elif used < LIMIT - 5 and mem.get(key):
-            mem.pop(key)
+                  ("%s on %s is %s%% full, %s GB free. You will hear about it again " +
+                   "once it has dropped under %d%% and filled up again, or if %s " +
+                   "goes a week without reporting and comes back this full.") %
+                  (disk, event["hw_id"], used, free, LIMIT - 5, event["hw_id"]))
+            mem[key] = now
+        elif key in mem:
+            if used < LIMIT - 5:
+                mem.pop(key)
+            else:
+                mem[key] = now           # still full: keep it
