@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # Warblet system monitor. Once a minute this script tells Warblet how full this
 # computer's disks are, plus a few vitals: memory in use, load, uptime and, on a
-# Raspberry Pi, the chip's temperature. Your device page shows them, a routine
-# emails you when a disk is nearly full, and the quiet alert tells you when the
-# computer stops reporting. It only sends: nothing comes back from Warblet.
+# Raspberry Pi, the chip's temperature. Your device page shows them, and a routine
+# emails you when a disk is nearly full. To hear when the computer stops reporting,
+# switch on "Tell me if this board goes quiet" on its device page. It only sends:
+# nothing comes back from Warblet.
 # Python 3.8 or newer, nothing to install: Linux (Raspberry Pi OS too), macOS
 # and Windows.
 #
