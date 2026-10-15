@@ -27,6 +27,16 @@ def say(*words):
     print(time.strftime("%H:%M:%S"), *words, flush=True)
 
 
+SAID = set()
+
+
+def once(what, *words):
+    """Say something the first time only, not every minute."""
+    if what not in SAID:
+        SAID.add(what)
+        say(*words)
+
+
 def run(command):
     """A built-in macOS tool's output (this script never runs anything else)."""
     return subprocess.run(command.split(), capture_output=True, text=True,
@@ -105,15 +115,20 @@ def readings():
             pass
     data["disks"] = {}
     try:
-        for path in disks()[:8]:                 # 8 disks at most
+        paths = disks()[:8]                      # 8 disks at most
+    except Exception as error:
+        paths = []
+        once("disks", "cannot list the disks:", error)
+    for path in paths:
+        try:
             total, used, free = shutil.disk_usage(path)
             if SYSTEM == "Darwin":               # APFS volumes share one container's space:
                 used = total - free              # count what all of them use, not one
             data["disks"][path.rstrip("\\")] = {  # "C:\" is sent as "C:"
                 "used_pct": round(100 * used / (used + free), 1),   # the way df counts
                 "free_gb": round(free / 2**30, 1)}
-    except Exception as error:                   # a drive unplugged as we looked
-        say("disks:", error)
+        except Exception as error:               # a locked drive, another user's mount:
+            once(path, "cannot read disk", path, "-", error)   # the others still go
     return data
 
 
