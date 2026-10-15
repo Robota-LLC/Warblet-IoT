@@ -1,7 +1,7 @@
 # System monitor: email when a disk passes LIMIT percent full. One email per
 # disk, then nothing more until it is LIMIT or fuller again after dropping
-# under LIMIT - 5, or after going a week unreported, so a disk that sits at
-# 91% does not mail you every minute.
+# under LIMIT - 5 or going a week unreported, so a disk that sits at 91% does
+# not mail you every minute.
 
 LIMIT = 90
 WEEK = 7 * 24 * 60                       # in minutes
@@ -22,7 +22,7 @@ def routine(event, state, mem):
             free = event["fields"].get(disk + " free GB", "?")
             alert("%s: %s is %s%% full" % (event["hw_id"], disk, used),
                   ("%s on %s is %s%% full, %s GB free. You will hear about it again the next " +
-                   "time it is %d%% or fuller after dropping under %d%%, or after going a week " +
+                   "time it is %d%% or fuller after dropping under %d%% or going a week " +
                    "unreported.") % (disk, event["hw_id"], used, free, LIMIT, LIMIT - 5))
             mem[key] = now
         elif key in mem:
