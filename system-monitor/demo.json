@@ -1,0 +1,41 @@
+{
+  "slug": "demo-system-monitor",
+  "chips": [],
+  "board": "Your computer: Linux, Raspberry Pi OS, macOS or Windows",
+  "network": "none",
+  "starter": false,
+  "result": "See this computer's disks and vitals on your dashboard, and get an email before a disk fills up.",
+  "spec": {
+    "transport": "http",
+    "securityLevel": 1,
+    "retentionDays": 7,
+    "uiConfig": {}
+  },
+  "routine": {
+    "file": "disk-full.star",
+    "name": "System monitor: email when a disk is nearly full",
+    "scope": "spec",
+    "minIntervalMs": 0
+  },
+  "firmware": {
+    "kind": "external",
+    "files": ["warblet_monitor.py"],
+    "connect": [
+      {
+        "label": "Linux, Raspberry Pi OS or macOS",
+        "text": "curl -fsSo warblet_monitor.py \"{file:warblet_monitor.py}\"\npython3 warblet_monitor.py"
+      },
+      {
+        "label": "Windows",
+        "text": "curl.exe -fsSo warblet_monitor.py \"{file:warblet_monitor.py}\"\npython warblet_monitor.py"
+      }
+    ]
+  },
+  "provision": {
+    "host": "https.warbletiot.com",
+    "commands": [],
+    "knobs": {
+      "level": {"max": 1}
+    }
+  }
+}
