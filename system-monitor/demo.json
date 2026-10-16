@@ -31,7 +31,8 @@
           },
           {
             "title": "Run it, and paste the setup code when it asks",
-            "text": "python3 warblet_monitor.py"
+            "text": "python3 warblet_monitor.py",
+            "asksForCode": true
           }
         ]
       },
@@ -45,7 +46,8 @@
           },
           {
             "title": "Run it, and paste the setup code when it asks",
-            "text": "python warblet_monitor.py"
+            "text": "python warblet_monitor.py",
+            "asksForCode": true
           }
         ]
       }
