@@ -5,6 +5,7 @@
   "network": "none",
   "starter": false,
   "result": "See this computer's disks and vitals on your dashboard, and get an email before a disk fills up.",
+  "firstMessage": "It sends its first report as soon as it starts, then one a minute.",
   "spec": {
     "transport": "http",
     "securityLevel": 1,
