@@ -9,16 +9,31 @@ Your computer sends disk usage and system readings to [Warblet](https://warbleti
 - A computer running Linux, Raspberry Pi OS, macOS or Windows.
 - Python 3.8 or newer. The script uses only the standard library; there is nothing to build.
 - Internet access and a Warblet account.
-- `curl` for the download command shown during setup.
+- `curl` (or Git) to download the script.
 - A terminal for the first run, and an alert email address.
 
 ## Set it up
 
 1. Open [Set up a device](https://warbletiot.com/flash). Choose **Computer & other devices**, then **System monitor** if a choice appears. Sign in when asked.
 2. Choose **Prepare setup** and supply an alert email if asked. Setup prepares the demo's spec, including its decoder, and enables its disk-alert routine.
-3. Under **Instructions for**, choose your operating system. Run the displayed commands in a terminal in your chosen folder. They download `warblet_monitor.py` and start it.
+3. Under **Instructions for**, choose your operating system. In a terminal in your chosen folder, run the first command to download `warblet_monitor.py` from this repository's release tag on GitHub. Run the second command to start it.
 4. Copy **Setup code** from the page and paste it at the script's prompt. The code stays hidden as you paste. Keep it private.
 5. Leave the script running. When the page says **Your device is sending data**, choose **View device**.
+
+<details>
+<summary>Download with Git instead</summary>
+
+After preparing setup, run:
+
+```sh
+git clone --depth 1 --branch v1.4.1 https://github.com/Robota-LLC/Warblet-IoT.git
+cd Warblet-IoT/system-monitor
+python3 warblet_monitor.py
+```
+
+On Windows, use `python` instead of `python3`. Paste the setup code when asked, then continue with step 5. This gets the same script as the setup page's download command.
+
+</details>
 
 ## Run and stop
 
@@ -44,7 +59,7 @@ Free space labelled **GB** is in GiB: 1,073,741,824 bytes per unit.
 
 The routine is listed as **System monitor: email when a disk is nearly full**. It emails once per disk at **90% or higher**, then again only when the disk is 90% or fuller after usage drops **below 85%** or goes a week unreported. Change `LIMIT` in the routine to adjust the threshold; rearming remains five percentage points below it.
 
-For an always-on computer, enable **Tell me if this board goes quiet** on its device page. It is off by default; a sleeping computer also looks quiet.
+For an always-on computer, enable **Tell me if this device goes quiet** on its device page. It is off by default; a sleeping computer also looks quiet.
 
 ## Keys and identity
 
