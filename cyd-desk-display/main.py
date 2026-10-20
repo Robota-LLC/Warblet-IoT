@@ -15,11 +15,16 @@ import chirp_send
 import screen
 
 DEMO_SLUG = "demo-cyd-desk-display"
-REPORT_EVERY_S = 60   # a report with the Wi-Fi signal; it also shows Warblet the board is there
+REPORT_EVERY_S = 30   # a report with the Wi-Fi signal; it also shows Warblet the board is there
 CHECK_EVERY_S = 5     # how often to ask Warblet for new messages
 MOST_PER_CHECK = 10   # messages taken in one check, so a long queue cannot hold up the loop
 WIFI_TIMEOUT_S = 12   # per attempt to join a network
 RESTART_AFTER_ERROR_S = 10
+
+# Tags say what a message is. The first report after a start says hello, so
+# the routine can give a display that just started the last info line again.
+HELLO_TAG = "hello"
+SEEN_TAG = "seen"
 OLD_INFO_S = 600      # the info line turns grey when nothing new has come for this long
 
 # Colours: red, green, blue, each 0-255.
@@ -184,7 +189,7 @@ def send_seen(config):
     seen = "sending"
     show_footer()
     try:
-        ok = 200 <= report(config, "seen", {"seen": message[:60]}) < 300
+        ok = 200 <= report(config, SEEN_TAG, {"seen": message[:60]}) < 300
     except Exception as e:
         print("chirp: seen not sent:", e)
         ok = False
@@ -247,7 +252,7 @@ def check_in(config, said_hello):
     Returns the HTTP status of the message check, and whether hello was said."""
     global last_report
     if last_report is None or time.ticks_diff(time.ticks_ms(), last_report) >= REPORT_EVERY_S * 1000:
-        code = report(config, None if said_hello else "hello")   # "hello": just started
+        code = report(config, None if said_hello else HELLO_TAG)
         said_hello = said_hello or 200 <= code < 300
         last_report = time.ticks_ms()
     code = check_messages(config)
