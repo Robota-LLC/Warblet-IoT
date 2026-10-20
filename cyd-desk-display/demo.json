@@ -1,0 +1,47 @@
+{
+  "slug": "demo-cyd-desk-display",
+  "chips": ["ESP32"],
+  "board": "Cheap Yellow Display (Sunton ESP32-2432S028R)",
+  "network": "wifi",
+  "starter": false,
+  "result": "Show messages from your dashboard on the screen, and tap it to say you've seen them.",
+  "firstMessage": "It sends its first report as soon as it joins Wi-Fi, then one a minute.",
+  "spec": {
+    "transport": "http",
+    "securityLevel": 2,
+    "retentionDays": 7,
+    "uiConfig": {
+      "controls": [
+        {"type": "text", "label": "Message"},
+        {"type": "button", "label": "Clear", "text": "clear"}
+      ]
+    }
+  },
+  "routine": {
+    "file": "desk-display-disk.star",
+    "name": "Desk display: show the fullest disk",
+    "scope": "account",
+    "minIntervalMs": 0
+  },
+  "firmware": {
+    "kind": "micropython",
+    "runtimes": [
+      {
+        "chip": "ESP32",
+        "name": "MicroPython 1.28.0 ESP32_GENERIC",
+        "url": "https://micropython.org/resources/firmware/ESP32_GENERIC-20260406-v1.28.0.bin",
+        "sha256": "cd7820d02c35d34dd403b44263129c6a511b350aea8446c229890753fe240784",
+        "offset": "0x1000"
+      }
+    ],
+    "files": ["main.py", "screen.py", "chirp_prov.py", "chirp_send.py", "chirp_sign.py"]
+  },
+  "provision": {
+    "protocol": "chirp-prov/1.6",
+    "host": "https.warbletiot.com",
+    "commands": ["clear", "info:"],
+    "knobs": {
+      "level": {"max": 2}
+    }
+  }
+}
