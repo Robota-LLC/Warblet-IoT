@@ -140,22 +140,27 @@ def show_waiting(config):
     show_message("Type a message for " + config["hwid"] + " on your Warblet dashboard.", GREY)
 
 
-def on_command(command, config):
-    """A message from Warblet. "clear" clears the screen, "info:..." sets
-    the lower lines, anything else is a message to show big."""
-    global message, message_at, info, info_at, seen
+def text_of(raw):
+    """Bytes from Warblet as text. Bytes that are not text keep the letters
+    the screen can show."""
     try:
-        words = command.decode().strip()
-    except UnicodeError:                    # not text: keep the letters we can show
-        words = "".join(chr(b) if 32 <= b < 127 else "?" for b in command)
-    if words == "clear":
+        return raw.decode().strip()
+    except UnicodeError:
+        return "".join(chr(b) if 32 <= b < 127 else "?" for b in raw).strip()
+
+
+def on_command(command, config):
+    """A message from Warblet, matched as bytes: "clear" clears the screen,
+    "info:..." sets the lower lines, anything else is a message to show big."""
+    global message, message_at, info, info_at, seen
+    if command == b"clear":
         message, seen = "", ""
         show_waiting(config)
-    elif words.startswith("info:"):
-        info, info_at = words[5:].strip(), now()
+    elif command.startswith(b"info:"):
+        info, info_at = text_of(command[5:]), now()
         show_info()
     else:
-        message, message_at, seen = words, now(), ""
+        message, message_at, seen = text_of(command), now(), ""
         show_message(message)
     show_footer()
     print("chirp: down", len(command), "bytes")   # its size, never its words
