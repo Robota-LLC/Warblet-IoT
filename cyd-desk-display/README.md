@@ -21,7 +21,7 @@ The full guide is coming.
 | **Runtime** | [MicroPython 1.28.0 ESP32_GENERIC](https://micropython.org/resources/firmware/ESP32_GENERIC-20260406-v1.28.0.bin) at `0x1000`; [demo.json](demo.json) also lists its SHA-256 checksum |
 | **Routine** | [desk-display-disk.star](desk-display-disk.star), listed as **Desk display: show the fullest disk** |
 
-USB setup stores your Wi-Fi network and a one-time setup code (`claim`) that becomes the board's token. An `aps` list can hold up to eight networks, tried in order.
+USB setup at warbletiot.com/flash stores the Wi-Fi network (`ssid`, `pass`; an `aps` list holds up to eight, tried in order), the board's id (`hwid`), a one-time setup code (`claim`) that becomes its `token`, and for Signed its signing `key`. A stored `host` overrides `https.warbletiot.com`.
 
 ## Make it real
 
