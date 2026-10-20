@@ -1,8 +1,9 @@
 # Warblet desk display for the Cheap Yellow Display (ESP32-2432S028R).
 # Type in the Message box on its Warblet device page and the words fill the
 # screen. Tap the screen and Warblet hears that the message was seen.
-# A routine can send a line for the lower part of the screen ("info:...");
-# the one that comes with this demo sends how full your computer's disk is.
+# A routine can send lines for the lower part of the screen ("info:..."); the
+# one that comes with this demo sends how full your computers' disks are, and
+# each computer keeps its own line.
 import gc
 import json
 import time
@@ -25,7 +26,7 @@ RESTART_AFTER_ERROR_S = 10
 # the routine can give a display that just started the last info line again.
 HELLO_TAG = "hello"
 SEEN_TAG = "seen"
-OLD_INFO_S = 600      # the info line turns grey when nothing new has come for this long
+INFO_ROWS = 3         # lines for the routine: one per computer, the one heard from longest ago goes first
 
 # Colours: red, green, blue, each 0-255.
 BLACK = screen.rgb(0, 0, 0)
@@ -38,15 +39,14 @@ AMBER = screen.rgb(255, 150, 0)
 RED = screen.rgb(240, 50, 50)
 
 # Where things go on the 320 x 240 screen: a strip at the top, the message,
-# two lines for the routine's info, two lines at the bottom.
-MESSAGE_TOP, MESSAGE_HEIGHT = 24, 128
-INFO_TOP = 156
+# three lines for the routine's info, two lines at the bottom.
+MESSAGE_TOP, MESSAGE_HEIGHT = 24, 108
+INFO_TOP = 136
 FOOTER_TOP = 200
 
 message = ""          # what was typed on the dashboard
 message_at = 0        # when it came (seconds)
-info = ""             # the routine's line
-info_at = 0
+infos = []            # the routine's lines: [name, line, when], one per computer
 seen = ""             # "", "sending", "sent" or "waiting" (tapped while offline)
 drawn = {}            # what each line of the screen shows now
 
@@ -116,12 +116,34 @@ def show_message(words, colour=WHITE):
         screen.text(0, MESSAGE_TOP + i * pitch, line, size, colour, BLACK)
 
 
+def add_info(line):
+    """Keep the routine's line, one per computer. A disk line reads
+    "87% full: raspberrypi /": the computer's name comes after "full:", and
+    the screen shows it as "87% raspberrypi /" so it fits one line."""
+    if " full: " in line:
+        number, rest = line.split(" full: ", 1)
+        name, line = rest.split(" ")[0], number + " " + rest
+    else:
+        name = line                     # any other line is its own
+    for row in infos:
+        if row[0] == name:
+            row[1], row[2] = line, now()
+            return
+    if len(infos) == INFO_ROWS:         # full: the one heard from longest ago goes
+        infos.remove(min(infos, key=lambda row: row[2]))
+    infos.append([name, line, now()])
+
+
+def rows():
+    """The routine's lines as the screen shows them."""
+    return [row[1][:20] for row in infos]
+
+
 def show_info():
-    """Below it: the routine's line, grey once it is old."""
-    colour = YELLOW if now() - info_at < OLD_INFO_S else GREY
-    lines = wrap(info, 20) + ["", ""]
-    put(INFO_TOP, lines[0], colour)
-    put(INFO_TOP + 20, lines[1], colour)
+    """Below it: the routine's lines, one per computer."""
+    shown = rows() + [""] * INFO_ROWS
+    for i in range(INFO_ROWS):
+        put(INFO_TOP + 18 * i, shown[i], YELLOW)
 
 
 def show_footer():
@@ -152,12 +174,12 @@ def text_of(raw):
 def on_command(command, config):
     """A message from Warblet, matched as bytes: "clear" clears the screen,
     "info:..." sets the lower lines, anything else is a message to show big."""
-    global message, message_at, info, info_at, seen
+    global message, message_at, seen
     if command == b"clear":
         message, seen = "", ""
         show_waiting(config)
     elif command.startswith(b"info:"):
-        info, info_at = text_of(command[5:]), now()
+        add_info(text_of(command[5:]))
         show_info()
     else:
         message, message_at, seen = text_of(command), now(), ""
@@ -303,8 +325,6 @@ def main():
                 print("chirp: check failed:", e)
                 show_status("Warblet: no answer", AMBER)
         show_footer()                       # the ages move on
-        if info:
-            show_info()
         wait(config, CHECK_EVERY_S, online)
 
 
