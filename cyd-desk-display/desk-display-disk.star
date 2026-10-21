@@ -25,7 +25,7 @@ def routine(event, state, mem):
         return                           # not a report about disks
 
     line = "%d%% full: %s %s" % (int(used + 0.5), event["fields"].get("host", "?"), disk)
-    line = line[:40]                     # two lines of the screen; the number comes first
+    line = line[:40]                     # short; the screen shows "87% raspberrypi /", 20 letters at most
     if line != mem.get("line"):
         for display in devices_from(DISPLAYS):
             send(display, "info:" + line)

@@ -47,6 +47,8 @@ MESSAGE_TOP, MESSAGE_HEIGHT = 24, 108
 INFO_TOP = 136
 FOOTER_TOP = 200
 
+# What the screen shows. A function that changes one of these needs a
+# "global" line naming it first; without it, the change stays inside that function.
 message = ""          # what was typed on the dashboard
 message_at = 0        # when it came (seconds)
 infos = []            # the routine's lines: [name, line, when], one per computer
