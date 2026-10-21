@@ -93,13 +93,15 @@ def wrap(words, width):
 
 
 def put(y, words, colour, background=BLACK):
-    """One line of 20 big letters at height y, drawn only when it changes,
-    so the screen does not flicker."""
+    """One line of big letters (16 pixels each) at height y, drawn only when
+    it changes, so the screen does not flicker. The strip at the top starts
+    4 pixels in, so it holds 19 letters; other lines hold 20."""
     if drawn.get(y) == (words, colour):
         return
     drawn[y] = (words, colour)
+    x = 4 if background == BAR else 0
     screen.fill(0, y, screen.WIDTH, 18, background)
-    screen.text(4 if background == BAR else 0, y + 1, words[:20], 2, colour, background)
+    screen.text(x, y + 1, words[:(screen.WIDTH - x) // 16], 2, colour, background)
 
 
 def show_status(words, colour):
