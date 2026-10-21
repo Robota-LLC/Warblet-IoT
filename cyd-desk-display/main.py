@@ -328,7 +328,7 @@ def join(wlan, ssid, password):
         wlan.connect(ssid, password)
     except OSError as e:
         print("chirp: connect failed:", e)
-        wlan.disconnect()                   # an attempt left "connecting" (by a soft restart
+        drop(wlan)                          # an attempt left "connecting" (by a soft restart
         return False                        # in the middle of one) blocks every next one
     deadline = time.ticks_add(time.ticks_ms(), WIFI_TIMEOUT_S * 1000)
     while time.ticks_diff(deadline, time.ticks_ms()) > 0:
@@ -336,8 +336,17 @@ def join(wlan, ssid, password):
             print("chirp: wifi up", wlan.ifconfig()[0])
             return True
         time.sleep_ms(250)
-    wlan.disconnect()                       # drop the half-open attempt
+    drop(wlan)                              # drop the half-open attempt
     return False
+
+
+def drop(wlan):
+    """End a Wi-Fi attempt. The radio can refuse even that; the next try
+    goes ahead anyway."""
+    try:
+        wlan.disconnect()
+    except OSError:
+        pass
 
 
 def connect_wifi(config):
