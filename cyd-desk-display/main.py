@@ -329,9 +329,12 @@ def main():
 
 
 def stopped():
-    """Say so on the screen, so a stopped board never shows Connected."""
+    """Say so on the screen, so a stopped board never shows Connected.
+    Drawn without put(), so drawn[0] still holds the last status: at the
+    prompt after a stop, it tells you what the board was doing."""
     try:
-        show_status("Stopped", RED)
+        screen.fill(0, 0, screen.WIDTH, 18, BAR)
+        screen.text(4, 1, "Stopped", 2, RED, BAR)
     except Exception:
         pass                                # the screen never started
 
