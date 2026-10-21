@@ -1,5 +1,6 @@
 """HTTPS sender with token authentication and optional HMAC-SHA256.
-send() posts a reading; poll() asks for one waiting command.
+send() posts a reading; send_answer() also says whether Warblet knows the
+board; poll() asks for one waiting command.
 The server certificate must chain to a root below and match the host name,
 or the request fails. A set clock adds a timestamp nonce to signed messages."""
 import socket
@@ -242,9 +243,10 @@ def _read_reply_body(s):
     return body
 
 
-def _request(method, url, headers, body=None):
+def _request(method, url, headers, body=None, want_reply=False):
     """One HTTPS request with `Connection: close`. Returns (HTTP status code,
-    reply body or None). Only a 200 answer to a GET carries a body we use;
+    reply body or None). Only a 200 answer to a GET carries a body we use,
+    and a 2xx answer to a POST when the caller wants Warblet's word on it;
     for anything else the status is enough, so we do not wait for more."""
     host, path = url[len("https://"):].split("/", 1)
     addr = socket.getaddrinfo(host, PORT)[0][-1]
@@ -275,6 +277,11 @@ def _request(method, url, headers, body=None):
         code = int(parts[1])
         if method == "GET" and code == 200:
             return code, _read_reply_body(s)
+        if want_reply and 200 <= code < 300:
+            try:
+                return code, _read_reply_body(s)
+            except (OSError, ValueError):
+                return code, None  # taken all the same; only the word is lost
         return code, None
     finally:
         s.close()
@@ -283,6 +290,23 @@ def _request(method, url, headers, body=None):
 def send(config, payload, tag=None):
     """POST the raw payload bytes, with an optional tag saying what the
     message is (for example "press"). Returns the HTTP status code."""
+    return _send(config, payload, tag, False)[0]
+
+
+def send_answer(config, payload, tag=None):
+    """send(), and Warblet's word on it: a 202 says "accepted" (stored) or
+    "unclaimed" (no account has this board, so it was only seen; it is set
+    up at warbletiot.com/flash). Returns (HTTP status code, that word, or
+    None when the answer has none)."""
+    code, reply = _send(config, payload, tag, True)
+    if reply and b'"unclaimed"' in reply:
+        return code, "unclaimed"
+    if reply and b'"accepted"' in reply:
+        return code, "accepted"
+    return code, None
+
+
+def _send(config, payload, tag, want_reply):
     global _ntp_wait
     _require_clock()
     headers = {
@@ -305,10 +329,10 @@ def send(config, payload, tag=None):
             signing_key_base64, nonce, payload, tag)
 
     url = "https://{}/ingest/{}".format(config.get("host") or HOST, config["hwid"])
-    code, _ = _request("POST", url, headers, payload)
+    code, reply = _request("POST", url, headers, payload, want_reply)
     if code == 401 and signing_key_base64:
         _ntp_wait = NTP_AFTER_401_S  # the nonce may be outside the window
-    return code
+    return code, reply
 
 
 def poll(config):
