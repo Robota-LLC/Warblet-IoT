@@ -302,7 +302,8 @@ def join(wlan, ssid, password):
         wlan.connect(ssid, password)
     except OSError as e:
         print("chirp: connect failed:", e)
-        return False
+        wlan.disconnect()                   # an attempt left "connecting" (by a soft restart
+        return False                        # in the middle of one) blocks every next one
     deadline = time.ticks_add(time.ticks_ms(), WIFI_TIMEOUT_S * 1000)
     while time.ticks_diff(deadline, time.ticks_ms()) > 0:
         if wlan.isconnected():
