@@ -23,6 +23,7 @@ CHECK_EVERY_S = 5     # how often to ask Warblet for new messages
 MOST_PER_CHECK = 10   # messages taken in one check, so a long queue cannot hold up the loop
 WIFI_TIMEOUT_S = 12   # per attempt to join a network
 RESTART_AFTER_ERROR_S = 10
+STUCK_S = 600         # Wi-Fi up, yet no answer at all this long: restart (see restart_if_stuck)
 REFUSED_PATH = "chirp_refused.txt"   # a note that Warblet does not know the stored setup
 
 # Tags say what a message is. The first report after a start says hello, so
@@ -203,6 +204,7 @@ def check_messages(config):
     Returns the HTTP status of the last check."""
     for _ in range(MOST_PER_CHECK):
         code, command = chirp_send.poll(config)
+        heard()
         if code != 200:
             return code
         if command is not None:
@@ -215,12 +217,36 @@ def report(config, tag=None, body=None):
     if body is None:
         body = {"wifi_dbm": network.WLAN(network.STA_IF).status("rssi")}
     code, answer = chirp_send.send_answer(config, json.dumps(body).encode(), tag)
+    heard()
     gc.collect()
     print("chirp: sent", tag or "report", "->", code, "free", gc.mem_free())
     if answer == "unclaimed":               # no account has this board
         remember_refused(config)
         no_account(config)
     return code
+
+
+answered_at = 0      # when Warblet last answered at all (ticks_ms)
+
+
+def heard():
+    """Any HTTP answer, a refusal or a 500 too, shows the connection works."""
+    global answered_at
+    answered_at = time.ticks_ms()
+
+
+def restart_if_stuck():
+    """After a request got no HTTP answer at all: if Wi-Fi says it is
+    connected and nothing has answered for STUCK_S, restart. On the bench a
+    long Wi-Fi loss once left the radio "connected" but unable to reach
+    anything, and only a restart cleared it. The message on the screen is
+    lost; the disk lines come back with the routine's answer to hello."""
+    if not network.WLAN(network.STA_IF).isconnected():
+        return                              # no Wi-Fi: an outage, which ends by itself
+    if time.ticks_diff(time.ticks_ms(), answered_at) > STUCK_S * 1000:
+        print("chirp: nothing has answered for", STUCK_S // 60, "minutes -- restarting")
+        time.sleep_ms(200)
+        machine.reset()
 
 
 def fingerprint(config):
@@ -361,6 +387,7 @@ def main():
         no_account(config)
 
     show_waiting(config)
+    heard()                                 # the ten minutes count from the start
     clock_set = False
     said_hello = False
     while True:
@@ -382,6 +409,7 @@ def main():
             except Exception as e:          # no answer, TLS refused, no DNS...
                 print("chirp: check failed:", e)
                 show_status("Warblet: no answer", AMBER)
+                restart_if_stuck()
         show_footer()                       # the ages move on
         wait(config, CHECK_EVERY_S, online)
 
