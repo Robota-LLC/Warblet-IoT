@@ -38,6 +38,7 @@ CHIPS = {
 # If the screen does not answer: the ST7789 board's data line from the screen
 # is not connected, so it never answers; ILI9341 boards do.
 FALLBACK = "ST7789"
+GUESSED = False   # set by start(): True when the screen did not answer and FALLBACK was used
 
 PRESS = 400   # how hard a touch must be (the touch chip's pressure reading)
 
@@ -101,6 +102,7 @@ def _ask_chip():
 def start():
     """Find the chip, wake the screen, clear it and turn the light on.
     Returns a line saying what was found, for the console."""
+    global GUESSED
     name, answer = CHIP, []
     if name is None:
         for mode in (0, 3):                 # the two clock shapes these chips use
@@ -111,6 +113,7 @@ def start():
             if name:
                 break
     found = name or FALLBACK
+    GUESSED = not name
     chip = CHIPS[found]
     _bus(chip["mode"], 40000000)
     _command(0x01)                          # software reset

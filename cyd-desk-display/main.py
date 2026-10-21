@@ -169,6 +169,14 @@ def show_footer():
     put(FOOTER_TOP + 20, words, GREEN if seen == "sent" else WHITE)
 
 
+def show_guess():
+    """If the screen did not say which chip it is, say so in small letters
+    between the disk lines and the footer: with the wrong guess the picture
+    is mirrored or its colours are wrong, and screen.py has the settings."""
+    if screen.GUESSED:
+        screen.text(0, INFO_TOP + 18 * INFO_ROWS + 1, "Screen chip guessed: see screen.py", 1, GREY, BLACK)
+
+
 def show_waiting(config):
     show_message("Type a message for " + config["hwid"] + " on your Warblet dashboard.", GREY)
 
@@ -284,6 +292,7 @@ def no_account(config):
     show_status("Not on an account", AMBER)
     screen.fill(0, MESSAGE_TOP, screen.WIDTH, screen.HEIGHT - MESSAGE_TOP, BLACK)
     show_message("Set me up at warbletiot.com/flash")   # no id, and nothing an account sent
+    show_guess()
     print("chirp: Warblet does not know this board -- set it up at warbletiot.com/flash")
     network.WLAN(network.STA_IF).active(False)
     while True:
@@ -385,6 +394,7 @@ last_report = None
 def main():
     chirp_prov.set_slug(DEMO_SLUG)
     print(screen.start())
+    show_guess()
     config = chirp_prov.load()
     if not chirp_prov.ready(config):
         show_status("Not set up", RED)
