@@ -269,6 +269,7 @@ def connect_wifi(config):
     for ssid, password in chirp_prov.networks(config):
         chirp_prov.service(config, 0.5)     # answer USB setup before the wait
         if join(wlan, ssid, password):
+            show_status("Reaching Warblet", AMBER)   # until the first check is done
             return True
     show_status("No Wi-Fi, retrying", AMBER)
     return False
