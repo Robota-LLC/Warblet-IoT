@@ -4,7 +4,9 @@
 # A routine can send lines for the lower part of the screen ("info:..."); the
 # one that comes with this demo sends how full your computers' disks are, and
 # each computer keeps its own line.
+import binascii
 import gc
+import hashlib
 import json
 import time
 
@@ -21,6 +23,7 @@ CHECK_EVERY_S = 5     # how often to ask Warblet for new messages
 MOST_PER_CHECK = 10   # messages taken in one check, so a long queue cannot hold up the loop
 WIFI_TIMEOUT_S = 12   # per attempt to join a network
 RESTART_AFTER_ERROR_S = 10
+REFUSED_PATH = "chirp_refused.txt"   # a note that Warblet does not know the stored setup
 
 # Tags say what a message is. The first report after a start says hello, so
 # the routine can give a display that just started the last info line again.
@@ -48,7 +51,6 @@ message = ""          # what was typed on the dashboard
 message_at = 0        # when it came (seconds)
 infos = []            # the routine's lines: [name, line, when], one per computer
 seen = ""             # "", "sending", "sent" or "waiting" (tapped while offline)
-unclaimed = False     # Warblet said no account has this board
 drawn = {}            # what each line of the screen shows now
 
 
@@ -178,8 +180,7 @@ def text_of(raw):
 def on_command(command, config):
     """A message from Warblet, matched as bytes: "clear" clears the screen,
     "info:..." sets the lower lines, anything else is a message to show big."""
-    global message, message_at, seen, unclaimed
-    unclaimed = False                       # only a device on an account gets one
+    global message, message_at, seen
     if command == b"clear":
         message, seen = "", ""
         show_waiting(config)
@@ -212,27 +213,51 @@ def report(config, tag=None, body=None):
     code, answer = chirp_send.send_answer(config, json.dumps(body).encode(), tag)
     gc.collect()
     print("chirp: sent", tag or "report", "->", code, "free", gc.mem_free())
-    on_answer(answer, config)
+    if answer == "unclaimed":               # no account has this board
+        remember_refused(config)
+        no_account(config)
     return code
 
 
-def on_answer(answer, config):
-    """Warblet's word on a report. "unclaimed": no account has this board
-    (its device was deleted, or it was never added), so the screen drops
-    what an account sent it, stops showing its id, and says how to set it
-    up. "accepted" after that: it is on an account again."""
-    global message, seen, unclaimed
-    if answer == "unclaimed" and not unclaimed:
-        unclaimed, message, seen = True, "", ""
-        del infos[:]
-        show_message("Set me up at warbletiot.com/flash")
-        show_info()
-        show_footer()
-        print("chirp: Warblet does not know this board -- set it up at warbletiot.com/flash")
-    elif answer == "accepted" and unclaimed:
-        unclaimed = False
-        if not message:
-            show_waiting(config)
+def fingerprint(config):
+    """The stored setup as a short fingerprint, never the code itself."""
+    setup = config.get("hwid", "") + " " + config.get("token", "")
+    return binascii.hexlify(hashlib.sha256(setup.encode()).digest()).decode()
+
+
+def remember_refused(config):
+    """Keep a note that Warblet does not know this setup, so a restart
+    does not ask again. USB setup stores a new setup, which the note does
+    not match."""
+    try:
+        with open(REFUSED_PATH, "w") as f:
+            f.write(fingerprint(config))
+    except OSError:
+        pass                                # the stop below holds until a restart
+
+
+def refused(config):
+    """True when Warblet said it does not know this very setup."""
+    try:
+        with open(REFUSED_PATH) as f:
+            return f.read() == fingerprint(config)
+    except OSError:
+        return False
+
+
+def no_account(config):
+    """Warblet does not know this board: its device was deleted, or it was
+    never added. Anyone who knows its id could claim it and send it
+    messages, so it stops asking for them, and stops reporting. Only USB
+    setup (warbletiot.com/flash) starts it again: that stores a new setup
+    and restarts the board."""
+    show_status("Not on an account", AMBER)
+    screen.fill(0, MESSAGE_TOP, screen.WIDTH, screen.HEIGHT - MESSAGE_TOP, BLACK)
+    show_message("Set me up at warbletiot.com/flash")   # no id, and nothing an account sent
+    print("chirp: Warblet does not know this board -- set it up at warbletiot.com/flash")
+    network.WLAN(network.STA_IF).active(False)
+    while True:
+        chirp_prov.service(config, 1)
 
 
 def send_seen(config):
@@ -306,7 +331,7 @@ def check_in(config, said_hello):
     global last_report
     if last_report is None or time.ticks_diff(time.ticks_ms(), last_report) >= REPORT_EVERY_S * 1000:
         code = report(config, None if said_hello else HELLO_TAG)
-        said_hello = said_hello or (200 <= code < 300 and not unclaimed)   # a sighting is not stored
+        said_hello = said_hello or 200 <= code < 300
         last_report = time.ticks_ms()
     code = check_messages(config)
     if seen == "waiting":
@@ -327,6 +352,8 @@ def main():
         print("chirp: not provisioned -- waiting on USB, warbletiot.com/flash")
         while True:
             chirp_prov.service(config, 1)
+    if refused(config):
+        no_account(config)
 
     show_waiting(config)
     clock_set = False
@@ -343,8 +370,6 @@ def main():
                     show_status("Warblet refused 401", RED)
                 elif code == 429:
                     show_status("Warblet: slow down", AMBER)
-                elif unclaimed:
-                    show_status("Not on an account", AMBER)
                 elif code in (200, 204):
                     show_status("Connected", GREEN)
                 else:
