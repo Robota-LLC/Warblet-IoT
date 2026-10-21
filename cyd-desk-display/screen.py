@@ -8,9 +8,9 @@
 #           a "pen" line on 36 that goes low while the screen is pressed.
 #
 # Boards come with one of two screen chips: the one-USB board has an ILI9341,
-# most two-USB boards an ST7789. start() asks the chip for its id and sets
-# itself up for whichever answers. If yours shows the wrong colours (like a
-# photo negative), set INVERT; if it shows upside down, set FLIP.
+# most two-USB boards an ST7789 (some an ILI9341). start() asks the chip for
+# its id and sets itself up for whichever answers. If the picture is wrong,
+# the settings below fix it; the console line at start says what was chosen.
 import framebuf
 import time
 from machine import Pin, SPI, SoftSPI
@@ -18,18 +18,26 @@ from machine import Pin, SPI, SoftSPI
 WIDTH = 320
 HEIGHT = 240
 
-CHIP = None     # None: ask the screen. Or "ILI9341" or "ST7789" to skip asking.
-INVERT = None   # None: the usual setting for that chip. True or False to choose.
-FLIP = False    # True turns the picture upside down.
+CHIP = None            # None: ask the screen. Or "ILI9341" or "ST7789" to skip asking.
+INVERT = None          # True if the colours look like a photo negative (None: the chip's usual).
+FLIP = False           # True if the picture is upside down.
+MIRROR = False         # True if the writing reads backwards; if it is then upside down, set FLIP too.
+SWAP_RED_BLUE = False  # True if red shows as blue and blue as red.
 
 # What each chip needs. "turn" sets the screen sideways (landscape) with the
 # blue and red order this board uses; "invert" swaps every colour for its
-# opposite; "mode" is the SPI clock shape the chip expects.
+# opposite; "mode" is the SPI clock shape the chip expects; "setup" is any
+# other register to set. The ILI9341's values are proven on a board; the
+# ST7789's come from TFT_eSPI and the CYD board files, not yet from a board:
+# its rotation table differs from the ILI9341's by the mirror bit (0x40), and
+# its C0h register, left at its reset value 0x2C, would swap blue and red.
 CHIPS = {
-    "ILI9341": {"turn": 0xE8, "invert": False, "mode": 0},
-    "ST7789": {"turn": 0xE8, "invert": False, "mode": 3},
+    "ILI9341": {"turn": 0xE8, "invert": False, "mode": 0, "setup": ()},
+    "ST7789": {"turn": 0xA8, "invert": False, "mode": 3, "setup": ((0xC0, b"\x0c"),)},
 }
-FALLBACK = "ILI9341"   # if the screen does not answer: the original board's chip
+# If the screen does not answer: the ST7789 board's data line from the screen
+# is not connected, so it never answers; ILI9341 boards do.
+FALLBACK = "ST7789"
 
 PRESS = 400   # how hard a touch must be (the touch chip's pressure reading)
 
@@ -110,7 +118,10 @@ def start():
     _command(0x11)                          # wake up
     time.sleep_ms(120)
     _command(0x3A, b"\x55")                 # 16 bits per pixel
-    turn = chip["turn"] ^ (0xC0 if FLIP else 0)
+    for register, value in chip["setup"]:
+        _command(register, value)
+    turn = chip["turn"] ^ (0xC0 if FLIP else 0) ^ (0x80 if MIRROR else 0)
+    turn ^= 0x08 if SWAP_RED_BLUE else 0
     _command(0x36, bytes([turn]))           # sideways, right way up
     invert = chip["invert"] if INVERT is None else INVERT
     _command(0x21 if invert else 0x20)      # colours inverted or not
@@ -123,7 +134,9 @@ def start():
         return "screen: {} (answered {})".format(found, raw)
     if CHIP:
         return "screen: {} (set in screen.py)".format(found)
-    return "screen: no answer ({}), using {}".format(raw, found)
+    other = "ILI9341" if found == "ST7789" else "ST7789"
+    return ('screen: no answer ({}), using the {} settings; if the picture is wrong, '
+            'set CHIP = "{}" at the top of screen.py'.format(raw, found, other))
 
 
 def backlight(on):
