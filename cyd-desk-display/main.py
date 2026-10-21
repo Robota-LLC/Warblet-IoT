@@ -106,12 +106,15 @@ def show_status(words, colour):
 
 
 def show_message(words, colour=WHITE):
-    """The middle: the message, as big as it fits."""
+    """The middle: the message, as big as it fits, with no word cut in two
+    while smaller letters would keep it whole."""
     screen.fill(0, MESSAGE_TOP, screen.WIDTH, MESSAGE_HEIGHT, BLACK)
+    longest = max([len(word) for word in words.split()] or [0])
     for size in (4, 3, 2, 1):
         pitch = 9 * size + 1                # the letters, and a gap between lines
-        lines = wrap(words, screen.WIDTH // (8 * size))
-        if len(lines) * pitch <= MESSAGE_HEIGHT:
+        width = screen.WIDTH // (8 * size)
+        lines = wrap(words, width)
+        if len(lines) * pitch <= MESSAGE_HEIGHT and longest <= width:
             break
     for i, line in enumerate(lines[:MESSAGE_HEIGHT // pitch]):
         screen.text(0, MESSAGE_TOP + i * pitch, line, size, colour, BLACK)
