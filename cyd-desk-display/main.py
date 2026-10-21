@@ -48,6 +48,7 @@ message = ""          # what was typed on the dashboard
 message_at = 0        # when it came (seconds)
 infos = []            # the routine's lines: [name, line, when], one per computer
 seen = ""             # "", "sending", "sent" or "waiting" (tapped while offline)
+unclaimed = False     # Warblet said no account has this board
 drawn = {}            # what each line of the screen shows now
 
 
@@ -174,7 +175,8 @@ def text_of(raw):
 def on_command(command, config):
     """A message from Warblet, matched as bytes: "clear" clears the screen,
     "info:..." sets the lower lines, anything else is a message to show big."""
-    global message, message_at, seen
+    global message, message_at, seen, unclaimed
+    unclaimed = False                       # only a device on an account gets one
     if command == b"clear":
         message, seen = "", ""
         show_waiting(config)
@@ -204,10 +206,30 @@ def report(config, tag=None, body=None):
     """Send one message up. Returns the HTTP status."""
     if body is None:
         body = {"wifi_dbm": network.WLAN(network.STA_IF).status("rssi")}
-    code = chirp_send.send(config, json.dumps(body).encode(), tag)
+    code, answer = chirp_send.send_answer(config, json.dumps(body).encode(), tag)
     gc.collect()
     print("chirp: sent", tag or "report", "->", code, "free", gc.mem_free())
+    on_answer(answer, config)
     return code
+
+
+def on_answer(answer, config):
+    """Warblet's word on a report. "unclaimed": no account has this board
+    (its device was deleted, or it was never added), so the screen drops
+    what an account sent it, stops showing its id, and says how to set it
+    up. "accepted" after that: it is on an account again."""
+    global message, seen, unclaimed
+    if answer == "unclaimed" and not unclaimed:
+        unclaimed, message, seen = True, "", ""
+        del infos[:]
+        show_message("Set me up at warbletiot.com/flash")
+        show_info()
+        show_footer()
+        print("chirp: Warblet does not know this board -- set it up at warbletiot.com/flash")
+    elif answer == "accepted" and unclaimed:
+        unclaimed = False
+        if not message:
+            show_waiting(config)
 
 
 def send_seen(config):
@@ -281,7 +303,7 @@ def check_in(config, said_hello):
     global last_report
     if last_report is None or time.ticks_diff(time.ticks_ms(), last_report) >= REPORT_EVERY_S * 1000:
         code = report(config, None if said_hello else HELLO_TAG)
-        said_hello = said_hello or 200 <= code < 300
+        said_hello = said_hello or (200 <= code < 300 and not unclaimed)   # a sighting is not stored
         last_report = time.ticks_ms()
     code = check_messages(config)
     if seen == "waiting":
@@ -318,6 +340,8 @@ def main():
                     show_status("Warblet refused 401", RED)
                 elif code == 429:
                     show_status("Warblet: slow down", AMBER)
+                elif unclaimed:
+                    show_status("Not on an account", AMBER)
                 elif code in (200, 204):
                     show_status("Connected", GREEN)
                 else:
