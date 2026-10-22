@@ -17,7 +17,7 @@
 #
 # It only asks while Warblet is storing this device's reports. After a failed
 # or refused ask it waits for the next stored report, so a device that cannot
-# reach Warblet makes one try a minute, not four.
+# reach Warblet tries once a minute (its report), not five times.
 
 defaults:
   check_every: 15s                    # how often to ask for a command
