@@ -13,9 +13,9 @@ namespace {
 
 // What each chip needs. "turn" sets the screen sideways (landscape) with the
 // blue and red order this board uses; "mode" is the SPI clock shape the chip
-// expects; "c0" sets register C0h to 0x0C. The ILI9341's values are proven
-// on a board; the ST7789's come from TFT_eSPI and the CYD board files, not
-// yet from a board: its rotation table differs from the ILI9341's by the
+// expects; "c0" sets register C0h to 0x0C. The ILI9341's values are the
+// MicroPython desk display's; the ST7789's come from TFT_eSPI and the CYD
+// board files, not yet from a board: its rotation table differs from the ILI9341's by the
 // mirror bit (0x40), and its C0h register, left at its reset value 0x2C,
 // would swap blue and red.
 struct Chip {

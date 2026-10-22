@@ -17,7 +17,11 @@
 
 #include "screen.h"
 
-const char* DEMO = "demo-cyd-desk-display-arduino";  // tells the setup page which demo this is
+// Tells the setup page which demo this is. Only a published demo's own
+// sketch says this: delete this line and board.demo(DEMO) in a sketch you
+// change, or the setup page sets your board up as this demo, with its spec,
+// decoder and dashboard.
+const char* DEMO = "demo-cyd-desk-display-arduino";
 const unsigned long REPORT_EVERY_MS = 30000;  // a report with the Wi-Fi signal; it also shows Warblet the board is there
 const unsigned long CHECK_EVERY_MS = 5000;    // how often to ask Warblet for new messages
 const unsigned long STUCK_MS = 600000;        // Wi-Fi up, yet no answer at all this long: restart
@@ -72,12 +76,14 @@ uint16_t drawnColour[LINES];
 int drawnCount = 0;
 
 // The letters the screen can show: one per character, '?' for any it has
-// no shape for (accents, emoji).
+// no shape for (accents, emoji). A newline or a tab separates words, as in
+// the MicroPython desk display.
 String letters(const String& words) {
   String out = "";
   for (unsigned i = 0; i < words.length(); i++) {
     unsigned char c = (unsigned char)words[i];
     if (c >= 0x80 && c < 0xC0) continue;  // the rest of a character already counted
+    if (c == '\n' || c == '\r' || c == '\t') c = ' ';
     out += (c >= ' ' && c <= '~') ? (char)c : '?';
   }
   return out;
@@ -237,7 +243,7 @@ void showWaiting() {
 
 // Warblet does not know this board: its device was deleted, or it was
 // never added. Nothing it sends would reach an account, so the library has
-// stopped it: no reports, no checks for messages, Wi-Fi off. Only USB setup
+// stopped it: no reports, no checks for messages, off its Wi-Fi network. Only USB setup
 // (warbletiot.com/flash) starts it again.
 void showNoAccount() {
   message = "";
@@ -270,16 +276,13 @@ void showState(Warblet::State state) {
     if (state == Warblet::NO_WIFI) showStatus("No Wi-Fi, retrying", AMBER);
     if (state == Warblet::REACHING_WARBLET) showStatus("Reaching Warblet", AMBER);
     if (state == Warblet::NO_ANSWER) showStatus("Warblet: no answer", AMBER);
-    if (state == Warblet::ANSWERED) {
-      int code = board.answer();
-      if (code == 401) {
-        showStatus("Warblet refused 401", RED);
-      } else if (code == 429) {
+    if (state == Warblet::ANSWERED) showStatus("Connected", GREEN);
+    if (state == Warblet::REFUSED) {
+      // Too many is a pause; anything else refused names its code.
+      if (board.answer() == 429) {
         showStatus("Warblet: slow down", AMBER);
-      } else if (code >= 200 && code < 300) {
-        showStatus("Connected", GREEN);
       } else {
-        showStatus("Warblet: no answer", AMBER);
+        showStatus((String("Warblet refused ") + board.answer()).c_str(), RED);
       }
     }
   }
@@ -350,11 +353,24 @@ String jsonText(const String& words, int n) {
   return out + "\"";
 }
 
+// What a message got, with the memory left, on the console: the line the
+// MicroPython desk display prints, so a long run on this image shows the
+// memory over time.
+void saySent(const char* what, bool ok) {
+  Serial.print("desk: ");
+  Serial.print(what);
+  Serial.print(ok ? " stored, " : " not stored, ");
+  Serial.print((unsigned)ESP.getFreeHeap());
+  Serial.print(" bytes free, largest block ");
+  Serial.println((unsigned)ESP.getMaxAllocHeap());
+}
+
 // Tell Warblet the message on screen was seen.
 void sendSeen() {
   seen = SENDING;
   showFooter();
   bool ok = board.sendText(("{\"seen\": " + jsonText(message, 60) + "}").c_str(), SEEN_TAG);
+  saySent("seen", ok);
   seen = ok ? SENT : WAITING;  // WAITING is tried again while the board is online
   lastSeenTry = millis();
   showFooter();
@@ -365,6 +381,7 @@ void reportWhenDue() {
   if (!board.connected() || (reported && millis() - lastReport < REPORT_EVERY_MS)) return;
   String body = "{\"wifi_dbm\": " + String(WiFi.RSSI()) + "}";
   bool ok = board.sendText(body.c_str(), saidHello ? nullptr : HELLO_TAG);
+  saySent(saidHello ? "report" : "hello", ok);
   saidHello = saidHello || ok;
   lastReport = millis();
   reported = true;

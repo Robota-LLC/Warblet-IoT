@@ -4,7 +4,7 @@
 
 Type a message in the Message box on your Warblet dashboard and it fills the screen of a Cheap Yellow Display on your desk. Tap the screen and Warblet stores that the message was seen. A routine that comes with this demo puts the fullest disk of each computer running the System monitor on the lower lines of the screen.
 
-This is the [desk display](../cyd-desk-display/README.md) as an Arduino sketch, built on the [Warblet Arduino library](../arduino-libraries/README.md): the same screens, the same words and the same routine, in C++ you can change in the Arduino IDE. The library looks after Wi-Fi, the device credential, signed messages and the setup over USB; the sketch is the screen and what it shows.
+This is the [desk display](../cyd-desk-display/README.md) as an Arduino sketch, built on the [Warblet Arduino library](../arduino-libraries/README.md): the same screens, the same words and the same routine, in C++ you can change in the Arduino IDE. The library looks after Wi-Fi, the device credential, signed messages and the setup over USB; the sketch is the screen and what it shows. Where it differs from the MicroPython desk display is listed below.
 
 ## What you need
 
@@ -15,11 +15,9 @@ This is the [desk display](../cyd-desk-display/README.md) as an Arduino sketch, 
 
 ## Quick start
 
-Open [Set up a device](https://warbletiot.com/flash) in desktop Chrome or Edge, connect the board and select this demo. Follow the prompts to install it and send your network settings. Open the device page to see the result.
+The setup page does not install this demo yet. Build and upload it from the Arduino IDE or with arduino-cli, as below; the upload replaces the program that came on the board. Then open [Set up a device](https://warbletiot.com/flash) in desktop Chrome or Edge, connect the board and send your Wi-Fi and the device's settings over USB. If the page cannot reach the board, hold **BOOT** (not RST) while you click **Connect over USB**, and let go once the page shows the chip.
 
-If the page cannot reach the board, hold **BOOT** (not RST) while you click **Connect over USB**, and let go once the page shows the chip. Do the same for **Install firmware and set up**: hold BOOT as you click it, and let go when the install shows a percentage. The install replaces the program that came on the board.
-
-To change the sketch first, use the steps below.
+Until the page knows this demo, it sets the board up as a board of your own. Put `decoder.star` in the device's spec, and give its dashboard a Message box and a Clear button (text `clear`). The disk lines come only with the demo's own setup: the routine finds the displays by the demo they were set up from.
 
 ## Build and upload from the Arduino IDE
 
@@ -44,7 +42,7 @@ arduino-cli upload --fqbn esp32:esp32:jczn_2432s028r --input-dir build -p <PORT>
 
 Replace `<PORT>` with the board's serial port, such as `COM5` or `/dev/ttyUSB0`. The default partition scheme fits the sketch, with room to spare.
 
-The setup page writes one of two images:
+The demo is published as two images; once the setup page offers it, it writes one of them:
 
 | Image | Offset | Writes | When |
 |---|---|---|---|
@@ -57,20 +55,26 @@ To write the sketch alone by hand: `esptool --chip esp32 --port <PORT> write_fla
 
 The screen is used sideways, 320 × 240.
 
-- **The top strip** says what the board is doing: **Connected** (green); **Reaching Warblet**, **Joining Wi-Fi**, **No Wi-Fi, retrying**, **Warblet: no answer**, **Warblet: slow down** (amber); **Warblet refused 401** and **Not set up** (red).
+- **The top strip** says what the board is doing: **Connected** (green); **Reaching Warblet**, **Joining Wi-Fi**, **No Wi-Fi, retrying**, **Warblet: no answer**, **Warblet: slow down** (amber, Warblet asking it to send less often); **Warblet refused** with the code it answered, such as 401 for a refused token, and **Not set up** (red).
 - **The middle** is the message, as big as it fits. A word is cut in two only when it is too long for the smallest letters. Before any message, it says "Type a message for" the board's id "on your Warblet dashboard".
 - **The three lines below** are the routine's, one per computer. A fourth computer replaces the one heard from longest ago. "61% full: kitchen-pi /" shows as **61% kitchen-pi /**.
 - **The bottom two lines** say how old the message is ("Message just now", "Message 3 min ago") and **Tap: I've seen it**, then **Seen: sending**, **Seen: sent** or, if the board was offline, **Seen: not sent yet**, which goes once it is back.
 
 A tap anywhere sends one "seen" with the first 60 letters of the message; tapping again sends nothing new. The letters are MicroPython's 8x8 font, scaled up; letters outside plain English show as `?`.
 
-**Not on an account** (amber) means Warblet does not know the board: its device was deleted, or it was never added to an account. The screen clears and says **Set me up at warbletiot.com/flash**. Nothing the board sends would reach an account, so it stops: no reports, no checks for messages, Wi-Fi off, across restarts too, until a new setup over USB at warbletiot.com/flash.
+**Not on an account** (amber) means Warblet does not know the board: its device was deleted, or it was never added to an account. The screen clears and says **Set me up at warbletiot.com/flash**. Nothing the board sends would reach an account, so it stops: no reports, no checks for messages, and it leaves its Wi-Fi network (the radio stays on), across restarts too, until a new setup over USB at warbletiot.com/flash.
 
-If Wi-Fi is up but nothing has answered for 10 minutes, the board restarts itself; any answer from Warblet, a refusal too, counts. A restart clears the message; the routine sends the disk line again after the board's first report, if it is less than 10 minutes old.
+If Wi-Fi is up but nothing has answered for 10 minutes, the board restarts itself; any answer from Warblet, a refusal too, counts. A network that blocks network time (NTP) counts as no answer too: the board cannot send without the date, so the strip says **Warblet: no answer** and the same restart applies. A restart clears the message; the routine sends the disk line again after the board's first report, if it is less than 10 minutes old.
+
+A new setup over USB that changes the board's id or its token restarts it as well, so it starts afresh under the new setup, says hello, and shows nothing the old one had. New Wi-Fi alone is used without a restart, and the message stays.
+
+Each message the board sends is said on the Serial Monitor with the memory left, for example `desk: report stored, 172000 bytes free, largest block 110000`.
 
 ## If the picture is wrong
 
 Boards come with one of two screen chips: an ILI9341, or on most two-USB boards an ST7789. At start the sketch asks the screen which it is and sets itself up for that chip; a line on the Serial Monitor at start says what it found. Some two-USB boards cannot answer. They get the ST7789's settings, and the screen says **Screen chip guessed: see screen.h** in small grey letters.
+
+The sketch drives the screen itself, with no graphics library: libraries such as TFT_eSPI fix the chip when the sketch is built, and this one asks the screen at start, and draws the same pixels as the MicroPython desk display.
 
 The settings at the top of `screen.h` fix a wrong picture:
 
@@ -80,9 +84,18 @@ The settings at the top of `screen.h` fix a wrong picture:
 | `FLIP = true` | The picture is upside down. |
 | `MIRROR = true` | The writing reads backwards. If it is then upside down, set `FLIP` too. |
 | `SWAP_RED_BLUE = true` | Red shows as blue: the amber strip turns light blue. |
-| `CHIP = "ILI9341"` or `"ST7789"` | The guess was wrong, or to skip the question. |
+| `CHIP = "ILI9341"` or `"ST7789"` | The guess was wrong, or to skip the question. Any other name stops the build with a message. |
 
 Change the line, upload again, and the board keeps its setup.
+
+## Where it differs from the MicroPython desk display
+
+- **A refusal shows its code.** Warblet refusing a message or a check with 403, 404 or a 5xx fault shows **Warblet refused** and the code; the MicroPython display says **Warblet: no answer** for those.
+- **New Wi-Fi keeps the message.** A setup push of Wi-Fi alone is used at once; the MicroPython display restarts after every push. A push with a new id or token restarts both.
+- **No Stopped screen.** There is no prompt to stop the sketch at, so it never shows **Stopped**.
+- **Longer messages.** A message up to 8,192 bytes is shown; the MicroPython display does not show one over 1,024.
+- **Waits after a refusal.** After Warblet refuses a message or does not answer, the board waits 20 s to 10 minutes before it sends the next. A tap in that time says **Seen: not sent yet** and is sent when the wait ends. Checks for messages slow down the same way: up to a minute when nothing answers, up to 10 minutes after refusals.
+- **A wrong picture needs a rebuild.** The `screen.h` settings are part of the sketch, so changing one means uploading it again from the Arduino IDE or arduino-cli; the MicroPython display keeps them in a file on the board.
 
 ## Facts
 
