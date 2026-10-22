@@ -54,6 +54,15 @@ interval:
                   X-Chirp-Token: ${code}
                   X-Chirp-Claim: ${code}
                 json: |-
+                  // This file will not build where the device would not check that
+                  // it is really talking to Warblet: the setup code would go to
+                  // whoever answered. If ESPHome suggests verify_ssl: false, do not.
+                  #ifndef USE_ESP32
+                  #error "Warblet's package needs an ESP32 board: only there does ESPHome check Warblet's certificate."
+                  #endif
+                  #ifdef CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY
+                  #error "Certificate checking is off (verify_ssl: false). Warblet's package will not send your setup code that way: remove verify_ssl: false."
+                  #endif
                   // Signs of life first, then every reading you named.
                   if (!std::isnan(id(warblet_wifi).state))
                     root["Wi-Fi signal"] = id(warblet_wifi).state;
