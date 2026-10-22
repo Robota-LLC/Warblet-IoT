@@ -38,7 +38,7 @@ Every call the library offers, what each one does, what goes on the wire, and th
 | 429 (too many, or the day's storage budget) | 20 s, or `Retry-After` | doubles, up to 10 min; `Retry-After` honoured up to an hour |
 | 5xx, or no complete answer | 20 s | doubles, up to 1 min |
 
-A stored message ends the wait. Command checks wait by the same rules.
+A stored message ends the wait. So does a new setup over USB: the next message goes at once, and if it is refused too the wait starts again at its first length. Command checks wait by the same rules; after a new setup the board checks at once.
 
 ## Settings
 

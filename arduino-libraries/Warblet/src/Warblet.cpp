@@ -284,6 +284,8 @@ bool Warblet::serviceSetup() {
         waitingSaid_ = false;
         headSaid_ = false;
         nextPoll_ = millis();
+        holdMs_ = 0;  // reports refused with the old settings wait no longer
+        reports_.reset();
         changed = true;
         if (stopped_) {
           char mark[33], fp[17];
@@ -457,8 +459,8 @@ bool Warblet::post(const uint8_t* bytes, size_t length, const char* tag) {
   int status = exchange(headLen, bytes, length, answerBody_, sizeof answerBody_);
   if (status == 202 && answerIsUnclaimed(answerBody_, response_.bodyLen())) {
     // Warblet only noted a board it does not know (contract §HTTP): the device
-    // was deleted, or its code was never used. Anyone who knows the id could
-    // claim it now, so the board stops taking part until a new USB setup.
+    // was deleted, or its code was never used. Nothing it sends would reach an
+    // account, so the board stops taking part until a new USB setup.
     stopUnclaimed();
     return false;
   }

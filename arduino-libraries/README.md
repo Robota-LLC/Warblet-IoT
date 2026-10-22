@@ -4,7 +4,7 @@ The Arduino demos in this repository build with the libraries in this folder, so
 
 | Folder | Library | Pinned at | Pin |
 |---|---|---|---|
-| [`Warblet/`](Warblet/README.md) | The Warblet Arduino library, from [Robota-LLC/Warblet-Arduino](https://github.com/Robota-LLC/Warblet-Arduino) | commit `43471c46b65e646a011618342a156f3a585bdb38` | [`Warblet.pin.json`](Warblet.pin.json) |
+| [`Warblet/`](Warblet/README.md) | The Warblet Arduino library, from [Robota-LLC/Warblet-Arduino](https://github.com/Robota-LLC/Warblet-Arduino) | commit `feb30fb0eb7d654e64eed6ac04d861bec144737b` | [`Warblet.pin.json`](Warblet.pin.json) |
 
 `Warblet/` is a copy of the library's repository at that commit, byte for byte: its `library.properties`, `LICENSE`, `README.md`, `docs/`, `src/` and `examples/`, and nothing else. `Warblet.pin.json` names the commit and lists each file's SHA-256, and the catalog's checks refuse a copy that differs from it, or from the library's repository at that commit. The library has no release yet; its first release, v0.1.0, replaces this pin.
 

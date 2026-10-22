@@ -160,6 +160,13 @@ class Backoff {
     base_ = baseMs;
     if (!failing_) wait_ = baseMs;
   }
+  // New settings: what was refused before says nothing about them.
+  void reset() {
+    wait_ = base_;
+    failing_ = false;
+    changed_ = false;
+    lastStatus_ = 0;
+  }
   bool failing() const { return failing_; }
   // True when this answer changed things: the first failure, a different
   // failure, or the first success after failures. Say something only then.

@@ -20,9 +20,12 @@
 #define LED_BUILTIN 2
 #endif
 
-// The level that lights the LED. Most boards light it on HIGH; the XIAO
-// ESP32-S3 lights it on LOW. On another board whose LED lights on LOW, set LOW.
-#if defined(ARDUINO_XIAO_ESP32S3)
+// The level that lights the LED. Most boards light it on HIGH. Seeed's XIAO
+// ESP32-S3 and S3 Plus (GPIO21), ESP32-C6 (GPIO15) and ESP32-C5 (GPIO27)
+// light it on LOW, as Seeed's getting-started pages for each board show. On
+// another board whose LED lights on LOW, set LOW.
+#if defined(ARDUINO_XIAO_ESP32S3) || defined(ARDUINO_XIAO_ESP32S3_PLUS) || defined(ARDUINO_XIAO_ESP32C6) || \
+    defined(ARDUINO_XIAO_ESP32C5)
 const int LED_ON = LOW;
 #else
 const int LED_ON = HIGH;

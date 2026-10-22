@@ -55,7 +55,7 @@ In the Arduino IDE, choose **Sketch → Include Library → Add .ZIP Library** a
 | **TwoBoards** | A press on one board blinks the other board's LED, through a routine on Warblet (`pair.star`). | A push button on each board |
 | **DeskDisplay** | The Warblet desk display on a Cheap Yellow Display (ESP32-2432S028R): a message typed on the dashboard fills the screen, a tap says it was seen, and a routine shows how full your computers' disks are. | None: the board's own screen |
 
-The LED examples have an `LED_ON` constant: the level that lights the LED. It is `LOW` on a XIAO ESP32-S3, whose LED lights when its pin is low, and `HIGH` elsewhere. Change it if your board's LED lights on `LOW`.
+The LED examples have an `LED_ON` constant: the level that lights the LED. It is `LOW` on Seeed's XIAO ESP32-S3, ESP32-S3 Plus, ESP32-C6 and ESP32-C5, whose LEDs light when their pin is low, and `HIGH` elsewhere. Change it if your board's LED lights on `LOW`.
 
 SensorReading and Button set no command function, so they never ask for commands. The others ask every 10 seconds over HTTPS; DeskDisplay asks every 5.
 
@@ -77,11 +77,11 @@ What MQTT costs:
 
 The library prints its own lines on `Serial`, each starting `warblet:`. They say what it is doing and why something failed: waiting for settings, Wi-Fi joined, a message not stored and why, a command received (its size, never its words). A sketch can show the same on a screen or a light with `board.state()`. Each problem is said once, not on every try. Over MQTT, while the broker cannot be reached, Espressif's TLS layer also prints its own `E (...)` lines; the library leaves them, because quieting them would hide your sketch's own TLS errors too.
 
-When Warblet refuses a message or does not answer, the board waits before it sends again: a minute after a refusal, doubling while it lasts, up to ten; 20 seconds when nothing answers or Warblet has a fault, doubling up to a minute. Until then `sendNumber()` returns `false` at once. Command checks slow down the same way.
+When Warblet refuses a message or does not answer, the board waits before it sends again: a minute after a refusal (401, 403, 404), doubling while it lasts, up to ten; 20 seconds after "too many" (429), doubling up to ten minutes, or longer if Warblet asks; 20 seconds when nothing answers or Warblet has a fault, doubling up to a minute. Until then `sendNumber()` returns `false` at once. A new setup over USB ends the wait. Command checks slow down the same way.
 
 ## If Warblet does not know the board
 
-If its device was deleted, or its setup code was never used, Warblet answers the board's next message with `unclaimed`. Over MQTT, Warblet refuses its connection because no device has its id. Then anyone who knows the board's id could claim it, so the board stops:
+If its device was deleted, or its setup code was never used, Warblet answers the board's next message with `unclaimed`. Over MQTT, Warblet refuses its connection because no device has its id. Nothing the board sends would reach an account, so it stops:
 - it sends no messages and asks for no commands;
 - it turns Wi-Fi off;
 - it says why on the console, once.
