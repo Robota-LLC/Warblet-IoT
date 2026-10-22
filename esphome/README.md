@@ -18,6 +18,12 @@ You add a few lines to your device's YAML. They include [warblet.yaml](warblet.y
 2. Put the line the page shows into your `secrets.yaml`. It holds your setup code; keep it private.
 3. Add the `packages:` lines the page shows to your device's YAML, then install as usual.
 
+## Keep the code private
+
+The setup code is your device's key to Warblet. It sits in `secrets.yaml` and is built into the firmware, so keep both to yourself. The output of `esphome config`, and some of ESPHome's error messages, can print it too: check before you paste them anywhere.
+
+If ESPHome suggests `verify_ssl: false`, do not set it. The package will not build that way, because your code would go to whoever answered instead of Warblet.
+
 ## What it sends
 
 Every sensor, binary sensor and text sensor on your device, by the name you gave it, plus `Wi-Fi signal` and `Uptime`. A sensor you mark `internal: true` stays on the device.
