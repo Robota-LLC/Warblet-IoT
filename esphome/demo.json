@@ -1,0 +1,48 @@
+{
+  "slug": "demo-esphome",
+  "chips": [],
+  "board": "An ESP32 board running ESPHome 2026.10 or newer",
+  "network": "none",
+  "starter": false,
+  "result": "See your ESPHome device's readings on your Warblet dashboard, and get an email when one passes a limit.",
+  "firstMessage": "It sends its first report about a minute after it starts, then one a minute.",
+  "spec": {
+    "transport": "http",
+    "securityLevel": 1,
+    "retentionDays": 7,
+    "uiConfig": {}
+  },
+  "routine": {
+    "file": "limit-email.star",
+    "name": "ESPHome: email when a reading passes a limit",
+    "scope": "spec",
+    "minIntervalMs": 0
+  },
+  "firmware": {
+    "kind": "external",
+    "files": ["warblet.yaml", "warblet-commands.yaml", "xiao-esp32s3.yaml"],
+    "connect": [
+      {
+        "label": "ESPHome",
+        "text": "warblet_{id}: \"{code}\"\npackages:\n  warblet:\n    url: https://github.com/Robota-LLC/Warblet-IoT\n    ref: v1.5.0\n    files:\n      - path: esphome/warblet.yaml\n        vars:\n          id: {id}\n          code: !secret warblet_{id}",
+        "steps": [
+          {
+            "title": "Add your setup code to secrets.yaml",
+            "text": "warblet_{id}: \"{code}\""
+          },
+          {
+            "title": "Add these lines to your device's YAML, then install it",
+            "text": "packages:\n  warblet:\n    url: https://github.com/Robota-LLC/Warblet-IoT\n    ref: v1.5.0\n    files:\n      - path: esphome/warblet.yaml\n        vars:\n          id: {id}\n          code: !secret warblet_{id}"
+          }
+        ]
+      }
+    ]
+  },
+  "provision": {
+    "host": "https.warbletiot.com",
+    "commands": [],
+    "knobs": {
+      "level": {"max": 1}
+    }
+  }
+}
