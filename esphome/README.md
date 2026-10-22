@@ -10,7 +10,7 @@ You add a few lines to your device's YAML. They include [warblet.yaml](warblet.y
 
 - An ESP32 board running ESPHome 2026.10 or newer.
 - Wi-Fi with internet access.
-- A Warblet account, and an email address for the alerts.
+- A Warblet account, and an alert email address.
 
 ## Set it up
 
