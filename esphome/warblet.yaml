@@ -14,10 +14,10 @@ defaults:
   server: https://https.warbletiot.com  # Warblet's address: leave it as it is
 
 esphome:
-  min_version: 2026.10.0              # the ESPHome this file was tested with
+  min_version: 2026.10.0              # the ESPHome this file was built and checked with
 
-http_request:                         # ESPHome's own web client. On an ESP32 it
-                                      # checks that it is really talking to Warblet.
+http_request:                         # ESPHome's own web client, with certificate
+                                      # checking on (see the report below)
 
 globals:
   - id: warblet_ok                    # true while Warblet stores our reports
