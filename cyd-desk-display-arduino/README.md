@@ -64,7 +64,7 @@ The screen is used sideways, 320 × 240.
 
 A tap anywhere sends one "seen" with the first 60 letters of the message; tapping again sends nothing new. The letters are MicroPython's 8x8 font, scaled up; letters outside plain English show as `?`.
 
-**Not on an account** (amber) means Warblet does not know the board: its device was deleted, or it was never added to an account. The screen clears and says **Set me up at warbletiot.com/flash**, without the board's id, since anyone who knows the id of a board on no account could claim it. The board then stops: no reports, no checks for messages, Wi-Fi off, across restarts too, until a new setup over USB at warbletiot.com/flash.
+**Not on an account** (amber) means Warblet does not know the board: its device was deleted, or it was never added to an account. The screen clears and says **Set me up at warbletiot.com/flash**. Nothing the board sends would reach an account, so it stops: no reports, no checks for messages, Wi-Fi off, across restarts too, until a new setup over USB at warbletiot.com/flash.
 
 If Wi-Fi is up but nothing has answered for 10 minutes, the board restarts itself; any answer from Warblet, a refusal too, counts. A restart clears the message; the routine sends the disk line again after the board's first report, if it is less than 10 minutes old.
 

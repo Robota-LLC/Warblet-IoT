@@ -236,9 +236,9 @@ void showWaiting() {
 }
 
 // Warblet does not know this board: its device was deleted, or it was
-// never added. Anyone who knows its id could claim it and send it messages,
-// so the library has stopped it: no reports, no checks for messages, Wi-Fi
-// off. Only USB setup (warbletiot.com/flash) starts it again.
+// never added. Nothing it sends would reach an account, so the library has
+// stopped it: no reports, no checks for messages, Wi-Fi off. Only USB setup
+// (warbletiot.com/flash) starts it again.
 void showNoAccount() {
   message = "";
   infoCount = 0;

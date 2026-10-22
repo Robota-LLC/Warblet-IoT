@@ -3,9 +3,10 @@
 # ("/ used %", "C: used %") is one; the line goes out when it differs from
 # the last one sent (with two computers, their lines take turns), and to a
 # display that has just started: its first report is tagged "hello".
-# Nothing to type in: the displays are found by their demo's name.
+# Nothing to type in: the displays are found by their demo's name, the
+# MicroPython desk display's or the Arduino one's.
 
-DISPLAYS = ["demo-cyd-desk-display"]
+DISPLAYS = ["demo-cyd-desk-display", "demo-cyd-desk-display-arduino"]
 FRESH = 10                               # minutes: an older line is not given to a display that starts
 
 def routine(event, state, mem):
