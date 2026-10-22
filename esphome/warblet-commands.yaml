@@ -49,6 +49,8 @@ interval:
                 on_response:
                   then:
                     - lambda: |-
+                        static_assert(std::string_view("${server}").substr(0, 8) == "https://",
+                                      "Warblet's server address must start with https://");
                         if (response->status_code == 204) return;   // nothing waiting
                         if (response->status_code != 200) {          // refused: wait
                           id(warblet_ok) = false;

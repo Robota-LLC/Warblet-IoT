@@ -63,6 +63,8 @@ interval:
                   #ifdef CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY
                   #error "Certificate checking is off (verify_ssl: false). Warblet's package will not send your setup code that way: remove verify_ssl: false."
                   #endif
+                  static_assert(std::string_view("${server}").substr(0, 8) == "https://",
+                                "Warblet's server address must start with https://");
                   // Signs of life first, then every reading you named.
                   if (!std::isnan(id(warblet_wifi).state))
                     root["Wi-Fi signal"] = id(warblet_wifi).state;
