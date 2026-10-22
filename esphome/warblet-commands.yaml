@@ -1,0 +1,64 @@
+# Warblet commands for ESPHome: lets you send commands from your Warblet
+# dashboard to your device. Include it next to warblet.yaml, with the same id
+# and code.
+#
+# Every 15 seconds the device asks Warblet for the next command and puts its
+# text in the "Warblet command" text sensor. Nothing happens on your device
+# unless your own YAML says what a command does, for example:
+#
+#   text_sensor:
+#     - id: !extend warblet_command
+#       on_value:
+#         - if:
+#             condition:
+#               lambda: return x == "led:on";
+#             then:
+#               - switch.turn_on: led
+#
+# It only asks while Warblet is storing this device's reports. After a failed
+# or refused ask it waits for the next stored report, so a device that cannot
+# reach Warblet makes one try a minute, not four.
+
+defaults:
+  check_every: 15s                    # how often to ask for a command
+  server: https://https.warbletiot.com  # Warblet's address: leave it as it is
+
+text_sensor:
+  - platform: template
+    id: warblet_command
+    name: Warblet command
+    internal: true                    # your automations see it; nothing else does
+    update_interval: never
+
+interval:
+  - interval: ${check_every}
+    then:
+      - if:
+          condition:
+            lambda: return network::is_connected() && id(warblet_ok) && !id(warblet_stopped);
+          then:
+            - http_request.post:
+                url: ${server}/ingest/${id}/down
+                request_headers:
+                  X-Chirp-Token: ${code}
+                collect_headers:
+                  - x-chirp-down
+                capture_response: true
+                max_response_buffer_size: 512
+                on_response:
+                  then:
+                    - lambda: |-
+                        if (response->status_code == 204) return;   // nothing waiting
+                        if (response->status_code != 200) {          // refused: wait
+                          id(warblet_ok) = false;
+                          ESP_LOGW("warblet", "command check refused: HTTP %d", response->status_code);
+                          return;
+                        }
+                        if (response->get_response_header("x-chirp-down") == "key") {
+                          ESP_LOGW("warblet", "Warblet sent a signing key; this file does not use one");
+                          return;
+                        }
+                        id(warblet_command).publish_state(body);
+                on_error:
+                  then:
+                    - lambda: id(warblet_ok) = false;
