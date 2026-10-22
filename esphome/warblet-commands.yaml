@@ -43,6 +43,7 @@ interval:
                   X-Chirp-Token: ${code}
                 collect_headers:
                   - x-chirp-down
+                  - content-length
                 capture_response: true
                 max_response_buffer_size: 8192B   # Warblet's longest command
                 on_response:
@@ -58,11 +59,14 @@ interval:
                           ESP_LOGW("warblet", "Warblet sent a signing key; this file does not use one");
                           return;
                         }
-                        // A command is used whole or not at all, never cut short.
+                        // A command is used whole or not at all: never empty, never cut
+                        // short. ESP-IDF says whether the whole answer was read (a long
+                        // command comes in pieces with no length), and a length must match.
                         std::string length = response->get_response_header("content-length");
-                        if (!length.empty() && strtoul(length.c_str(), nullptr, 10) != body.size()) {
-                          ESP_LOGW("warblet", "a command of %s bytes was not read whole; it was left out",
-                                   length.c_str());
+                        if (body.empty() || !response->is_read_complete() ||
+                            (!length.empty() && strtoul(length.c_str(), nullptr, 10) != body.size())) {
+                          ESP_LOGW("warblet", "a command was not read whole (%u bytes read); it was left out",
+                                   (unsigned) body.size());
                           return;
                         }
                         id(warblet_command).publish_state(body);
