@@ -57,5 +57,17 @@
     "GCC-Runtime-Library-Exception.txt",
     "BSD-3-Clause-TLSF.txt",
     "MIT-Cadence-Xtensa.txt"
+  ],
+  "cyd-desk-display-arduino": [
+    "LGPL-2.1.txt",
+    "Apache-2.0.txt",
+    "MIT-FreeRTOS-Kernel.txt",
+    "BSD-3-Clause-lwIP.txt",
+    "BSD-3-Clause-wpa_supplicant.txt",
+    "COPYING.NEWLIB.txt",
+    "GCC-Runtime-Library-Exception.txt",
+    "BSD-3-Clause-TLSF.txt",
+    "MIT-Cadence-Xtensa.txt",
+    "MIT-MicroPython-font.txt"
   ]
 }

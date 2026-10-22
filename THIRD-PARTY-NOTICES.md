@@ -53,6 +53,26 @@ The license texts are also in the fetched directories (`LICENSE.md`, `LICENSE` o
 | Cadence Design Systems' Xtensa code in the three camera images: the Xtensa HAL (`libxt_hal.a`), the exception vectors, context and interrupt handling, and the FreeRTOS Xtensa port | MIT | `licenses/MIT-Cadence-Xtensa.txt` |
 | libgcc and, where linked, libstdc++: the GCC runtime libraries of the Espressif toolchain | GPL-3.0 with the GCC Runtime Library Exception | `licenses/GCC-Runtime-Library-Exception.txt` |
 
+## Built into the Arduino image: the desk display (Arduino)
+
+`cyd-desk-display-arduino` builds with Espressif's Arduino core for ESP32 3.3.12, which brings ESP-IDF v5.5.5 as prebuilt libraries, and with the Warblet library in `arduino-libraries/`. Its images (the `-full.bin` image, which includes the bootloader and the partition table, and the `-update.bin` application image) contain these components, read off the linker map of the build. The Warblet library and the sketch are part of this repository and covered by its MIT license; the rest is not.
+
+| Component | License | Text |
+|---|---|---|
+| The Arduino core for ESP32: the core, the WiFi, Network, NetworkClientSecure, Preferences and SPI libraries, and the board's variant (the Arduino team, Espressif Systems and contributors) | LGPL-2.1-or-later; the files Espressif and others place under Apache-2.0 keep it, among them `ssl_client.cpp` and `Preferences.cpp` | `licenses/LGPL-2.1.txt`, `licenses/Apache-2.0.txt` |
+| ESP-IDF: the framework, its drivers, the bootloader, and the prebuilt Wi-Fi, PHY, coexistence and Bluetooth controller libraries, with Espressif's network provisioning and diagnostics components (Espressif Systems) | Apache-2.0 | `licenses/Apache-2.0.txt` |
+| FreeRTOS kernel (Amazon.com, Inc. and contributors) | MIT | `licenses/MIT-FreeRTOS-Kernel.txt` |
+| Mbed TLS, under its Apache-2.0 option | Apache-2.0 | `licenses/Apache-2.0.txt` |
+| lwIP (Swedish Institute of Computer Science and contributors) | BSD-3-Clause | `licenses/BSD-3-Clause-lwIP.txt` |
+| newlib, the C library of the Espressif toolchain | BSD-style, several copyright holders | `licenses/COPYING.NEWLIB.txt` |
+| wpa_supplicant (Jouni Malinen and contributors) | BSD-3-Clause | `licenses/BSD-3-Clause-wpa_supplicant.txt` |
+| TLSF, the two-level segregated fit allocator behind the heap (Matthew Conte) | BSD-3-Clause | `licenses/BSD-3-Clause-TLSF.txt` |
+| Cadence Design Systems' Xtensa code: the Xtensa HAL, the exception vectors, and context and interrupt handling | MIT | `licenses/MIT-Cadence-Xtensa.txt` |
+| libgcc and libstdc++: the GCC runtime libraries of the Espressif toolchain | GPL-3.0 with the GCC Runtime Library Exception | `licenses/GCC-Runtime-Library-Exception.txt` |
+| The 8x8 font of MicroPython v1.28.0 (Damien P. George), in the sketch's `screen.cpp` | MIT | `licenses/MIT-MicroPython-font.txt` |
+
+The image links the Arduino core statically. The core's source is Espressif's [arduino-esp32](https://github.com/espressif/arduino-esp32) at tag `3.3.12`; the sketch and the Warblet library are in this repository, and the prebuilt ESP-IDF libraries come with the core. So you can change the core and link the image again: build the demo as its README says, against your changed copy of the core.
+
 ## Bundled license texts
 
 `licenses/` holds the texts named above, and `licenses/demos.json` says which of them each compiled demo's image contains. The catalog publisher puts `LICENSE`, this file and those texts into every demo's download bundle, so the notices travel with the image.
