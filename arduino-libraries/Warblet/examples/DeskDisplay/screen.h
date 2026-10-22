@@ -18,11 +18,17 @@
 
 namespace screen {
 
-const char* const CHIP = "";        // "": ask the screen. Or "ILI9341" or "ST7789" to skip asking.
+constexpr const char* CHIP = "";    // "": ask the screen. Or "ILI9341" or "ST7789" to skip asking.
 const bool INVERT = false;          // true if the colours look like a photo negative.
 const bool FLIP = false;            // true if the picture is upside down.
 const bool MIRROR = false;          // true if the writing reads backwards; if it is then upside down, set FLIP too.
 const bool SWAP_RED_BLUE = false;   // true if red shows as blue and blue as red.
+
+// Any other CHIP stops the build here, rather than using the ST7789's
+// settings without a word.
+constexpr bool sameText(const char* a, const char* b) { return *a == *b && (*a == '\0' || sameText(a + 1, b + 1)); }
+static_assert(sameText(CHIP, "") || sameText(CHIP, "ILI9341") || sameText(CHIP, "ST7789"),
+              "screen.h: CHIP must be \"\" (ask the screen), \"ILI9341\" or \"ST7789\"");
 
 const int WIDTH = 320;
 const int HEIGHT = 240;

@@ -100,7 +100,9 @@ class ProvResponder {
   char buf_[kProvLineMax + 1];
   size_t len_ = 0;
   bool overflow_ = false;
-  char reply_[200];
+  // The longest reply is the announce: "CHIRP! v=1", " hw=" and a 128-byte
+  // id, " radios=wifi sig=1", and " t=" with a 40-byte slug.
+  char reply_[10 + 4 + 128 + 18 + 3 + 40 + 1];
   char slug_[41] = "";
 };
 

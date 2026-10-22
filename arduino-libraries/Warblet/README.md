@@ -40,7 +40,7 @@ In the Arduino IDE, choose **Sketch → Include Library → Add .ZIP Library** a
 
 1. Open an example, such as **LightByCommand**. Its comments say what to wire.
 2. Upload it, then close the Serial Monitor: the setup page needs the port.
-3. Use https://warbletiot.com/flash to send your Wi-Fi and the device's settings over USB.
+3. Use https://warbletiot.com/flash to send your Wi-Fi and the device's settings over USB. The board restarts once a new device id or token is stored, so your sketch starts afresh under it; new Wi-Fi alone is used without a restart.
 4. The board's first message adds it to your account. Open its device page to see what it sends.
 5. Paste the example's `decoder.star` into the device's spec, so the dashboard shows the reading as a number.
 
@@ -83,7 +83,7 @@ When Warblet refuses a message or does not answer, the board waits before it sen
 
 If its device was deleted, or its setup code was never used, Warblet answers the board's next message with `unclaimed`. Over MQTT, Warblet refuses its connection because no device has its id. Nothing the board sends would reach an account, so it stops:
 - it sends no messages and asks for no commands;
-- it turns Wi-Fi off;
+- it leaves its Wi-Fi network (the radio stays on, so the setup page can still reach it over USB);
 - it says why on the console, once.
 
 It stays stopped after a restart. To start it again, set it up over USB at warbletiot.com/flash; changing only the Wi-Fi does not count. A board whose settings are typed into `board.begin()` starts again with new settings typed in and uploaded. The board keeps a short fingerprint of the refused setup, never the code itself.
@@ -96,7 +96,7 @@ It stays stopped after a restart. To start it again, set it up over USB at warbl
 
 Every connection is TLS: HTTPS, or MQTT on port 8883. The board checks that the server's certificate chains to one of four pinned Let's Encrypt roots and names the host. The device token says which device is talking.
 
-With a signing key, each message also carries an HMAC-SHA256 signature over its tag and its bytes, and over HTTPS a timestamp nonce too. Warblet refuses a message that was altered, and over HTTPS a copy sent again. Signing is not encryption; TLS is what keeps the bytes unreadable on the way. Over HTTPS, a sketch with a command function can also receive a new signing key from Warblet; over MQTT a key comes only over USB.
+With a signing key, each message also carries an HMAC-SHA256 signature over its tag and its bytes, and over HTTPS a timestamp nonce too. Warblet refuses a message that was altered, and over HTTPS a copy sent again. Signing is not encryption; TLS is what keeps the bytes unreadable on the way. Over HTTPS, a sketch with a command function can also receive its signing key from Warblet over the air, because it asks Warblet for commands. Every other board gets its key only over USB, from the setup page: a sketch with no command function never asks, and over MQTT a key never comes over the air.
 
 The settings, including Wi-Fi passwords, the token and the key, are stored unencrypted in the board's flash, and the board accepts new settings from anyone at its USB port. Physical access to a board is full access to it.
 

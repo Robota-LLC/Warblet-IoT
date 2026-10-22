@@ -22,6 +22,9 @@ const char* const kDefaultHost = "https.warbletiot.com";  // contract §Hosts
 const uint16_t kPort = 443;
 const unsigned long kCommandCheckMs = 10000UL;  // how often to ask for commands
 const unsigned long kCommandCheckMinMs = 5000UL;  // the fastest a sketch may ask for
+// restartWhenStuck(): shorter would restart at the first unanswered request,
+// over and over through an outage that ends by itself.
+const unsigned long kStuckMinMs = 300000UL;
 const unsigned long kCommandCheckMaxMs = 600000UL;  // the longest back-off, after refusals
 const unsigned long kUnansweredMaxMs = 60000UL;     // ...and when nothing answers (an outage)
 const unsigned long kSetupQuietMs = 10000UL;    // after a CHIRP? answer: USB only
@@ -105,8 +108,8 @@ void Warblet::setState(State state, int answer) {
 void Warblet::answered(int status) {
   if (stopped_) return;  // NOT_ON_ACCOUNT stays, and asks nothing
   if (status >= 0) {
-    lastAnswerMs_ = millis();
-    setState(ANSWERED, status);
+    lastAnswerMs_ = millis();  // any answer, a refusal too: the network works
+    setState(status >= 200 && status < 300 ? ANSWERED : REFUSED, status);
     return;
   }
   setState(NO_ANSWER, answer_);
@@ -121,7 +124,13 @@ void Warblet::answered(int status) {
   }
 }
 
-void Warblet::restartWhenStuck(unsigned long ms) { stuckMs_ = ms; }
+void Warblet::restartWhenStuck(unsigned long ms) {
+  if (ms != 0 && ms < kStuckMinMs) {
+    say("restartWhenStuck(): 5 min at least, so 5 min");
+    ms = kStuckMinMs;
+  }
+  stuckMs_ = ms;
+}
 
 // A setup Warblet answered "unclaimed" stays refused across a restart: the
 // board keeps its fingerprint (never the code) and compares it at start.
@@ -138,7 +147,7 @@ void Warblet::checkRefused() {
 
 void Warblet::sayStopped() {
   say("not on an account: Warblet does not know this board (its device was deleted, or its setup code was never "
-      "used). It has stopped: no reports, no command checks, Wi-Fi off.");
+      "used). It has stopped: no reports, no command checks, off its Wi-Fi network.");
   say(typed_ ? "to start it again, type new settings (a token from the device page) into begin() and upload the sketch"
              : "to start it again, set it up over USB at warbletiot.com/flash");
 }
@@ -274,7 +283,10 @@ bool Warblet::serviceSetup() {
       Serial.println(setup_.stored(ok));
       quiet_ = false;
       if (ok) {
-        // Use the new settings now: drop Wi-Fi and join with them.
+        // A new id or token is a new start (below); anything else is used now:
+        // drop Wi-Fi and join with it.
+        bool newSetup = strcmp(settings_.hwId, setup_.pending().hwId) != 0 ||
+                        strcmp(settings_.credential, setup_.pending().credential) != 0;
         settings_ = setup_.pending();
         hasKey_ = settings_.key[0] && decodeKey(settings_.key, strlen(settings_.key), key_);
         if (mqtt_ != nullptr) (this->*mqtt_->restart)();  // a session uses the credential it started with
@@ -297,6 +309,12 @@ bool Warblet::serviceSetup() {
           stopped_ = false;
           stoppedSaid_ = false;
           board::saveRefusedMark("");
+        }
+        if (newSetup) {
+          // As the MicroPython demos do: the sketch starts afresh under the new
+          // setup, so it says hello again and shows nothing the old one had.
+          say("settings saved; a new setup, so the board restarts");
+          board::restart();
         }
         say("settings saved; connecting with them");
       }
@@ -331,6 +349,7 @@ bool Warblet::ensureOnline() {
       clockSet_ = true;
     } else if (!clockSet_) {
       say("no clock yet: this network must allow NTP, because secure connections need the date");
+      answered(-1);  // nothing can be sent: no answer, and the restartWhenStuck() rule
       return false;
     }
   }
@@ -536,6 +555,12 @@ int Warblet::poll() {
     return -1;
   }
   int status = exchange(headLen, nullptr, 0, commandBody, kCommandMax);
+  if (status == 202 && answerIsUnclaimed(commandBody, response_.bodyLen())) {
+    // The ingest's answer for a board Warblet does not know, on a command
+    // check: the same stop as a report that hears it.
+    stopUnclaimed();
+    return status;
+  }
   answered(status);
   commandChecks_.after(status, response_.retryAfter());
   if (commandChecks_.changed()) {

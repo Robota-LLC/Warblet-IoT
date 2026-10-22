@@ -19,12 +19,12 @@ Every call the library offers, what each one does, what goes on the wire, and th
 | `board.onCommand(function)` | Hands each command to `function(String text)`. Over HTTPS, the board asks for commands only once a function is set, every 10 s; after a command it asks again at once, up to ten in a row, so commands sent together arrive together. |
 | `board.checkCommandsEvery(ms)` | Over HTTPS, how often to ask for commands instead of every 10 s; never more often than every 5 s. |
 | `board.connected()` | True while Wi-Fi is up and the settings are complete; over MQTT, also while the session is open. |
-| `board.state()` | What the board is doing, for a screen or a light: `NOT_SET_UP`, `JOINING_WIFI`, `NO_WIFI`, `REACHING_WARBLET`, `ANSWERED`, `NO_ANSWER` or `NOT_ON_ACCOUNT`. |
-| `board.answer()` | The HTTP status of Warblet's latest answer: 200, 202 or 204 when all is well, 401 refused, 429 too many; 0 before any. Over MQTT, 200 while the session is open and 401 when the broker refuses the token. |
+| `board.state()` | What the board is doing, for a screen or a light: `NOT_SET_UP`, `JOINING_WIFI`, `NO_WIFI`, `REACHING_WARBLET`, `ANSWERED` (Warblet took the latest request), `REFUSED` (Warblet answered it and did not take it: 401, 403, 404, 429, a 5xx fault, or the MQTT broker refusing the token), `NO_ANSWER` or `NOT_ON_ACCOUNT`. |
+| `board.answer()` | The HTTP status of Warblet's latest answer: 200, 202 or 204 when all is well (`ANSWERED`), 401 refused, 429 too many, 5xx a fault (`REFUSED`); 0 before any. Over MQTT, 200 while the session is open and 401 when the broker refuses the token. |
 | `board.onState(function)` | Runs `function(Warblet::State state)` each time `state()` or `answer()` changes, and once at `begin()`. It runs inside the library's work, even while Wi-Fi joins, so it should only show the state. |
 | `board.deviceId()` | The device id the setup page gave the board, or `""` before it has one. |
-| `board.demo(slug)` | For a demo's sketch: names the demo (`"demo-cyd-desk-display-arduino"`), so the board tells the setup page which demo it runs. Call it before `begin()`. |
-| `board.restartWhenStuck(ms)` | A last resort for a board on its own: when a request gets no answer at all while Wi-Fi says it is connected, and nothing has answered for `ms`, the board restarts. Any answer counts, a refusal too, and so does the start; never with no settings, or once stopped. A restart loses what the sketch had in memory. |
+| `board.demo(slug)` | For a demo's sketch: names the demo (`"demo-cyd-desk-display-arduino"`), so the board tells the setup page which demo it runs. Call it before `begin()`. **Only a published demo's own sketch calls this.** Delete the line in a sketch you change, or the setup page sets your board up as that demo, with its spec, decoder and dashboard. |
+| `board.restartWhenStuck(ms)` | A last resort for a board on its own: when a request gets no answer at all while Wi-Fi says it is connected, and nothing has answered for `ms`, the board restarts. Any answer counts, a refusal too, and so does the start; never with no settings, or once stopped. Under 5 minutes means 5 minutes, and is said. A board on Wi-Fi that cannot set its clock (NTP blocked) sends nothing, so it is `NO_ANSWER` too and counts the same. A restart loses what the sketch had in memory. |
 
 `tag` is optional on every send. It is 1 to 32 letters, digits, `_`, `.` or `-`, such as `button` or `heartbeat`; routines can match on it.
 
@@ -52,7 +52,7 @@ The setup page sends settings over USB, and the board stores them in its flash (
 | signing key | 44 base64 characters that decode to 32 bytes, or none |
 | host | up to 128 characters, or none for Warblet's own |
 
-The board tries its networks in order, 12 s each, and tries the list again every 15 s until one joins. After it answers the setup page's probe (`CHIRP?`) it listens only on USB for 10 s, so the settings that follow are read as they arrive. A setup line can be up to 2,048 characters. Settings take effect as soon as they are stored, without a restart.
+The board tries its networks in order, 12 s each, and tries the list again every 15 s until one joins. After it answers the setup page's probe (`CHIRP?`) it listens only on USB for 10 s, so the settings that follow are read as they arrive. A setup line can be up to 2,048 characters. Settings that change the device id or the token are a new start: the board answers `CHIRP= ok`, then restarts, so the sketch starts afresh under the new setup (a hello again, nothing the old setup showed). Any other settings - Wi-Fi networks, a key, a host - take effect as soon as they are stored, without a restart.
 
 The setup code is the board's credential until its first message is stored: that message adds the board to your account, and from then on the same code is its token. A new token, or a signing key, can be pushed over USB at any time.
 
@@ -80,7 +80,7 @@ A command check is `POST /ingest/{deviceId}/down` with an empty body. With a sig
 | `202` | stored: `true` |
 | `202 {"status":"unclaimed"}` | Warblet does not know the board: it stops (below) |
 | `204` | no command waiting |
-| `200` with a body | a command, handed to the command function; or, when the body starts `CHIRPKEY1 `, a new signing key, which is stored and used from then on |
+| `200` with a body | a command, handed to the command function; or, when the body starts `CHIRPKEY1 `, a new signing key, which is stored and used from then on. Only a sketch with a command function asks, so only it can get a key over the air; every other board, and every board over MQTT, gets its key only over USB, from the setup page |
 | `401`, `403`, `404`, `429`, `5xx` | not stored; it waits (above). A `429` that carries `X-Chirp-Budget` is the day's storage budget; one without it is the rate. |
 
 A reply cut short, or with neither a length nor chunking, is treated as no answer.
@@ -102,7 +102,7 @@ When the broker refuses the board's token, the board says so and tries again a m
 
 When Warblet answers a message `202 {"status":"unclaimed"}`, or refuses the MQTT connection with code 4, the board's device was deleted or its setup code was never used. The board then:
 - sends no messages and asks for no commands;
-- turns Wi-Fi off and says so once;
+- leaves its Wi-Fi network (`WiFi.disconnect()`; the radio stays on) and says so once;
 - stays stopped after a restart. It keeps a 16-character fingerprint of the refused setup, never the setup itself.
 
 A new setup over USB (a new setup code, token, key or device id) starts it again; a Wi-Fi-only push does not. A board with typed settings starts again with new settings typed into `begin()` and uploaded. `state()` is `NOT_ON_ACCOUNT` while it is stopped.
