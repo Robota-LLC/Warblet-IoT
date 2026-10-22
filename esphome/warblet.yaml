@@ -1,0 +1,100 @@
+# Warblet for ESPHome: sends your device's readings to Warblet
+# (https://warbletiot.com) over HTTPS, once a minute.
+#
+# You include this file from your own device YAML and never edit it. The setup
+# page on warbletiot.com gives you the lines to paste: your device's id, and a
+# setup code that you keep in secrets.yaml.
+#
+# What it sends: every sensor, binary sensor and text sensor on your device, by
+# the name you gave it, plus the Wi-Fi signal and the uptime. To keep a sensor
+# out, mark it `internal: true` in your own YAML.
+
+defaults:
+  every: 60s                          # how often to report
+  server: https://https.warbletiot.com  # Warblet's address: leave it as it is
+
+esphome:
+  min_version: 2026.10.0              # the ESPHome this file was tested with
+
+http_request:                         # ESPHome's own web client. On an ESP32 it
+                                      # checks that it is really talking to Warblet.
+
+globals:
+  - id: warblet_ok                    # true while Warblet stores our reports
+    type: bool
+    initial_value: "false"
+  - id: warblet_stopped               # true once Warblet says it does not know
+    type: bool                        # this device; a restart tries again
+    initial_value: "false"
+
+sensor:
+  - platform: wifi_signal             # the board's own signs of life
+    id: warblet_wifi
+    name: Wi-Fi signal
+    internal: true                    # sent to Warblet, shown nowhere else
+    update_interval: ${every}
+  - platform: uptime
+    id: warblet_uptime
+    name: Uptime
+    internal: true
+    update_interval: ${every}
+
+interval:
+  - interval: ${every}
+    then:
+      - if:
+          condition:                  # online, and Warblet has not said no
+            lambda: return network::is_connected() && !id(warblet_stopped);
+          then:
+            - http_request.post:
+                url: ${server}/ingest/${id}
+                request_headers:
+                  # The setup code. The first report adds this device to your
+                  # account; after that the same code is the device's token.
+                  X-Chirp-Token: ${code}
+                  X-Chirp-Claim: ${code}
+                json: |-
+                  // Signs of life first, then every reading you named.
+                  if (!std::isnan(id(warblet_wifi).state))
+                    root["Wi-Fi signal"] = id(warblet_wifi).state;
+                  if (!std::isnan(id(warblet_uptime).state))
+                    root["Uptime"] = id(warblet_uptime).state;
+                  for (auto *s : App.get_sensors())
+                    if (!s->is_internal() && s->has_state() && !std::isnan(s->state))
+                      root[s->get_name().c_str()] = s->state;
+                  #ifdef USE_BINARY_SENSOR
+                  for (auto *b : App.get_binary_sensors())
+                    if (!b->is_internal() && b->has_state())
+                      root[b->get_name().c_str()] = b->state;
+                  #endif
+                  #ifdef USE_TEXT_SENSOR
+                  for (auto *t : App.get_text_sensors())
+                    if (!t->is_internal() && t->has_state())
+                      root[t->get_name().c_str()] = t->state.substr(0, 200);
+                  #endif
+                capture_response: true
+                on_response:
+                  then:
+                    - lambda: |-
+                        // What Warblet answered, in words you can read in the logs.
+                        id(warblet_ok) = false;
+                        if (body.find("unclaimed") != std::string::npos) {
+                          ESP_LOGW("warblet", "Warblet does not know this device: its setup code "
+                                   "was mistyped, used or expired, or the device was deleted. "
+                                   "Get a new code, put it in secrets.yaml and install again.");
+                          id(warblet_stopped) = true;
+                        } else if (response->status_code == 202) {
+                          id(warblet_ok) = true;
+                          ESP_LOGD("warblet", "report stored");
+                        } else if (response->status_code == 401) {
+                          ESP_LOGW("warblet", "Warblet refused the code. If you made a new "
+                                   "token, put it in secrets.yaml and install again.");
+                        } else {
+                          ESP_LOGW("warblet", "report not stored: HTTP %d", response->status_code);
+                        }
+                on_error:
+                  then:
+                    - lambda: id(warblet_ok) = false;
+                    - logger.log:
+                        format: "Warblet not reached; trying again at the next report"
+                        level: WARN
