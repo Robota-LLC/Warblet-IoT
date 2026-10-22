@@ -45,7 +45,8 @@ interval:
                   - x-chirp-down
                   - content-length
                 capture_response: true
-                max_response_buffer_size: 8192B   # Warblet's longest command
+                max_response_buffer_size: 8448B   # Warblet's longest command (8,192 bytes),
+                                                  # and room to read the end of the answer
                 on_response:
                   then:
                     - lambda: |-
