@@ -12,6 +12,8 @@ LIMIT = -80                # the line
 BELOW = True               # True: email when it drops under LIMIT; False: over it
 MARGIN = 5                 # how far back it must come before the next email
 
+NUMBERS = ("int", "float")
+
 WEEK = 7 * 24 * 60         # in minutes
 
 def routine(event, state, mem):
@@ -23,7 +25,7 @@ def routine(event, state, mem):
         if now - mem[key] > WEEK:
             mem.pop(key)
     value = event["fields"].get(FIELD)
-    if type(value) not in ("int", "float"):
+    if type(value) not in NUMBERS:         # no reading, or not a number
         return
     passed = value < LIMIT if BELOW else value > LIMIT
     rearm = LIMIT + MARGIN if BELOW else LIMIT - MARGIN
