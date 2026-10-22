@@ -108,8 +108,10 @@ void Warblet::setState(State state, int answer) {
 void Warblet::answered(int status) {
   if (stopped_) return;  // NOT_ON_ACCOUNT stays, and asks nothing
   if (status >= 0) {
-    lastAnswerMs_ = millis();  // any answer, a refusal too: the network works
-    setState(status >= 200 && status < 300 ? ANSWERED : REFUSED, status);
+    lastAnswerMs_ = millis();  // any answer, a refusal or a fault too: the network works
+    // A 5xx is Warblet's own fault: for the board, as good as no answer. The
+    // code stays readable in answer().
+    setState(status >= 200 && status < 300 ? ANSWERED : status >= 500 ? NO_ANSWER : REFUSED, status);
     return;
   }
   setState(NO_ANSWER, answer_);

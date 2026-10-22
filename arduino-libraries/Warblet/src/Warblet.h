@@ -108,16 +108,16 @@ class Warblet {
     NO_WIFI,           // no stored network joined; it tries again every 15 s
     REACHING_WARBLET,  // Wi-Fi joined; Warblet has not answered yet
     ANSWERED,          // Warblet took the latest request (2xx): answer() says which
-    REFUSED,           // Warblet answered and did not take it (401, 403, 404, 429, 5xx...): answer() says why
-    NO_ANSWER,         // the latest request got no answer (no name, no TLS, nothing back)
+    REFUSED,           // Warblet turned the board away (401, 403, 404, 429...): answer() says why
+    NO_ANSWER,         // no answer (no name, no TLS, nothing back, no clock), or a 5xx fault: answer() has the 5xx
     NOT_ON_ACCOUNT,    // Warblet does not know this board: stopped until a new setup
   };
   State state() const { return state_; }
   // The device id the setup page gave this board, "" before it has one.
   const char* deviceId() const { return settings_.hwId; }
   // The HTTP status of Warblet's latest answer: 200, 202 or 204 when all is
-  // well (ANSWERED), 401 refused, 429 too many, 5xx a fault (REFUSED); 0
-  // before any. Over MQTT, 200 while the session is open and 401 when the
+  // well (ANSWERED); 401 refused, 429 too many (REFUSED); 5xx a fault on
+  // Warblet's side (NO_ANSWER); 0 before any. Over MQTT, 200 while the session is open and 401 when the
   // broker refuses the token.
   int answer() const { return answer_; }
   // Run this function each time state() or answer() changes, and once at
