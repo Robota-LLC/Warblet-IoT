@@ -44,7 +44,7 @@ interval:
                 collect_headers:
                   - x-chirp-down
                 capture_response: true
-                max_response_buffer_size: 512
+                max_response_buffer_size: 8192B   # Warblet's longest command
                 on_response:
                   then:
                     - lambda: |-
@@ -56,6 +56,13 @@ interval:
                         }
                         if (response->get_response_header("x-chirp-down") == "key") {
                           ESP_LOGW("warblet", "Warblet sent a signing key; this file does not use one");
+                          return;
+                        }
+                        // A command is used whole or not at all, never cut short.
+                        std::string length = response->get_response_header("content-length");
+                        if (!length.empty() && strtoul(length.c_str(), nullptr, 10) != body.size()) {
+                          ESP_LOGW("warblet", "a command of %s bytes was not read whole; it was left out",
+                                   length.c_str());
                           return;
                         }
                         id(warblet_command).publish_state(body);
