@@ -96,6 +96,7 @@ Change the line, upload again, and the board keeps its setup.
 - **Longer messages.** A message up to 8,192 bytes is shown; the MicroPython display does not show one over 1,024.
 - **Waits after a refusal.** After Warblet refuses a message or does not answer, the board waits 20 s to 10 minutes before it sends the next. A tap in that time says **Seen: not sent yet** and is sent when the wait ends. Checks for messages slow down the same way: up to a minute when nothing answers, up to 10 minutes after refusals.
 - **A wrong picture needs a rebuild.** The `screen.h` settings are part of the sketch, so changing one means uploading it again from the Arduino IDE or arduino-cli; the MicroPython display keeps them in a file on the board.
+- **The guessed-chip notice names screen.h.** A screen that does not say which chip it is gets **Screen chip guessed: see screen.h**, the file with this sketch's settings; the MicroPython display's says `screen.py`.
 
 ## Facts
 
