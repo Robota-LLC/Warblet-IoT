@@ -7,7 +7,7 @@ The MIT license in this repository's `LICENSE` file covers Robota's own code. Th
 | `nucleo-wba65-baremetal/include/cmsis/` | CMSIS-Core(M) headers from `STMicroelectronics/cmsis-core` at `afc5ca6af0a4` (release 6.3.0), unmodified | Arm Limited | Apache-2.0 | [LICENSE.md](nucleo-wba65-baremetal/include/cmsis/LICENSE.md) |
 | `nucleo-wba65-baremetal/include/st/` | STM32WBAxx device headers from `STMicroelectronics/cmsis-device-wba` at `3373b40fa3b7`, unmodified | STMicroelectronics | Apache-2.0 | [LICENSE.md](nucleo-wba65-baremetal/include/st/LICENSE.md) |
 | `nucleo-wba65-thread/ld/thread_chirp.ld` | Linker script modified from STM32CubeWBA v1.10.0 `STM32WBA65RIVX_FLASH.ld` (flash length and the config-page symbols) | STMicroelectronics | ST SLA0044 | [LICENSE.md](nucleo-wba65-thread/ld/LICENSE.md) |
-| `arduino-libraries/Warblet/examples/DeskDisplay/screen.cpp` (the `LETTERS` table) | The 8x8 font of MicroPython v1.28.0, `extmod/font_petme128_8x8.h`, the same letters, one row per character | Damien P. George | MIT | In the file, above the table |
+| `arduino-libraries/Warblet/examples/DeskDisplay/screen.cpp` and `cyd-desk-display-arduino/screen.cpp` (the `LETTERS` table in each) | The 8x8 font of MicroPython v1.28.0, `extmod/font_petme128_8x8.h`, the same letters, one row per character | Damien P. George | MIT | In the file, above the table |
 
 SLA0044 allows redistribution when the notice and conditions are kept, but only for use with STMicroelectronics devices, and it forbids placing the file under an open-source license. Keep `thread_chirp.ld` under SLA0044 when you copy it.
 

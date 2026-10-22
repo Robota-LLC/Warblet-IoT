@@ -1,0 +1,40 @@
+{
+  "slug": "demo-cyd-desk-display-arduino",
+  "chips": ["ESP32"],
+  "board": "Cheap Yellow Display (Sunton ESP32-2432S028R)",
+  "network": "wifi",
+  "starter": false,
+  "result": "Show messages from your dashboard on the screen, and tap it to say you've seen them.",
+  "spec": {
+    "transport": "http",
+    "securityLevel": 2,
+    "retentionDays": 7,
+    "uiConfig": {
+      "controls": [
+        {"type": "text", "label": "Message"},
+        {"type": "button", "label": "Clear", "text": "clear"}
+      ]
+    }
+  },
+  "routine": {
+    "file": "desk-display-disk.star",
+    "name": "Desk display: show the fullest disk",
+    "scope": "account",
+    "minIntervalMs": 0
+  },
+  "firmware": {
+    "kind": "arduino",
+    "images": [
+      {"file": "build/cyd-desk-display-arduino-full.bin", "offset": "0x0", "use": "blank"},
+      {"file": "build/cyd-desk-display-arduino-update.bin", "offset": "0x10000", "use": "provisioned"}
+    ]
+  },
+  "provision": {
+    "protocol": "chirp-prov/1.6",
+    "host": "https.warbletiot.com",
+    "commands": ["clear", "info:"],
+    "knobs": {
+      "level": {"max": 2}
+    }
+  }
+}
