@@ -78,8 +78,16 @@ interval:
                   #endif
                   #ifdef USE_TEXT_SENSOR
                   for (auto *t : App.get_text_sensors())
-                    if (!t->is_internal() && t->has_state())
-                      root[t->get_name().c_str()] = t->state.substr(0, 200);
+                    if (!t->is_internal() && t->has_state()) {
+                      std::string text = t->state;
+                      size_t keep = 200;              // at most 200 bytes, cut between
+                      if (text.size() > keep) {       // characters, never inside one
+                        while (keep > 0 && (text[keep] & 0xC0) == 0x80)
+                          keep--;
+                        text.resize(keep);
+                      }
+                      root[t->get_name().c_str()] = text;
+                    }
                   #endif
                 capture_response: true
                 on_response:
