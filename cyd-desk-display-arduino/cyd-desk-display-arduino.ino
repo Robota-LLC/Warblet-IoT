@@ -278,7 +278,8 @@ void showState(Warblet::State state) {
     if (state == Warblet::NO_ANSWER) showStatus("Warblet: no answer", AMBER);
     if (state == Warblet::ANSWERED) showStatus("Connected", GREEN);
     if (state == Warblet::REFUSED) {
-      // Too many is a pause; anything else refused names its code.
+      // Turned away: too many is a pause; anything else names its code. (A
+      // fault on Warblet's side is NO_ANSWER, shown above.)
       if (board.answer() == 429) {
         showStatus("Warblet: slow down", AMBER);
       } else {

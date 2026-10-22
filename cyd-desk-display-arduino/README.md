@@ -55,7 +55,7 @@ To write the sketch alone by hand: `esptool --chip esp32 --port <PORT> write_fla
 
 The screen is used sideways, 320 × 240.
 
-- **The top strip** says what the board is doing: **Connected** (green); **Reaching Warblet**, **Joining Wi-Fi**, **No Wi-Fi, retrying**, **Warblet: no answer**, **Warblet: slow down** (amber, Warblet asking it to send less often); **Warblet refused** with the code it answered, such as 401 for a refused token, and **Not set up** (red).
+- **The top strip** says what the board is doing: **Connected** (green); **Reaching Warblet**, **Joining Wi-Fi**, **No Wi-Fi, retrying**, **Warblet: no answer** (nothing answered, or a fault on Warblet's side), **Warblet: slow down** (Warblet asking it to send less often) (amber); **Warblet refused** with the code it answered, such as 401 for a refused token, and **Not set up** (red).
 - **The middle** is the message, as big as it fits. A word is cut in two only when it is too long for the smallest letters. Before any message, it says "Type a message for" the board's id "on your Warblet dashboard".
 - **The three lines below** are the routine's, one per computer. A fourth computer replaces the one heard from longest ago. "61% full: kitchen-pi /" shows as **61% kitchen-pi /**.
 - **The bottom two lines** say how old the message is ("Message just now", "Message 3 min ago") and **Tap: I've seen it**, then **Seen: sending**, **Seen: sent** or, if the board was offline, **Seen: not sent yet**, which goes once it is back.
@@ -90,7 +90,7 @@ Change the line, upload again, and the board keeps its setup.
 
 ## Where it differs from the MicroPython desk display
 
-- **A refusal shows its code.** Warblet refusing a message or a check with 403, 404 or a 5xx fault shows **Warblet refused** and the code; the MicroPython display says **Warblet: no answer** for those.
+- **A refusal shows its code.** Warblet turning a message or a check away with 403 or 404 shows **Warblet refused** and the code; the MicroPython display says **Warblet: no answer** for those. A fault on Warblet's side (a 5xx) is **Warblet: no answer** on both.
 - **New Wi-Fi keeps the message.** A setup push of Wi-Fi alone is used at once; the MicroPython display restarts after every push. A push with a new id or token restarts both.
 - **No Stopped screen.** There is no prompt to stop the sketch at, so it never shows **Stopped**.
 - **Longer messages.** A message up to 8,192 bytes is shown; the MicroPython display does not show one over 1,024.
