@@ -68,6 +68,7 @@
     "GCC-Runtime-Library-Exception.txt",
     "BSD-3-Clause-TLSF.txt",
     "MIT-Cadence-Xtensa.txt",
+    "MIT-cJSON.txt",
     "MIT-MicroPython-font.txt"
   ]
 }

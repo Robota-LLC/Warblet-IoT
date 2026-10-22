@@ -68,10 +68,11 @@ The license texts are also in the fetched directories (`LICENSE.md`, `LICENSE` o
 | wpa_supplicant (Jouni Malinen and contributors) | BSD-3-Clause | `licenses/BSD-3-Clause-wpa_supplicant.txt` |
 | TLSF, the two-level segregated fit allocator behind the heap (Matthew Conte) | BSD-3-Clause | `licenses/BSD-3-Clause-TLSF.txt` |
 | Cadence Design Systems' Xtensa code: the Xtensa HAL, the exception vectors, and context and interrupt handling | MIT | `licenses/MIT-Cadence-Xtensa.txt` |
+| cJSON (Dave Gamble and contributors), in the core's prebuilt libraries | MIT | `licenses/MIT-cJSON.txt` |
 | libgcc and libstdc++: the GCC runtime libraries of the Espressif toolchain | GPL-3.0 with the GCC Runtime Library Exception | `licenses/GCC-Runtime-Library-Exception.txt` |
 | The 8x8 font of MicroPython v1.28.0 (Damien P. George), in the sketch's `screen.cpp` | MIT | `licenses/MIT-MicroPython-font.txt` |
 
-The image links the Arduino core statically. The core's source is Espressif's [arduino-esp32](https://github.com/espressif/arduino-esp32) at tag `3.3.12`; the sketch and the Warblet library are in this repository, and the prebuilt ESP-IDF libraries come with the core. So you can change the core and link the image again: build the demo as its README says, against your changed copy of the core.
+The image links the Arduino core statically, so its sources go with it. The demo's download bundle, served from the same place as the image, holds `sources/`: the core's 3.3.12 source for every part the image links (the core, its WiFi, Network, NetworkClientSecure, Preferences and SPI libraries, the board's variant) with the build files that say how it is built, the sketch, and the Warblet library with its pin. `sources/README.md` says how to build the image again with a changed core. The whole core is Espressif's [arduino-esp32](https://github.com/espressif/arduino-esp32) at tag `3.3.12`, and the prebuilt ESP-IDF libraries come with it.
 
 ## Bundled license texts
 
