@@ -94,7 +94,6 @@ interval:
                         }
                 on_error:
                   then:
-                    - lambda: id(warblet_ok) = false;
-                    - logger.log:
-                        format: "Warblet not reached; trying again at the next report"
-                        level: WARN
+                    - lambda: |-
+                        id(warblet_ok) = false;
+                        ESP_LOGW("warblet", "Warblet not reached; trying again at the next report");
