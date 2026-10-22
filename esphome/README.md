@@ -10,7 +10,7 @@ You add a few lines to your device's YAML. They include [warblet.yaml](warblet.y
 
 - An ESP32 board running ESPHome 2026.10 or newer.
 - Wi-Fi with internet access.
-- A Warblet account.
+- A Warblet account, and an email address for the alerts.
 
 ## Set it up
 
@@ -25,6 +25,10 @@ Every sensor, binary sensor and text sensor on your device, by the name you gave
 ## Commands
 
 [warblet-commands.yaml](warblet-commands.yaml) asks Warblet for a command every 15 seconds and puts its text in the `Warblet command` text sensor. Your own YAML says what each command does; [xiao-esp32s3.yaml](xiao-esp32s3.yaml) turns its LED on and off.
+
+## Email
+
+The routine **ESPHome: email when a reading passes a limit** is added to your account, switched on. It emails once when the Wi-Fi signal drops below -80 dBm, and again only after it has come back to -75 dBm and drops again, or drops again after a week without that reading.
 
 ## Make it real
 
