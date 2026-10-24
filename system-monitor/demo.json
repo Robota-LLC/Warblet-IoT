@@ -24,11 +24,11 @@
     "connect": [
       {
         "label": "Linux, Raspberry Pi OS or macOS",
-        "text": "curl -fsSLo warblet_monitor.py https://raw.githubusercontent.com/Robota-LLC/Warblet-IoT/refs/tags/v1.4.1/system-monitor/warblet_monitor.py\npython3 warblet_monitor.py",
+        "text": "curl -fsSLo warblet_monitor.py https://raw.githubusercontent.com/Robota-LLC/Warblet-IoT/refs/tags/v1.5.0/system-monitor/warblet_monitor.py\npython3 warblet_monitor.py",
         "steps": [
           {
             "title": "Download the script from GitHub",
-            "text": "curl -fsSLo warblet_monitor.py https://raw.githubusercontent.com/Robota-LLC/Warblet-IoT/refs/tags/v1.4.1/system-monitor/warblet_monitor.py"
+            "text": "curl -fsSLo warblet_monitor.py https://raw.githubusercontent.com/Robota-LLC/Warblet-IoT/refs/tags/v1.5.0/system-monitor/warblet_monitor.py"
           },
           {
             "title": "Run it, and paste the setup code when it asks",
@@ -39,11 +39,11 @@
       },
       {
         "label": "Windows",
-        "text": "curl.exe -fsSLo warblet_monitor.py https://raw.githubusercontent.com/Robota-LLC/Warblet-IoT/refs/tags/v1.4.1/system-monitor/warblet_monitor.py\npython warblet_monitor.py",
+        "text": "curl.exe -fsSLo warblet_monitor.py https://raw.githubusercontent.com/Robota-LLC/Warblet-IoT/refs/tags/v1.5.0/system-monitor/warblet_monitor.py\npython warblet_monitor.py",
         "steps": [
           {
             "title": "Download the script from GitHub",
-            "text": "curl.exe -fsSLo warblet_monitor.py https://raw.githubusercontent.com/Robota-LLC/Warblet-IoT/refs/tags/v1.4.1/system-monitor/warblet_monitor.py"
+            "text": "curl.exe -fsSLo warblet_monitor.py https://raw.githubusercontent.com/Robota-LLC/Warblet-IoT/refs/tags/v1.5.0/system-monitor/warblet_monitor.py"
           },
           {
             "title": "Run it, and paste the setup code when it asks",
