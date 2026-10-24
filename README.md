@@ -30,6 +30,7 @@ The [Open starter](open-starter/README.md) sends text and echoes a message with 
 | [`nucleo-wba65-baremetal/`](nucleo-wba65-baremetal/README.md) | You want to read C firmware that sends through a computer relay. | ST NUCLEO-WBA65RI | GNU Arm + Make | HTTP via USB relay |
 | [`nucleo-wba65-thread/`](nucleo-wba65-thread/README.md) | You want to send readings through a Thread border router. | ST NUCLEO-WBA65RI | STM32CubeWBA + GNU Arm + Make | Thread / UDP |
 | [`system-monitor/`](system-monitor/README.md) | You want your computer's disks and vitals on your dashboard, with nothing to flash. | Your computer: Linux, Raspberry Pi OS, macOS or Windows | Python 3.8 or newer | HTTPS |
+| [`esphome/`](esphome/README.md) | You already run ESPHome and want your device's readings on your dashboard, with nothing to flash from Warblet. | An ESP32 board running ESPHome | ESPHome 2026.10 or newer | HTTPS |
 
 The two WBA65 demos send simulated temperatures until you add a sensor. Other temperature demos measure the chip, not room temperature. The Pyboard D temperature demo and both WBA65 demos do not receive commands.
 
