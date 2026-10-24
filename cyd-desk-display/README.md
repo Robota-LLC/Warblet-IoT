@@ -156,9 +156,20 @@ See the [esptool command reference](https://docs.espressif.com/projects/esptool/
 
 Use [USB setup](https://warbletiot.com/flash?demo=demo-cyd-desk-display) after installing your edited files, and select **Keep current firmware** before sending settings to preserve your edits.
 
-For terminal setup at 115200 baud, follow the [ESP32 connection guide](../esp32-generic/README.md#set-up-the-connection): this demo uses the same settings and stores them in `chirp_cfg.json`. Sending blank settings does not erase the setup.
+<details>
+<summary>Manual connection settings</summary>
 
-An `aps` list can hold up to eight Wi-Fi networks, tried in order.
+For terminal setup at 115200 baud, follow the [ESP32 connection guide](../esp32-generic/README.md#set-up-the-connection). This demo stores the same settings in `chirp_cfg.json`:
+
+- `ssid` and `pass`: Wi-Fi name and password; an `aps` list holds up to eight networks, tried in order.
+- `hwid`: the device ID.
+- `claim` or `token`: a setup code or device token; send one, not both.
+- `key`: the base64-encoded 32-byte signing key.
+- `host`: the server address, normally `https.warbletiot.com`.
+
+A later push can contain only changed fields. Sending blank settings does not erase the setup.
+
+</details>
 
 ## Data and commands
 
