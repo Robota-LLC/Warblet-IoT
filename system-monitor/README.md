@@ -2,7 +2,9 @@
 
 ## What happens
 
-Your computer sends disk usage and system readings to [Warblet](https://warbletiot.com) about once a minute over HTTPS. Warblet shows them on a dashboard, keeps messages for seven days, and emails you when a disk reaches 90% full. The script sends readings; it does not receive commands.
+Your computer sends disk usage and system readings to [Warblet](https://warbletiot.com) about once a minute over HTTPS. Warblet shows them on a dashboard and emails you when a disk reaches 90% full. The script sends readings; it does not receive commands.
+
+Incoming messages have up to seven days of history, subject to your plan and available storage.
 
 ## What you need
 
@@ -23,10 +25,10 @@ Your computer sends disk usage and system readings to [Warblet](https://warbleti
 <details>
 <summary>Download with Git instead</summary>
 
-After preparing setup, run:
+After preparing setup, replace `RELEASE_TAG` below with the tag in the page's download command, then run:
 
 ```sh
-git clone --depth 1 --branch v1.4.1 https://github.com/Robota-LLC/Warblet-IoT.git
+git clone --depth 1 --branch RELEASE_TAG https://github.com/Robota-LLC/Warblet-IoT.git
 cd Warblet-IoT/system-monitor
 python3 warblet_monitor.py
 ```
@@ -45,15 +47,52 @@ python3 warblet_monitor.py
 
 On Windows, use `python` instead of `python3`; if Windows says Python was not found, use `py`.
 
-For automatic startup, first complete setup interactively. Configure your operating system's scheduler or service manager to run the script as the same user, with absolute paths to Python and the script. The script does not install a startup service.
+For automatic startup, first complete setup interactively. Use the Linux instructions below, or configure your operating system's scheduler to run the script as the same user, with absolute paths to Python and the script. The script does not install a startup service.
 
 A copy already running this way uses what a later `--setup` saves from its next report (within the hour while Warblet does not know the computer); it need not be restarted.
 
+### Start at boot on Linux or Raspberry Pi OS
+
+On a system using systemd, complete setup without `sudo`, confirm a report arrives, then stop the terminal copy with **Ctrl-C**. Keep the script in a permanent folder.
+
+Create `/etc/systemd/system/warblet-monitor.service` with `sudoedit /etc/systemd/system/warblet-monitor.service` and paste:
+
+```ini
+[Unit]
+Description=Warblet system monitor
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=YOUR_USER
+Environment="HOME=/home/YOUR_USER"
+ExecStart="/usr/bin/python3" -u "/home/YOUR_USER/Warblet-IoT/system-monitor/warblet_monitor.py"
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Replace `YOUR_USER` with the user who completed setup, set `HOME` to that user's actual home folder, and replace the Python and script paths with their full paths. `command -v python3` shows the Python path. Keep the quotes around paths, including any that contain spaces; do not put `~` or `$HOME` in this file.
+
+The service reads `HOME/.warblet-monitor.json`, so using the same home folder preserves your computer's identity. Then start it and enable startup at boot:
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now warblet-monitor
+journalctl -u warblet-monitor -f
+```
+
+**Ctrl-C** exits the log view without stopping the service. Use `sudo systemctl stop warblet-monitor` to stop reporting, `sudo systemctl start warblet-monitor` to resume, and `sudo systemctl disable warblet-monitor` to prevent startup at boot. Disabling it does not stop a copy already running.
+
 ## Readings and alerts
 
-The report includes hostname, operating system, memory use and uptime when available. Linux and macOS also report one-minute load. Linux can report its first thermal-zone sensor's temperature. Unavailable readings are omitted.
+The report includes hostname, operating system, memory use and uptime when available. Linux and macOS also report one-minute load. Linux can report its first thermal-zone sensor's temperature; on Raspberry Pi OS, this is the processor temperature also reported by `vcgencmd measure_temp`. Unavailable readings are omitted.
 
 Up to eight local disks report used percentage and free space; the script names any it leaves out. Windows uses fixed drives; Linux uses supported writable local filesystems, one per device; macOS uses `/` and visible, writable local volumes, one per APFS container. Network shares are excluded, and a disk that does not answer within 15 seconds is skipped.
+
+On a standard Raspberry Pi OS SD-card installation, the disk readings include `/` and `/boot/firmware`.
 
 Free space labelled **GB** is in GiB: 1,073,741,824 bytes per unit.
 
