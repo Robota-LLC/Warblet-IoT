@@ -35,7 +35,7 @@ Setup enables **ESPHome: email when a reading passes a limit**. It emails once w
 
 To watch something else, open the routine in Warblet and change `FIELD`, `LIMIT` and `BELOW` at the top. For a tank, use `"Tank level"`, `20` and `True`; for chip temperature above 70, use `"Chip temperature"`, `70` and `False`. Save the routine in Warblet; editing [limit-email.star](limit-email.star) locally does not update your account.
 
-Emails are limited to ten per hour across the account. The sample routine can remember up to 113 devices in an active alert state; more can exceed its memory limit and stop its runs. Adapt it before using it for a larger fleet.
+Emails are limited to ten per hour across the account. The sample routine stores alert state per device; a large set of active alerts can exceed its memory limit and stop its runs. Adapt it before using it for a larger fleet.
 
 For loss of reports, enable the quiet alert on the device page. It is off by default and sends another notice when reports resume.
 
