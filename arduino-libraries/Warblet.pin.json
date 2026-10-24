@@ -1,9 +1,9 @@
 {
-  "_": "arduino-libraries/Warblet is the Warblet Arduino library, vendored byte for byte at this commit of its repository: the files listed, and nothing else. It has no release yet; its first release, v0.1.0, replaces this pin. Change it only by copying a commit of the library and writing this file again.",
+  "_": "arduino-libraries/Warblet is the Warblet Arduino library, vendored byte for byte at this commit of its repository, the one its release tag names: the files listed, and nothing else. Change it only by copying a release of the library and writing this file again.",
   "library": "Warblet",
   "repository": "https://github.com/Robota-LLC/Warblet-Arduino",
-  "commit": "d44f9340864e6e036c26394d2e04e773d0d3d4c6",
-  "release": null,
+  "commit": "ebe43c7264add436691304e9ef98ae4137b61274",
+  "release": "v0.1.0",
   "paths": [
     "library.properties",
     "LICENSE",
