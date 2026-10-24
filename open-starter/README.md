@@ -9,24 +9,25 @@ Choose MicroPython for browser setup, Arduino for a sketch, or C for an existing
 ## What you need
 
 - For MicroPython: an ESP32, ESP32-S3, ESP32-C3, ESP32-C5 or ESP32-C6 board and a USB data cable.
+- For manual MicroPython setup: a Raspberry Pi Pico 2 W with MicroPython 1.29.0, or a Pyboard D SF2W with MicroPython 1.14.
 - For Arduino or C: a board with Wi-Fi that you already program that way.
 - A 2.4 GHz Wi-Fi network and a Warblet account.
 
-For a Pyboard D SF2W with MicroPython 1.14, use the [manual installation](#on-a-pyboard-d) below.
+The setup page installs MicroPython on the ESP32 family. Use the manual instructions below for a [Raspberry Pi Pico 2 W](#on-a-raspberry-pi-pico-2-w) or [Pyboard D](#on-a-pyboard-d).
 
 ## Set it up with MicroPython
 
 ### From the setup page
 
-1. Open https://warbletiot.com/flash in Chrome or Edge, connect the board, and pick the Open starter.
+1. Open [Set up the Open starter](https://warbletiot.com/flash?demo=demo-open-starter) in Chrome or Edge, connect the board, and pick **Open starter: loopback**.
 2. Enter your Wi-Fi name and password. Setup installs the runtime and files as needed, assigns an ID and adds the board to your account with the Open starter spec.
 3. Open the device page, wait for a reading, then send text from **Message**.
 
 A command shown as Sent is not a receipt from the board. The echoed reading confirms that the board received your message.
 
-### By hand
+### On an ESP32, by hand
 
-Run these commands from `open-starter/`. Replace `<PORT>` with your serial port, such as `COM5` or `/dev/ttyACM0`. Download the MicroPython 1.28.0 image for your chip below; erasing flash removes files and settings.
+Run these commands from `open-starter/`. Replace `<PORT>` with your serial port, such as `COM5` or `/dev/ttyACM0`. The images and esptool commands in this section are for ESP32 chips; erasing flash removes files and settings.
 
 | Chip | Image | Offset | SHA-256 |
 |---|---|---|---|
@@ -36,22 +37,46 @@ Run these commands from `open-starter/`. Replace `<PORT>` with your serial port,
 | ESP32-C5 | [ESP32_GENERIC_C5-20260406-v1.28.0.bin](https://micropython.org/resources/firmware/ESP32_GENERIC_C5-20260406-v1.28.0.bin) | `0x2000` | `ab605cb138e2abc7f179469a08e37b4b8050975268dc481594abba4ed1b33567` |
 | ESP32-C6 | [ESP32_GENERIC_C6-20260406-v1.28.0.bin](https://micropython.org/resources/firmware/ESP32_GENERIC_C6-20260406-v1.28.0.bin) | `0x0` | `d338042d2dd87a00dad2163071f44bf67da1401e1d1d0686f2bb2e336e78f0e6` |
 
-These commands are for an ESP32-C3. For another chip, change the chip name, the file name and the offset together. Then copy the two files and press RESET:
+These commands use esptool 5 or newer and an ESP32-C3. For another ESP32 chip, change the chip name, file name and offset together. Then copy the two files and restart:
 
 ```sh
-python -m pip install esptool mpremote
-esptool --chip esp32c3 --port <PORT> erase_flash
-esptool --chip esp32c3 --port <PORT> write_flash 0x0 ESP32_GENERIC_C3-20260406-v1.28.0.bin
+python -m pip install --upgrade esptool mpremote
+python -m esptool --chip esp32c3 --port <PORT> erase-flash
+python -m esptool --chip esp32c3 --port <PORT> write-flash 0x0 ESP32_GENERIC_C3-20260406-v1.28.0.bin
 mpremote connect <PORT> fs cp main.py open_setup.py :
+mpremote connect <PORT> reset
 ```
 
-Then give the board your Wi-Fi and its id. Either connect it at warbletiot.com/flash, or send one line from a serial terminal at 115200 baud:
+### On a Raspberry Pi Pico 2 W
+
+The Warblet setup page does not install or configure this board. Install MicroPython and the two demo files by hand:
+
+1. Download [MicroPython 1.29.0 for Pico 2 W](https://micropython.org/download/RPI_PICO2_W/), the file `RPI_PICO2_W-20260824-v1.29.0.uf2`.
+2. Unplug the board. Hold **BOOTSEL** while plugging it into USB, then release BOOTSEL when the **RP2350** drive appears. This also works when the board already has firmware.
+3. Copy the UF2 file onto **RP2350**. The drive disappears as the board restarts into MicroPython. These are the manufacturer's [UF2 installation steps](https://www.raspberrypi.com/documentation/microcontrollers/micropython.html#drag-and-drop-micropython).
+4. From this demo's folder, replace `<PORT>` with the new serial port and copy the files:
+
+   ```sh
+   python -m pip install mpremote
+   mpremote connect <PORT> fs cp main.py open_setup.py :
+   mpremote connect <PORT> reset
+   ```
+
+The Pico 2 W has no RESET button. To restart later, press **Ctrl-D** at the MicroPython `>>>` prompt, or unplug and reconnect USB. A reset can disconnect the serial port briefly; reopen your terminal after it returns.
+
+### Give MicroPython your Wi-Fi settings
+
+For an ESP32, you can use the setup page after installing the files. For manual setup, open a serial terminal at 115200 baud and send the line below, replacing the Wi-Fi details and `<your-board-id>` with a fresh, unique ID:
 
 ```text
 CHIRP+ {"ssid":"YOUR_WIFI","pass":"YOUR_WIFI_PASSWORD","hwid":"<your-board-id>"}
 ```
 
-The board answers `CHIRP= ok`, saves `open_cfg.json` and restarts. An `aps` list can hold up to eight networks, tried in order. This firmware refuses `claim` and `token` fields with `CHIRP= err unsupported`. You can also write `open_cfg.json` with the same three fields.
+If the terminal is blank, type `CHIRP?` and press Enter; your typing may not appear. An unconfigured board replies `CHIRP! v=1 hw= radios=wifi t=demo-open-starter`. If you see `>>>` instead, press **Ctrl-D** to start the program, then send `CHIRP?` and the setup line.
+
+The board answers `CHIRP= ok`, saves `open_cfg.json` and restarts. On the Pico 2 W, reconnect the terminal when its USB serial port returns. An `aps` list can hold up to eight networks, tried in order; this firmware refuses `claim` and `token` fields with `CHIRP= err unsupported`.
+
+You can also write `open_cfg.json` with the same three fields and restart the board.
 
 Then claim the board: on your Warblet dashboard, use Find device with its id and tick **Open starter**, so the board arrives with its decoder and the Message box.
 
@@ -72,7 +97,7 @@ You can also send settings with `CHIRP+` at 115200 baud. Eject `PYBFLASH` before
 3. Pick your board and upload. Open the Serial Monitor at 115200 baud to watch each line and Warblet's answer.
 4. Claim the board with Find device and tick **Open starter**.
 
-The sketch uses your board’s Wi-Fi library (`WiFi.begin()`, `WiFi.status()` and `WiFiClient`). Its include block covers ESP8266, ESP32 and the listed Arduino Wi-Fi headers; adapt it for another board. The sketch has run on an ESP8266 board, built with the ESP8266 Arduino core 3.1.2, and on a Seeed XIAO ESP32-S3, built with the ESP32 Arduino core 3.3.12.
+The sketch uses your board’s Wi-Fi library (`WiFi.begin()`, `WiFi.status()` and `WiFiClient`). Its include block covers ESP8266, ESP32 and the listed Arduino Wi-Fi headers; adapt it for another board. For ESP8266, use Arduino core 3.1.2; for a Seeed XIAO ESP32-S3, use ESP32 Arduino core 3.3.12.
 
 ## Set it up in C
 
@@ -158,6 +183,8 @@ Use `POST`, with an empty body, to collect a command; unauthenticated `GET` is r
 
 Choose a unique device ID using letters, digits or `- _ . :`, up to 128 characters. Replace `<your-board-id>` everywhere; angle brackets are not valid. Two boards with the same ID share one identity and compete for commands.
 
+Use a fresh ID for this Open demo. An ID whose device was deleted cannot be claimed by name or lowered to Open; reuse of that ID requires setup with a token-capable demo.
+
 ## The decoder
 
 Setting the board up from the setup page, or claiming it with **Open starter** ticked, adds [decoder.star](decoder.star) for you. It turns `3 hello` into `count` 3 and `heard` "hello", so the device page shows the count and the text. A line that does not start with a count is stored with an error saying why.
@@ -182,7 +209,7 @@ See the other demos and [Warblet docs](https://warbletiot.com/docs) for signed m
 - When the board restarts, the count starts again at 1 and what it heard goes back to `hello`.
 - The board never sends a line twice. Between restarts, a gap in the counts is a line that never arrived.
 - Keep commands short and use UTF-8 text. The Message box allows 256 characters. Larger API commands can be truncated: Arduino and C keep at most 1,024 bytes, stopping at a zero byte; MicroPython keeps roughly 1,900 bytes and ignores invalid UTF-8.
-- Ctrl-C stops the MicroPython program; press RESET to start it again.
+- Ctrl-C stops the MicroPython program; press RESET or press Ctrl-D at the `>>>` prompt to start it again. On the Pico 2 W, use Ctrl-D or reconnect USB.
 
 ## Make it real
 
@@ -194,6 +221,8 @@ To drive a relay, a display or a buzzer, act where a command arrives: under `if 
 
 `open_cfg.json` stores Wi-Fi passwords unencrypted; the Arduino sketch embeds them in firmware. Physical access can expose or replace them. Keep configs and filled-in constants out of Git. Open authentication also lets anyone who knows the device ID submit readings and collect commands.
 
+Deleting `open_cfg.json` is not a secure erase: its contents can remain in flash until overwritten. Erase the flash before passing the board on.
+
 ## Troubleshooting
 
 Each line ends with Warblet's answer:
@@ -204,7 +233,7 @@ Each line ends with Warblet's answer:
 | `-> 202 {"status":"accepted"}` | Stored. It is on the device page. |
 | `-> 202` (Arduino, C) | Warblet has it: stored once the board is claimed, seen before that. |
 | `-> 400` | The id has a character it cannot have. |
-| `-> 401` | The device is at Token, and this line carried no token or an old one. Put the device's token in the firmware (see Step up), or take the device back to Open: set its spec's **Device authentication** to Open, then press **Lower to Open** in the device's Security setting. |
+| `-> 401` | This identity requires a credential. Use its token in suitable firmware (see Step up), or choose a fresh unique ID for the Open starter. Deleting the device does not make its ID available at Open again. |
 | `-> 429` | Slow down or check account storage limits. Newly seen IDs can also be rate-limited; wait and retry before using Find device. |
 | `-> 502` | Temporary service error; the next reading retries. |
 | `-> -1` or `open: will try again` | Check Wi-Fi, DNS and internet access. The board retries automatically. |
