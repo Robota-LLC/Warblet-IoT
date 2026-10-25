@@ -2,7 +2,7 @@
   "_": "arduino-libraries/Warblet is the Warblet Arduino library, vendored byte for byte at this commit of its repository, the one its release tag names: the files listed, and nothing else. Change it only by copying a release of the library and writing this file again.",
   "library": "Warblet",
   "repository": "https://github.com/Robota-LLC/Warblet-Arduino",
-  "commit": "ebe43c7264add436691304e9ef98ae4137b61274",
+  "commit": "073bb6300903ebf94bf9cdfa775446e11019f531",
   "release": "v0.1.0",
   "paths": [
     "library.properties",
@@ -32,7 +32,7 @@
     "examples/TwoBoards/TwoBoards.ino": "8b436d3b40b3bb9b4741be4cf9c5a56e5f8afb599481adccb7021fc48fdbd09e",
     "library.properties": "a3852b4cecd69d3af1f69be1cbdb5bb498aefd35fd9a1c1290dc453c65cb82b9",
     "LICENSE": "efd2c13bd707dbe25316d65ea23cb0a1c73b8ea587639e3db220d32aab9b60b3",
-    "README.md": "1833c0698d172cc844746282df4866cb1eaae79765a76b1f49819f6b09bc6b49",
+    "README.md": "998a8c1bf2f5481b97ecc86b1112e836e96b5f16a857ab1a510060bb6e47ba3c",
     "src/warblet/core/json.cpp": "2966f55ac75a36b784581a753b37d1aa718703b27d4006928cc1f7a3e7df51b1",
     "src/warblet/core/json.h": "e576c06d7f6d2764a06435080cf9f7a6c290659da9f4475ed83e8d9a57a25657",
     "src/warblet/core/prov.cpp": "01ff53296b4628210e38b334fd2b78ffa6e3debb4b9744901d53704f22f46421",

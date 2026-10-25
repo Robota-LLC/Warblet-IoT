@@ -46,6 +46,8 @@ In the Arduino IDE, choose **Sketch → Include Library → Add .ZIP Library** a
 
 ## The examples
 
+**Button** and **TwoBoards** compile for the XIAO ESP32-S3 and plain ESP32 but are untested on hardware. Check the button and LED behaviour on your boards before building on these examples.
+
 | Example | What it does | Wiring |
 |---|---|---|
 | **SensorReading** | Sends a light level once a minute, in the compact two-byte format the public temperature demos use. | A light sensor or a knob on A0 |
