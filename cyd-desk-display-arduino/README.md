@@ -10,23 +10,47 @@ This is the [desk display](../cyd-desk-display/README.md) as an Arduino sketch, 
 
 - A Cheap Yellow Display (Sunton ESP32-2432S028R) and a USB data cable.
 - A 2.4 GHz Wi-Fi network and a Warblet account.
+- Desktop Chrome or Edge for browser setup.
 - For the disk lines: the System monitor running on a computer in the same account.
-- To change the sketch: the Arduino IDE 2 or arduino-cli, with Espressif's Arduino core for ESP32 3.3.12.
 
 ## Quick start
 
-The setup page does not install this demo yet. Build and upload it from the Arduino IDE or with arduino-cli, as below; the upload replaces the program that came on the board. Then open [Set up a device](https://warbletiot.com/flash) in desktop Chrome or Edge, connect the board and send your Wi-Fi and the device's settings over USB. If the page cannot reach the board, hold **BOOT** (not RST) while you click **Connect over USB**, and let go once the page shows the chip.
+1. Open [Set up the Desk display (Arduino)](https://warbletiot.com/flash?demo=demo-cyd-desk-display-arduino) in Chrome or Edge. Plug in the board and choose **Connect over USB**.
+2. Choose **Install a demo** if offered, and check that the selected demo is **Desk display (Arduino)**. Enter your Wi-Fi settings and follow the page to install and set up the board.
+3. Open its Warblet device page. Type `Dinner is ready` in **Message**, then send it.
+4. When the words appear, tap the screen. **Seen: sent** means the board has sent the tap to Warblet; the device page shows a `seen` field with the start of your message.
 
-Until the page knows this demo, it sets the board up as a board of your own. Put `decoder.star` in the device's spec, and give its dashboard a Message box and a Clear button (text `clear`). The disk lines come only with the demo's own setup: the routine finds the displays by the demo they were set up from.
+Installing on a new board or replacing another demo writes the full image: it replaces the program and erases the board's setup, then the page sends the settings again. Reinstalling on a board that identifies itself as this demo writes only the sketch and keeps its setup. Save a backup of anything you want to keep.
+
+To send settings without replacing the sketch, choose **Keep current firmware** when the page recognizes this demo. It writes no firmware image; the settings selected on the page still change.
+
+Close other serial tools while the browser uses the board; unplug other USB serial boards if their names in the chooser are hard to tell apart.
+
+<details>
+<summary>If the board needs BOOT and RST</summary>
+
+Select **Skip automatic reset**, then click Connect or Install. Wait for the page to open the USB connection and show **Put the board in install mode** before pressing the board's buttons:
+
+1. Hold **BOOT**.
+2. Press and release **RST**.
+3. Let go of **BOOT**.
+
+Click **Continue**. Repeat the three steps only when the page shows this prompt again. If the page asks you to restart the board, keep BOOT released and press RST.
+
+</details>
+
+Browser setup supplies the decoder, the **Message** box and **Clear** button, and adds and enables **Desk display: show the fullest disk**. **Clear** removes the message and leaves the disk lines. Run the [System monitor](../system-monitor/README.md) on each computer you want to show, using the same Warblet account; the routine finds displays set up from either desk display demo, with no display IDs to enter.
 
 ## Build and upload from the Arduino IDE
+
+To change the sketch, use Arduino IDE 2 or arduino-cli with Espressif's Arduino core for ESP32 3.3.12.
 
 1. In **Boards Manager**, install **esp32 by Espressif Systems**, version 3.3.12.
 2. Copy [`arduino-libraries/Warblet`](../arduino-libraries/Warblet) into the `libraries` folder of your sketchbook, and restart the IDE.
 3. Open `cyd-desk-display-arduino.ino`. The sketch has three tabs: the sketch, `screen.h` and `screen.cpp`.
 4. Choose **Tools → Board → esp32 → ESP32-2432S028R CYD**, and the board's port.
 5. Click **Upload**. If the upload stops at `Connecting...`, hold BOOT until it starts writing.
-6. Close the Serial Monitor, then send your Wi-Fi and the device's settings at https://warbletiot.com/flash.
+6. Close the Serial Monitor, then send your Wi-Fi and the device's settings at [Set up a device](https://warbletiot.com/flash). If the sketch still identifies itself as this demo, choose **Keep current firmware** to preserve your edits.
 
 An upload keeps the board's setup (Wi-Fi, device id and key), unless **Tools → Erase All Flash Before Sketch Upload** is on. So after a change you upload again and the board carries on.
 
@@ -42,11 +66,11 @@ arduino-cli upload --fqbn esp32:esp32:jczn_2432s028r --input-dir build -p <PORT>
 
 Replace `<PORT>` with the board's serial port, such as `COM5` or `/dev/ttyUSB0`. The default partition scheme fits the sketch, with room to spare.
 
-The demo is published as two images; once the setup page offers it, it writes one of them:
+The browser installer chooses between two published images. Neither install erases the whole chip; the full image overwrites the area that holds the board's setup.
 
 | Image | Offset | Writes | When |
 |---|---|---|---|
-| `build/cyd-desk-display-arduino-full.bin` | `0x0` | The bootloader, the partition table and the sketch; it erases the board's setup | A first install |
+| `build/cyd-desk-display-arduino-full.bin` | `0x0` | The bootloader, the partition table and the sketch; it erases the board's setup | A board that does not answer the setup probe, or identifies itself as another demo |
 | `build/cyd-desk-display-arduino-update.bin` | `0x10000` | The sketch only; the board keeps its setup | A board already running this demo |
 
 To write the sketch alone by hand: `esptool --chip esp32 --port <PORT> write_flash 0x10000 build/cyd-desk-display-arduino.ino.bin`.
@@ -103,7 +127,7 @@ Change the line, upload again, and the board keeps its setup.
 | | |
 |---|---|
 | **Transport** | HTTPS to `https.warbletiot.com`: a report every 30 seconds with the Wi-Fi signal (`{"wifi_dbm": -52}`, the first after a start tagged `hello`), and a check for messages every 5 seconds, taking up to 10 at a time |
-| **Security cap** | L2 (Signed), with a key; L1 (Token) without one |
+| **Security cap** | L2 (Signed), with a key; L1 (Token) without one. Signed is supported by the library but untested with this sketch on a CYD. |
 | **Toolchain** | Arduino core for ESP32 3.3.12, board `esp32:esp32:jczn_2432s028r`, and the Warblet library in [`arduino-libraries/`](../arduino-libraries/README.md) |
 | **Routine** | [desk-display-disk.star](desk-display-disk.star), listed as **Desk display: show the fullest disk**; the same file as the MicroPython desk display's |
 | **Decoder** | [decoder.star](decoder.star): each key of the board's JSON becomes a field, `wifi_dbm` and `seen` |
@@ -113,3 +137,7 @@ USB setup at warbletiot.com/flash stores the Wi-Fi network (up to eight, tried i
 ## Make it real
 
 Change what the screen shows in `showMessage()` and `showInfo()` in `cyd-desk-display-arduino.ino`, and point the routine at any reading from your other boards. The colours and the layout are constants at the top of the sketch. The same sketch is the library's DeskDisplay example.
+
+For your own application, remove both `const char* DEMO = "demo-cyd-desk-display-arduino";` and `board.demo(DEMO);`. Otherwise the setup page treats your sketch as this demo and offers its spec, decoder and dashboard; **Keep current firmware** preserves your sketch, while installing the demo replaces it.
+
+With those lines removed, the page sets up a board of your own. Add [decoder.star](decoder.star) to its spec and a **Message** box and **Clear** button (text `clear`) to its dashboard, or adapt them for your application. A device set up this way is not automatically included in the disk routine; adapt the routine to send to it.

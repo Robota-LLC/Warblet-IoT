@@ -55,6 +55,8 @@ A copy already running this way uses what a later `--setup` saves from its next 
 
 On a system using systemd, complete setup without `sudo`, confirm a report arrives, then stop the terminal copy with **Ctrl-C**. Keep the script in a permanent folder.
 
+This exact service configuration has not been tested through installation and reboot. After enabling it, confirm reports arrive and resume after a reboot before relying on automatic startup.
+
 Create `/etc/systemd/system/warblet-monitor.service` with `sudoedit /etc/systemd/system/warblet-monitor.service` and paste:
 
 ```ini

@@ -67,7 +67,7 @@ If Wi-Fi stays connected but Warblet gives no answer for about ten minutes, the 
 
 | | |
 |---|---|
-| **Screen** | 320 × 240, landscape; ILI9341 or ST7789 |
+| **Screen** | 320 × 240, landscape; ILI9341, with an ST7789 driver that is untested on hardware |
 | **Transport** | HTTPS to `https.warbletiot.com`; a report about every 30 seconds and a message check every 5 seconds |
 | **Security cap** | L2 (Signed), with a signing key; L1 (Token) without one |
 | **Runtime** | MicroPython 1.28.0 ESP32_GENERIC; this demo runs as Python source |
@@ -91,7 +91,7 @@ The screen and touch panel are built in; no extra wiring is needed. Settings at 
 | Colours look like a photo negative | `INVERT = True` |
 | “Screen chip guessed: see screen.py” and the picture is wrong | Set `CHIP = "ILI9341"` instead of `None`; `"ST7789"` is the other choice |
 
-The demo asks the screen which chip it uses. If the screen does not answer, it uses ST7789 settings and shows the “Screen chip guessed” note.
+The demo asks the screen which chip it uses. If the screen does not answer, it uses ST7789 settings and shows the “Screen chip guessed” note. This fallback is untested on hardware; check the picture and use the settings above if it is wrong.
 
 With Python and `mpremote` on your computer, close the browser's USB connection and copy the board's file out. Replace `<PORT>` with its serial port, such as `COM5` or `/dev/ttyUSB0`.
 

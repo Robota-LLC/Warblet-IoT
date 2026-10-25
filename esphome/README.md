@@ -99,7 +99,7 @@ After rotating a token in Warblet, replace the value in `secrets.yaml` and insta
 | `Warblet not reached` | Check Wi-Fi and internet access. Keep ESPHome current so its trusted certificates stay current; do not disable verification. |
 | `report not stored: HTTP 429` | Check account storage and usage limits. The next report is attempted a minute later. |
 | Reports stop with a custom `ca_certificate_path` | Your override replaces the usual trusted roots. Remove it unless its certificate authority also validates Warblet. |
-| Restarts every 15 minutes with `api:` enabled | If no Home Assistant connects to this device, set `reboot_timeout: 0s` under `api:`. |
+| Restarts every 15 minutes with `api:` enabled | If no client connects to the device's native API, set `reboot_timeout: 0s` under `api:`. |
 
 After a failed command check, the package waits for another accepted report before checking again. Reports missed while offline are not saved for later upload.
 
