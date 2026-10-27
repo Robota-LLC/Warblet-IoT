@@ -58,13 +58,6 @@ esp_err_t chirp_sign_hex2(const uint8_t *key, size_t key_len,
     return ESP_OK;
 }
 
-esp_err_t chirp_sign_hex(const uint8_t *key, size_t key_len,
-                         const uint8_t *msg, size_t msg_len,
-                         char out[CHIRP_SIG_HEX_SIZE])
-{
-    return chirp_sign_hex2(key, key_len, msg, msg_len, NULL, 0, out);
-}
-
 /* Treat times below the threshold as an unset clock. */
 #define CLOCK_SANE_SECS 1735689600
 

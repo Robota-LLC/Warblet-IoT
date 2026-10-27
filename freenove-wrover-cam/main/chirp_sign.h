@@ -30,13 +30,9 @@ extern "C" {
  * fit in outsz. */
 int chirp_sign_prefix(char *out, size_t outsz, const char *nonce, const char *tag);
 
-/* out = hex hmac-sha256(key, msg), lowercase, NUL terminated. */
-esp_err_t chirp_sign_hex(const uint8_t *key, size_t key_len,
-                         const uint8_t *msg, size_t msg_len,
-                         char out[CHIRP_SIG_HEX_SIZE]);
-
-/* Hash two byte ranges as one input without copying the frame.
- * b may be NULL when b_len is zero. */
+/* out = hex hmac-sha256(key, a followed by b), lowercase, NUL terminated.
+ * Two ranges hash as one input without copying the frame; b may be NULL
+ * when b_len is zero. */
 esp_err_t chirp_sign_hex2(const uint8_t *key, size_t key_len,
                           const uint8_t *a, size_t a_len,
                           const uint8_t *b, size_t b_len,

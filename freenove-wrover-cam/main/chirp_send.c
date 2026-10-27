@@ -86,8 +86,8 @@ static esp_err_t set_auth_headers(esp_http_client_handle_t client,
         if (n < 0 || (size_t)n >= sizeof(challenge)) {
             return ESP_ERR_INVALID_SIZE;
         }
-        err = chirp_sign_hex(s_config.key, sizeof(s_config.key), challenge,
-                             (size_t)n, sig);
+        err = chirp_sign_hex2(s_config.key, sizeof(s_config.key), challenge,
+                              (size_t)n, NULL, 0, sig);
     }
 
     if (err != ESP_OK) {
