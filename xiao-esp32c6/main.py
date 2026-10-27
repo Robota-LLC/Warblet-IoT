@@ -176,7 +176,8 @@ def main():
                                        lambda msg: on_downlink(led, msg))
                     gc.collect()
                     # A port to a smaller part needs the heap left with TLS open.
-                    print("chirp: mqtt session up, free heap", gc.mem_free())
+                    print("chirp:", "mqtts" if chirp_mqtt.use_tls(config) else "mqtt",
+                          "session up, free heap", gc.mem_free())
                 celsius = read_temperature_c()
                 tag = PRESS_TAG if on_press else None
                 chirp_mqtt.publish(config, encode_temperature(celsius), tag)
