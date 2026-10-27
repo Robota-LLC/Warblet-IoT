@@ -11,6 +11,7 @@ import chirp_prov
 import chirp_send
 
 INTERVAL_S = 30      # seconds between readings
+RESTART_AFTER_ERROR_S = 10  # pause before restarting after an unexpected error
 
 # Demo identifier included in the USB announce.
 DEMO_SLUG = "demo-pyboard-d"
@@ -121,4 +122,14 @@ def main():
         chirp_prov.service(config, INTERVAL_S)
 
 
-main()
+try:
+    main()
+except KeyboardInterrupt:
+    raise  # Ctrl-C stops the app on purpose: USB setup and bench tools use it
+except Exception as e:
+    # An error the loop did not expect. Say what it was, then start again
+    # rather than sit silent at the prompt.
+    print("chirp: stopped by an unexpected error:", repr(e))
+    print("chirp: restarting in", RESTART_AFTER_ERROR_S, "s")
+    time.sleep(RESTART_AFTER_ERROR_S)
+    machine.reset()
