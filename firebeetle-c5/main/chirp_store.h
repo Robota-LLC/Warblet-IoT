@@ -44,8 +44,6 @@ typedef struct {
     /* A stored signing key enables message signatures. */
     uint8_t           key[CHIRP_KEY_SIZE];
     bool              has_key;
-    int32_t           level;               /* informational, never acted on */
-    bool              has_level;
 } chirp_config_t;
 
 /* Brings up NVS (formatting it if the partition is stale). */

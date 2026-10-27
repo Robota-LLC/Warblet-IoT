@@ -19,7 +19,6 @@ static const char *TAG = "chirp_store";
 #define KEY_CRED      "cred"
 #define KEY_CRED_KIND "cred_kind"
 #define KEY_SIGNKEY   "signkey"
-#define KEY_LEVEL     "level"
 
 esp_err_t chirp_store_init(void)
 {
@@ -126,16 +125,6 @@ esp_err_t chirp_store_load(chirp_config_t *out)
             err = kerr;
         }
     }
-    if (err == ESP_OK) {
-        int32_t level = 0;
-        esp_err_t lerr = nvs_get_i32(h, KEY_LEVEL, &level);
-        if (lerr == ESP_OK) {
-            out->level = level;
-            out->has_level = true;
-        } else if (lerr != ESP_ERR_NVS_NOT_FOUND) {
-            err = lerr;
-        }
-    }
 
     nvs_close(h);
     return err;
@@ -185,14 +174,6 @@ esp_err_t chirp_store_save(const chirp_config_t *config)
             err = nvs_set_blob(h, KEY_SIGNKEY, config->key, sizeof(config->key));
         } else {
             esp_err_t eerr = nvs_erase_key(h, KEY_SIGNKEY);
-            err = (eerr == ESP_ERR_NVS_NOT_FOUND) ? ESP_OK : eerr;
-        }
-    }
-    if (err == ESP_OK) {
-        if (config->has_level) {
-            err = nvs_set_i32(h, KEY_LEVEL, config->level);
-        } else {
-            esp_err_t eerr = nvs_erase_key(h, KEY_LEVEL);
             err = (eerr == ESP_ERR_NVS_NOT_FOUND) ? ESP_OK : eerr;
         }
     }

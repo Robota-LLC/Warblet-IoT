@@ -121,9 +121,8 @@ int main(void)
     expect_true(parse_push("{\"aps\":[{\"ssid\":\"a\",\"pass\":\"1\"},{\"ssid\":\"b\"}],"
                            "\"claim\":\"CHIRP-X\",\"key\":\"" KEY_B64 "\",\"level\":2}", &out) == NULL &&
                 out.ap_count == 2 && strcmp(out.aps[1].ssid, "b") == 0 && out.aps[1].pass[0] == '\0' &&
-                out.cred_kind == CHIRP_CRED_CLAIM && out.has_key && out.key[31] == 0x1f &&
-                out.has_level && out.level == 2,
-                "two networks in order, claim, 32-byte key, level");
+                out.cred_kind == CHIRP_CRED_CLAIM && out.has_key && out.key[31] == 0x1f,
+                "two networks in order, claim, 32-byte key (a level is checked, not kept)");
 
     memset(&s_config, 0, sizeof(s_config));
     strcpy(s_config.aps[0].ssid, "home");

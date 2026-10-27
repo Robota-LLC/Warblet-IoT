@@ -185,12 +185,6 @@ static const char *parse_push(const char *json, chirp_config_t *config)
         config->has_key = true;
     }
 
-    const cJSON *level = cJSON_GetObjectItemCaseSensitive(root, "level");
-    if (level != NULL) {
-        config->level = (int32_t)level->valuedouble;  /* stored, never acted on */
-        config->has_level = true;
-    }
-
     /* Every other key in the object is ignored by design. */
     cJSON_Delete(root);
 
