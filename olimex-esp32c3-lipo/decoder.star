@@ -1,5 +1,7 @@
-# Decode an unsigned big-endian press count followed by flags.
-# 0x01: button_down. 0x02: on_press.
+# Starlark decoder: decode(payload, meta) processes incoming payload bytes.
+# Return a dict of named fields for Warblet dashboards and routines.
+# Two unsigned big-endian bytes hold presses; the third byte holds flags:
+# 0x01 is button_down and 0x02 is on_press.
 
 def decode(payload, meta):
     presses = int(payload[0]) << 8 | int(payload[1])
