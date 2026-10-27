@@ -1,8 +1,10 @@
-# Camera health shares the existing signed MQTT envelope with JPEGs.
+# Starlark decoder: decode(payload, meta) processes incoming payload bytes.
+# Return a dict of named fields for Warblet dashboards and routines.
+# JPEGs return bytes and a ready camera status. Camera health JSON returns
+# its status fields; other payloads return only their size as bytes.
 
 def decode(payload, meta):
-    # Decoder metadata carries no message tag. Only this bounded, namespaced
-    # payload opts into camera health; JPEGs and legacy bytes keep their path.
+    # Only a small JSON payload with warbletCameraHealth: 1 is a health report.
     if len(payload) <= 192 and payload[:1] == b"{":
         health = json.decode(payload, None)
         if type(health) != "dict" or type(health.get("warbletCameraHealth")) != "int" or health.get("warbletCameraHealth") != 1:

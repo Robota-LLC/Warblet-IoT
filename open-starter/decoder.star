@@ -1,7 +1,7 @@
-# Paste this Starlark decoder into the device spec. The board sends one line
-# of text: a count, a space, then the last thing it heard from the Message
-# box. "3 hello" is count 3, heard "hello"; "4 hi there" is count 4, heard
-# "hi there".
+# Starlark decoder: decode(payload, meta) processes incoming payload bytes.
+# Return a dict of named fields for Warblet dashboards and routines.
+# The board sends a count, a space, then the last text from the Message box.
+# For example, "3 hello" returns count 3 and heard "hello".
 
 def decode(payload, meta):
     line = str(payload)                   # the bytes as text
