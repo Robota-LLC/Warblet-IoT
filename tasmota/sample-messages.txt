@@ -1,0 +1,17 @@
+# What a Tasmota plug posts to Warblet once a minute: one request body per
+# line, as the rule in the setup line builds it (the plug puts one space in
+# front). The reading is the text the power meter gave, in quotes.
+#
+# These were not captured from a plug. They are written from Tasmota 16.0.0's
+# source (the rule fills %value% with the meter's Power reading),
+# with made-up readings. Nothing else from the plug is ever in a post: not the
+# Wi-Fi network's name, not the plug's network name, not an address.
+#
+# A lamp on:
+{"Power":"42"}
+# The relay off:
+{"Power":"0"}
+# A heater on:
+{"Power":"1450"}
+# With the longer line in decoder.star's comment, the other three readings too:
+{"Power":"42","Voltage":"121","Current":"0.413","Today":"0.123"}

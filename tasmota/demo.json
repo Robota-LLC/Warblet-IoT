@@ -1,0 +1,43 @@
+{
+  "slug": "demo-tasmota",
+  "chips": [],
+  "board": "A Tasmota plug with a power meter, such as the Sonoff S31",
+  "network": "none",
+  "starter": false,
+  "result": "See your Tasmota plug's power readings on your dashboard, with their history, and get an email when the power passes a limit.",
+  "firstMessage": "It sends its first report a few seconds after you paste the line, then one a minute.",
+  "spec": {
+    "transport": "http",
+    "securityLevel": 1,
+    "retentionDays": 7,
+    "uiConfig": {}
+  },
+  "routine": {
+    "file": "power-limit.star",
+    "name": "Tasmota: email when the power passes a limit",
+    "scope": "spec",
+    "minIntervalMs": 0
+  },
+  "firmware": {
+    "kind": "external",
+    "connect": [
+      {
+        "label": "Tasmota console",
+        "text": "Backlog3 Rule3 ON Tele-ENERGY#Power DO _WebQuery http://{host}/ingest/{id} POST [X-Chirp-Token:{code}|X-Chirp-Claim:{code}] {{\"Power\":\"%value%\"}} ENDON; Rule3 1; TelePeriod 60",
+        "steps": [
+          {
+            "title": "Check that Rule3 is empty, then paste this line",
+            "text": "Backlog3 Rule3 ON Tele-ENERGY#Power DO _WebQuery http://{host}/ingest/{id} POST [X-Chirp-Token:{code}|X-Chirp-Claim:{code}] {{\"Power\":\"%value%\"}} ENDON; Rule3 1; TelePeriod 60"
+          }
+        ]
+      }
+    ]
+  },
+  "provision": {
+    "host": "http.warbletiot.com",
+    "commands": [],
+    "knobs": {
+      "level": {"max": 1}
+    }
+  }
+}
