@@ -4,6 +4,9 @@
 #ifndef CHIRP_SEND_H
 #define CHIRP_SEND_H
 
+/* The longest host the board holds; a longer pushed host is refused. */
+#define CHIRP_HOST_MAX 79u
+
 void chirp_send_init(void);        /* read the stored credentials, say the level */
 void chirp_send_reload(void);      /* re-read them after a CHIRP+ push           */
 void chirp_send_tick(unsigned now_ms);  /* one uplink every 30 s                 */

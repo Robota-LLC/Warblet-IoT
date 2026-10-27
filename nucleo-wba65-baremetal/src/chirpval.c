@@ -2,6 +2,7 @@
  * Malformed values return bad-json; missing required fields return missing-field. */
 
 #include "chirpval.h"
+#include "chirp_send.h"
 #include "json.h"
 
 /* chirp_prov.c and chirp_send.c hold an id in 64 bytes. */
@@ -88,7 +89,7 @@ static const char *check_thread(const js_val *t)
 static const char *check_fields(const char *json, unsigned len,
                                 int *have_cred, int *have_net)
 {
-  js_val claim, token, ssid, thread, key, hwid;
+  js_val claim, token, ssid, thread, key, hwid, host;
 
   *have_cred = 0;
   *have_net  = 0;
@@ -109,6 +110,12 @@ static const char *check_fields(const char *json, unsigned len,
 
   if (js_obj_get(json, len, "hwid", &hwid) == 1) {
     if (hwid.t != JS_STR || !is_hwid(hwid.p, hwid.n)) { return "bad-json"; }
+  }
+
+  /* A host longer than the board holds would be cut short, and the board
+   * would report to a name nobody pushed. */
+  if (js_obj_get(json, len, "host", &host) == 1) {
+    if (host.t != JS_STR || host.n > CHIRP_HOST_MAX) { return "bad-json"; }
   }
 
   int has_ssid = js_obj_get(json, len, "ssid", &ssid) == 1;

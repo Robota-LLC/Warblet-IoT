@@ -13,7 +13,8 @@
 /* ------------------------------------------------------------------ state */
 
 static char          s_hwid[64];
-static char          s_host[80];
+static const char   *s_host;            /* DEFAULT_HOST, or s_host_buf */
+static char          s_host_buf[CHIRP_HOST_MAX + 1u];
 static char          s_cred[96];        /* the token, or the claim code */
 static unsigned char s_key[32];
 static int           s_have_key;
@@ -97,17 +98,13 @@ void chirp_send_reload(void)
 
   chirp_hwid(s_hwid, sizeof s_hwid);
 
-  /* A pushed `host` is an override for a self-hosted core. */
-  {
-    unsigned i = 0u;
-    while (DEFAULT_HOST[i] != '\0' && i + 1u < sizeof s_host) { s_host[i] = DEFAULT_HOST[i]; i++; }
-    s_host[i] = '\0';
-  }
-
   json = cfg_json(&jl);
-  if (!json) { return; }
 
-  (void)cfg_field(json, jl, "host", s_host, sizeof s_host);
+  /* A pushed `host` is an override for a self-hosted core. One that does not
+   * fit (stored by an older image) is not used cut short. */
+  s_host = cfg_field(json, jl, "host", s_host_buf, sizeof s_host_buf) ? s_host_buf
+                                                                       : DEFAULT_HOST;
+  if (!json) { return; }
 
   /* A token, else the claim code that binds the board on first contact
    * (§Claim-code-first onboarding). A push carries at most one. */

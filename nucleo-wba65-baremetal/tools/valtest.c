@@ -347,6 +347,14 @@ int main(void)
         "bad-json", "key in the URL-safe alphabet (the contract sends standard base64)");
   check("{\"claim\":\"C\",\"ssid\":\"s\",\"key\":42}", "bad-json", "key must be a string");
 
+  puts("\n--- host ---");
+  check("{\"claim\":\"C\",\"host\":\"core.example.com\"}", 0, "a host");
+  check("{\"claim\":\"C\",\"host\":\"h0123456789012345678901234567890123456789012345678901234567890123456789.example\"}",
+        0, "a host of 79 characters, the most the board holds");
+  check("{\"claim\":\"C\",\"host\":\"h01234567890123456789012345678901234567890123456789012345678901234567890.example\"}",
+        "bad-json", "a host of 80 characters would be cut short");
+  check("{\"claim\":\"C\",\"host\":5}", "bad-json", "host must be a string");
+
   puts("\n--- v1.3 merges (the portal's L2 elevation flow) ---");
   {
     /* Check key-only pushes and pushes containing both a key and a replacement
