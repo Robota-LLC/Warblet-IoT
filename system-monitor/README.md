@@ -26,7 +26,7 @@ Your computer sends disk usage and system readings to [Warblet](https://warbleti
 After preparing setup, run:
 
 ```sh
-git clone --depth 1 --branch v1.4.1 https://github.com/Robota-LLC/Warblet-IoT.git
+git clone --depth 1 --branch v1.4.3 https://github.com/Robota-LLC/Warblet-IoT.git
 cd Warblet-IoT/system-monitor
 python3 warblet_monitor.py
 ```
