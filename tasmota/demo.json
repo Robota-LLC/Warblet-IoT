@@ -1,0 +1,47 @@
+{
+  "slug": "demo-tasmota",
+  "chips": [],
+  "board": "A Tasmota plug with a power meter, such as the Sonoff S31",
+  "network": "none",
+  "starter": false,
+  "result": "See your Tasmota plug's power readings on your dashboard, switch it from anywhere, and get an email when the power passes a limit.",
+  "firstMessage": "It sends its first message as soon as it connects, then a report every minute.",
+  "spec": {
+    "transport": "mqtt",
+    "securityLevel": 1,
+    "retentionDays": 7,
+    "uiConfig": {
+      "controls": [
+        {"type": "toggle", "label": "Plug", "onText": "ON", "offText": "OFF", "stateField": "Relay"}
+      ]
+    }
+  },
+  "routine": {
+    "file": "power-limit.star",
+    "name": "Tasmota: email when the power passes a limit",
+    "scope": "spec",
+    "minIntervalMs": 0
+  },
+  "firmware": {
+    "kind": "external",
+    "connect": [
+      {
+        "label": "Tasmota console",
+        "text": "Backlog MqttHost {host}; MqttPort 1883; MqttClient {id}; MqttUser {id}; MqttPassword2 {code}; FullTopic chirp/{id}/%prefix%/; Prefix2 up; Prefix3 up; TelePeriod 60; Rule3 ON Mqtt#Connected DO Subscribe2 Warblet, chirp/{id}/down ENDON ON Event#Warblet=ON DO Power1 1 ENDON ON Event#Warblet=OFF DO Power1 0 ENDON; Rule3 1",
+        "steps": [
+          {
+            "title": "Paste this line in Tasmota's console (it uses Rule3)",
+            "text": "Backlog MqttHost {host}; MqttPort 1883; MqttClient {id}; MqttUser {id}; MqttPassword2 {code}; FullTopic chirp/{id}/%prefix%/; Prefix2 up; Prefix3 up; TelePeriod 60; Rule3 ON Mqtt#Connected DO Subscribe2 Warblet, chirp/{id}/down ENDON ON Event#Warblet=ON DO Power1 1 ENDON ON Event#Warblet=OFF DO Power1 0 ENDON; Rule3 1"
+          }
+        ]
+      }
+    ]
+  },
+  "provision": {
+    "host": "mqtt.warbletiot.com",
+    "commands": ["ON", "OFF"],
+    "knobs": {
+      "level": {"max": 1}
+    }
+  }
+}
