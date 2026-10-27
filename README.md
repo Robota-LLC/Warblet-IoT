@@ -5,7 +5,7 @@ Connect a board, computer or smart plug to [Warblet](https://warbletiot.com) to 
 ## Quick start
 
 1. Choose a demo below and check its board and network requirements.
-2. Open [Set up a device](https://warbletiot.com/flash) in desktop Chrome or Edge and follow the selected demo’s steps. Board demos use a USB data cable; the computer, ESPHome and Tasmota guides explain their setup without flashing.
+2. Open [Set up a device](https://warbletiot.com/flash) in desktop Chrome or Edge and follow the selected demo’s steps. Board demos use a USB data cable; the computer, ESPHome and Tasmota guides explain their setup without flashing from Warblet.
 3. Open the device page to see its data and try any controls. Browser setup adds the demo spec and decoder for you.
 
 To build or install files yourself, follow the demo's build, flash and connection instructions. Close other serial tools before connecting from the browser. The STM32 USB-relay demo needs a computer running the relay; the Thread demo needs a border router with DNS64/NAT64.
