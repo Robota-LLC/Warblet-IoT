@@ -19,8 +19,9 @@ static const char *TAG = "chirp_send";
 #define REPORT_PERIOD_MS  30000
 #define CONNECT_TIMEOUT_S 10
 
-/* Reconnect backoff: immediate after a drop, doubling on failure, reset once a
- * payload line goes out. */
+/* Reconnect backoff: the first connect is at once; after a drop the loop waits
+ * the backoff first, doubling it after each failed connect, and a payload line
+ * that goes out sets it back to BACKOFF_MIN_MS. */
 #define BACKOFF_MIN_MS 2000
 #define BACKOFF_MAX_MS 60000
 
@@ -203,7 +204,7 @@ chirp_send_result_t chirp_send_bytes(const uint8_t *payload, size_t length)
     char   line[TX_LINE_MAX];
     size_t base64_length = 0;
     memcpy(line, "b64:", 4);
-    if (mbedtls_base64_encode((unsigned char *)line + 4, sizeof(line) - 6,
+    if (mbedtls_base64_encode((unsigned char *)line + 4, BASE64_MAX,
                               &base64_length, frame, frame_len) != 0) {
         return CHIRP_SKIPPED;
     }
