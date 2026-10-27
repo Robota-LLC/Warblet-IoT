@@ -61,31 +61,25 @@ static int         s_sock_open;
 static unsigned s_ramp = 200u;
 
 /* Narration state: what was last said, so nothing is said twice in a row. */
-static int  s_announced;
-static char s_last_err[40];
+static int         s_announced;
+static const char *s_last_err;   /* the trouble last said, a literal, or NULL */
 
 static void say_err(const char *what, const char *detail)
 {
-  unsigned i = 0u;
-  char     key[sizeof s_last_err];
+  const char *a = what, *b = s_last_err;
 
-  while (what[i] != '\0' && i < sizeof key - 1u) { key[i] = what[i]; i++; }
-  key[i] = '\0';
+  while (b != NULL && *a != '\0' && *a == *b) { a++; b++; }
+  if (b != NULL && *a == *b) { return; }   /* same as last time */
 
-  for (i = 0u; key[i] != '\0' || s_last_err[i] != '\0'; i++) {
-    if (key[i] != s_last_err[i]) { break; }
-  }
-  if (key[i] == '\0' && s_last_err[i] == '\0') { return; }   /* same as last time */
-
-  for (i = 0u; (s_last_err[i] = key[i]) != '\0'; i++) { }
+  s_last_err = what;
   board_serial_print("CHIRP. report: %s (%s); retrying every %us\r\n",
        what, detail, CHIRP_REPORT_INTERVAL_MS / 1000u);
 }
 
 static void say_ok(unsigned tenths)
 {
-  if (s_last_err[0] != '\0') {
-    s_last_err[0] = '\0';
+  if (s_last_err != NULL) {
+    s_last_err = NULL;
     board_serial_print("CHIRP. report: recovered\r\n");
   }
   if (!s_announced) {
@@ -233,13 +227,12 @@ static void chirp_report_task(void)
 }
 
 static void copy_str(const char *json, unsigned len, const char *key,
-                     char *dst, unsigned dstsz, int *have)
+                     char *dst, unsigned dstsz)
 {
   js_val v;
 
-  if (js_obj_get(json, len, key, &v) == 1 && v.t == JS_STR &&
-      js_str_copy(&v, dst, dstsz) > 0) {
-    if (have != NULL) { *have = 1; }
+  if (js_obj_get(json, len, key, &v) == 1 && v.t == JS_STR) {
+    (void)js_str_copy(&v, dst, dstsz);
   }
 }
 
@@ -257,13 +250,13 @@ void chirp_report_config(const char *json, unsigned len)
   /* Load the merged config, starting with the default host. */
   for (i = 0u; (s_host[i] = def[i]) != '\0'; i++) { }
 
-  copy_str(json, len, "host", s_host, sizeof s_host, NULL);
-  copy_str(json, len, "token", s_token, sizeof s_token, NULL);
-  copy_str(json, len, "claim", s_token, sizeof s_token, NULL);
+  copy_str(json, len, "host", s_host, sizeof s_host);
+  copy_str(json, len, "token", s_token, sizeof s_token);
+  copy_str(json, len, "claim", s_token, sizeof s_token);
   chirp_hwid_config(json, len);           /* the id the announce uses too */
 
   s_key_b64[0] = '\0';
-  copy_str(json, len, "key", s_key_b64, sizeof s_key_b64, NULL);
+  copy_str(json, len, "key", s_key_b64, sizeof s_key_b64);
   if (s_key_b64[0] != '\0') {
     char probe[CHIRP_SIGN_HEX_LEN + 1];
     if (chirp_sign_hex(probe, sizeof probe, s_key_b64, sizeof s_key_b64,
@@ -278,7 +271,7 @@ void chirp_report_config(const char *json, unsigned len)
 
   /* Re-announce after any reconfig. */
   s_announced   = 0;
-  s_last_err[0] = '\0';
+  s_last_err    = NULL;
 
   UTIL_SEQ_SetTask(CHIRP_TASK_REPORT, CFG_SEQ_PRIO_1);
 }
