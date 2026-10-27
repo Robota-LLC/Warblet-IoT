@@ -7,6 +7,9 @@
 #include "chirp_send.h"
 #include "dfu.h"
 
+#define BLINK_HALF_MS 500u    /* LD1 on, then off, for this long each */
+#define DFU_HOLD_MS   3000u   /* hold B1 this long for the ROM bootloader */
+
 static volatile unsigned s_ms;
 
 void SysTick_Handler(void)
@@ -78,7 +81,7 @@ int main(void)
 
     chirp_send_tick(now);
 
-    if ((now - last_blink) >= 500u) {            /* ~1 Hz, 50% duty */
+    if ((now - last_blink) >= BLINK_HALF_MS) {   /* ~1 Hz, 50% duty */
       last_blink = now;
       led_on = !led_on;
       led_set(led_on);
@@ -86,7 +89,7 @@ int main(void)
 
     int down = btn_down();
     if (down && !btn_prev) { btn_since = now; }
-    if (down && (now - btn_since) >= 3000u) {
+    if (down && (now - btn_since) >= DFU_HOLD_MS) {
       uart_line("");
       uart_line("CHIRP. B1 held 3s -> system bootloader at 0x0BF90000");
       dfu_enter_system_bootloader();

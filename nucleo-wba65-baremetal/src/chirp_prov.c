@@ -53,7 +53,7 @@ unsigned chirp_hwid(char *out, unsigned outsz)
 
 static void put_hwid(void)
 {
-  char id[64];
+  char id[CHIRP_HWID_SIZE];
   unsigned n = chirp_hwid(id, sizeof id);
   uart_write(id, n);
 }

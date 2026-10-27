@@ -2,11 +2,11 @@
  * Malformed values return bad-json; missing required fields return missing-field. */
 
 #include "chirpval.h"
+#include "chirp_prov.h"
 #include "chirp_send.h"
 #include "json.h"
 
-/* chirp_prov.c and chirp_send.c hold an id in 64 bytes. */
-#define HWID_LEN_MAX 63u
+#define HWID_LEN_MAX (CHIRP_HWID_SIZE - 1u)
 
 static int is_hex_str(const char *s, unsigned n)
 {

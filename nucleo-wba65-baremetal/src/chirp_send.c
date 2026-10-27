@@ -12,7 +12,7 @@
 
 /* ------------------------------------------------------------------ state */
 
-static char          s_hwid[64];
+static char          s_hwid[CHIRP_HWID_SIZE];
 static const char   *s_host;            /* DEFAULT_HOST, or s_host_buf */
 static char          s_host_buf[CHIRP_HOST_MAX + 1u];
 static char          s_cred[96];        /* the token, or the claim code */
