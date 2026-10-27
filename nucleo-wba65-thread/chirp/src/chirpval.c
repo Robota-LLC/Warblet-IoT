@@ -220,6 +220,11 @@ unsigned chirp_merge(char *out, unsigned outsz,
     if (push_cred && (key_is(&k, "claim") || key_is(&k, "token"))) { continue; }
     if (drop_aps  && key_is(&k, "aps"))                            { continue; }
 
+    /* A stored host longer than the board holds, or not text, came from an
+     * older image with no such rule; the board never used it, so it is not
+     * carried. A pushed one has been refused for it already. */
+    if (key_is(&k, "host") && (v.t != JS_STR || v.n > CHIRP_HOST_MAX)) { continue; }
+
     if (!emit(out, outsz, &o, &first, &k, &v)) { return 0u; }
   }
 

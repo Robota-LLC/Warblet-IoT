@@ -174,6 +174,13 @@ static void test_merge(void)
          "a 43-character key (padding stripped) is not a 32-byte key");
   mvalid(provisioned, "{\"key\":\"" KEY44 "\",\"claim\":\"C\",\"token\":\"T\"}", "bad-json",
          "claim and token together is still refused on the push");
+
+  /* What an older image stored must not block a later push. */
+  mvalid("{\"claim\":\"C\",\"ssid\":\"s\",\"host\":\"h01234567890123456789012345678901234567890123456789012345678901.example\"}",
+         "{\"hwid\":\"wba-2\"}", 0,
+         "a stored host longer than the board holds does not block a push");
+  mcheck("{\"claim\":\"C\",\"host\":\"h01234567890123456789012345678901234567890123456789012345678901.example\"}", "{\"hwid\":\"wba-2\"}",
+         "{\"hwid\":\"wba-2\",\"claim\":\"C\"}", "  ... and it is not carried");
 }
 
 /* ---------------------------------------------------------------- chirp_ds.c */
