@@ -187,43 +187,46 @@ def valid_networks(entries):
     return True
 
 
-def apply_config_push(body, config):
-    """Validate and merge a push in a separate config copy, then save and reboot.
-    Rejected pushes leave the active config unchanged."""
+def _merged(body, config):
+    """A copy of the config with the push merged in, or None when the push is
+    not one to store: not a JSON object, a claim and a token together, a bad
+    network list, a field of the wrong type or a bad hwid. The config itself
+    is never changed."""
     try:
         push = json.loads(body)
-        if not isinstance(push, dict):
-            raise ValueError
     except ValueError:
-        print("CHIRP= err bad-json")
-        return
-
+        return None
     # One credential slot: a push carrying both a claim and a token is refused.
-    if "claim" in push and "token" in push:
-        print("CHIRP= err bad-json")
-        return
-
+    if not isinstance(push, dict) or ("claim" in push and "token" in push):
+        return None
     if "aps" in push and not valid_networks(push["aps"]):
-        print("CHIRP= err bad-json")
-        return
+        return None
 
     candidate = config.copy()
     for field_name, field_value in push.items():
         if field_name == "claim":
             field_name = "token"
+        # Wrong type is bad-json by contract; a missing field is checked later.
         if field_name in STRING_FIELDS and not isinstance(field_value, str):
-            # Wrong type is bad-json by contract; a missing field is checked below.
-            print("CHIRP= err bad-json")
-            return
+            return None
+        # The hwid goes into the announce line, a topic and a URL.
         if field_name == "hwid" and not valid_hwid(field_value):
-            # It goes into the announce line, a topic and a URL.
-            print("CHIRP= err bad-json")
-            return
+            return None
         candidate[field_name] = field_value
 
     # A top-level ssid without aps replaces the stored network list.
     if "ssid" in push and "aps" not in push:
         candidate.pop("aps", None)
+    return candidate
+
+
+def apply_config_push(body, config):
+    """Validate and merge a push in a separate config copy, then save and reboot.
+    Rejected pushes leave the active config unchanged."""
+    candidate = _merged(body, config)
+    if candidate is None:
+        print("CHIRP= err bad-json")
+        return
 
     if not ready(candidate):
         print("CHIRP= err missing-field")
