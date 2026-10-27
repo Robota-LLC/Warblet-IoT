@@ -4,7 +4,6 @@
 #ifndef FLASHCFG_H
 #define FLASHCFG_H
 
-#define CFG_PAGE_SIZE   0x2000u   /* 8 KB, ST device DB 0x4B0 (sector size 0x2000) */
 #define CFG_MAX_PAYLOAD 1008u     /* JSON bytes; header(16) + payload <= 1024     */
 
 /* 0 = a valid record was loaded, -1 = nothing stored / corrupt. */

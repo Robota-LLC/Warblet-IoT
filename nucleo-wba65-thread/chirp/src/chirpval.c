@@ -2,6 +2,7 @@
  * Malformed values return bad-json; missing required fields return missing-field. */
 
 #include "chirpval.h"
+#include "chirp_ds.h"
 #include "chirp_hwid.h"
 #include "json.h"
 
@@ -53,14 +54,14 @@ static const char *check_thread(const js_val *t)
   if (js_obj_get(t->p, t->n, "dataset", &v) == 1) {
     if (v.t != JS_STR) { return "bad-json"; }
     /* even-length hex, <= 254 bytes of Active Operational Dataset TLVs */
-    if (v.n == 0u || (v.n & 1u) || v.n > 508u || !is_hex_str(v.p, v.n)) { return "bad-json"; }
+    if (v.n == 0u || (v.n & 1u) || v.n > 2u * CHIRP_DS_TLV_MAX || !is_hex_str(v.p, v.n)) { return "bad-json"; }
     return 0;                       /* dataset wins: nothing else in here is read */
   }
 
   int have_name = 0, have_key = 0;
 
   if (js_obj_get(t->p, t->n, "name", &v) == 1) {
-    if (v.t != JS_STR || v.n == 0u || v.n > 16u) { return "bad-json"; }
+    if (v.t != JS_STR || v.n == 0u || v.n > CHIRP_DS_NAME_MAX) { return "bad-json"; }
     have_name = 1;
   }
   if (js_obj_get(t->p, t->n, "key", &v) == 1) {
