@@ -56,13 +56,9 @@ seen = ""             # "", "sending", "sent" or "waiting" (tapped while offline
 drawn = {}            # what each line of the screen shows now
 
 
-def now():
-    return time.time()
-
-
 def age(then):
     """How long ago, in a few words."""
-    s = max(0, now() - then)
+    s = max(0, time.time() - then)
     if s < 60:
         return "just now"
     if s < 3600:
@@ -137,11 +133,11 @@ def add_info(line):
         name = line                     # any other line is its own
     for row in infos:
         if row[0] == name:
-            row[1], row[2] = line, now()
+            row[1], row[2] = line, time.time()
             return
     if len(infos) == INFO_ROWS:         # full: the one heard from longest ago goes
         infos.remove(min(infos, key=lambda row: row[2]))
-    infos.append([name, line, now()])
+    infos.append([name, line, time.time()])
 
 
 def rows():
@@ -200,7 +196,7 @@ def on_command(command, config):
         add_info(text_of(command[5:]))
         show_info()
     else:
-        message, message_at, seen = text_of(command), now(), ""
+        message, message_at, seen = text_of(command), time.time(), ""
         show_message(message)
     show_footer()
     print("chirp: down", len(command), "bytes")   # its size, never its words
