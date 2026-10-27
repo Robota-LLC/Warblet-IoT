@@ -85,5 +85,6 @@ Keep Celsius as the return unit, or change `encode_temperature()` and `decoder.s
 | No stored network joined | Check the network name, password, and signal. Each attempt can take 12 seconds. |
 | HTTP 401 | Check the device ID, token, and signing key. |
 | Send failed | Check Wi-Fi, DNS, and the stored host. |
+| `stopped by an unexpected error` | Read the preceding error. The board restarts after 10 seconds; Ctrl-C stops it for debugging. |
 
 HTTP 301 can mean the stored host is wrong; use `http.warbletiot.com`. If time sync fails, signed messages carry no nonce header and sign an empty nonce line. A reset can disconnect native USB before the setup reply is visible: reconnect and send `CHIRP?` to check the saved device ID.

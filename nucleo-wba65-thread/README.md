@@ -69,7 +69,7 @@ CHIRP?
 CHIRP+ {"thread":{"dataset":"YOUR_DATASET_HEX"},"hwid":"YOUR_DEVICE_ID","token":"YOUR_DEVICE_TOKEN"}
 ```
 
-The board answers `CHIRP= ok` when it saves the config. The optional `key` is a base64-encoded 32-byte signing key. Use `claim` or `token`, not both. Later pushes merge with saved fields; a key-only push needs a network and credential already stored.
+The board answers `CHIRP= ok` when it saves the config. The optional `key` is a base64-encoded 32-byte signing key. Use `claim` or `token`, not both. Later pushes merge with saved fields; a key-only push needs a network and credential already stored. A host over 63 characters or a token or claim over 95 is refused with `bad-json`.
 
 The same console accepts OpenThread commands such as `state`. A connected node has a role such as `child` or `router`. `dataset active -x` shows the network dataset, including private credentials; do not share its output.
 

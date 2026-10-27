@@ -67,7 +67,7 @@ CHIRP?
 CHIRP+ {"hwid":"YOUR_DEVICE_ID","token":"YOUR_DEVICE_TOKEN"}
 ```
 
-`CHIRP= ok` means the settings were saved. An optional `key` is a base64-encoded 32-byte signing key. Use `claim` or `token`, not both. Later pushes merge with stored settings, so a key-only push works after the device has a credential.
+`CHIRP= ok` means the settings were saved. An optional `key` is a 32-byte signing key in standard base64: 44 characters ending in `=`. Use `claim` or `token`, not both. Later pushes merge with stored settings, so a key-only push works after the device has a credential.
 
 ## Run the computer relay
 
@@ -126,7 +126,7 @@ Browser setup adds the demo spec. For manual setup, paste [decoder.star](decoder
 
 Replace `next_tenths()` in `src/chirp_send.c` with your sensor reading in tenths of a degree.
 
-For negative readings, change the unsigned packing and decoder to a signed format. For a different payload size, also update `Content-Length` and the serial body formatter in `print_http_request()`. Keep hardware setup separate from the request formatting when adding a sensor.
+For negative readings, change the unsigned packing and decoder to a signed format. Keep hardware setup separate from the request formatting when adding a sensor.
 
 For another board, adapt [include/board.h](include/board.h), the startup code and [ld/stm32wba65ri.ld](ld/stm32wba65ri.ld). Reserve a settings page outside the application image and match the UART pins and clock to your hardware.
 
@@ -143,7 +143,7 @@ The HTTP connection from the computer relay to Warblet is unencrypted. Signing d
 | No console output | Use CN15, the ST-LINK port, at 115200 baud. |
 | No relay output | Wait 30 seconds after boot and close other apps using the serial port. |
 | `missing-field` | A first push needs a token or claim; a signing key alone is not enough. |
-| `bad-json` for a key | Supply a base64-encoded 32-byte key. |
+| `bad-json` | Use a host of at most 79 characters and a token or claim of at most 95. A signing key must be standard base64: 44 characters ending in `=`. |
 | Relay connection failed | Check the computer’s internet connection, DNS, and `HOST`. |
 | HTTP 401 | Check the device credential and signing key. |
 | No LED heartbeat | Check that the app is running and that the image was written to `0x08000000`. |

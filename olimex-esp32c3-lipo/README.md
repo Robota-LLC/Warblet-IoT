@@ -121,7 +121,7 @@ Set the device spec’s controls to:
 {"controls":[{"type":"toggle","label":"LED","onText":"led:on","offText":"led:off"},{"type":"button","label":"Blink","text":"led:blink"}]}
 ```
 
-`on_downlink()` matches `led:on`, `led:off`, `led:toggle` and `led:blink` as bytes and prints a line such as `chirp: down led:toggle -- LED ON`. Other commands are ignored, and only their size is printed, since a command can carry anything. The flash after an accepted report flips the LED for a moment and puts it back, so it does not undo `led:on`.
+`on_downlink()` matches `led:on`, `led:off`, `led:toggle` and `led:blink` as bytes and prints a line such as `chirp: down led:toggle -- LED ON`. `led:blink` flashes once, briefly reversing the LED and then restoring its previous state. Other commands are ignored, and only their size is printed, since a command can carry anything. The flash after an accepted report flips the LED for a moment and puts it back, so it does not undo `led:on`.
 
 ## Decoder
 

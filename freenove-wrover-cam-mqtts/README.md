@@ -116,7 +116,7 @@ The latest raw message can be health JSON. To request the latest picture through
 
 Replace `camera_init()`, `camera_capture()`, and `camera_release()` in `main/camera.c` with your sensor’s setup, read, and cleanup functions.
 
-Keep the interface in `main/camera.h`: capture returns a byte pointer and length, valid until release. `report_camera()` publishes completed captures before releasing them. For non-image data, replace the JPEG check and update `decoder.star`. Set the image interval with `REPORT_PERIOD_MS` in `main/chirp_mqtt.c` and the health interval in `report_camera()`.
+Keep the interface in `main/camera.h`: capture returns a byte pointer and length, valid until release. `report_camera()` publishes completed captures before releasing them. For non-image data, replace the JPEG check and update `decoder.star`. Set the image interval with `REPORT_PERIOD_MS` in `main/chirp_mqtt.c` and the health interval with `HEALTH_PERIOD_MS` at the top of `main/main.c`.
 
 The camera worker makes one initialization attempt per boot, including the software-JPEG fallback when supported. After a returned setup or capture failure, it reports `unavailable` and waits for restart before another setup attempt. Reinitializing an already-failed sensor proved unsafe on the tested board, so the firmware does not retry automatically. A camera operation that exceeds 20 seconds is quarantined: the firmware reports `stalled` and makes no overlapping driver calls until restart. PWDN and RESET are unconnected, so firmware cannot power-cycle the camera module. Power off to inspect or reseat the camera before restarting; a software restart alone does not reset the sensor's power.
 

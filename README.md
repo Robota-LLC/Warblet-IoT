@@ -1,12 +1,12 @@
 # Warblet firmware demos
 
-Connect a board to [Warblet](https://warbletiot.com), see its readings or photos, and send commands back. These examples cover MicroPython, Arduino, ESP-IDF C and STM32 C. Each includes source, a payload decoder and a guide to adapting it.
+Connect a board, computer or smart plug to [Warblet](https://warbletiot.com) to see its readings or photos. Many demos also receive commands. These examples cover MicroPython, Arduino, ESP-IDF C, STM32 C, Python, ESPHome and Tasmota, with source, a payload decoder and a guide to adapting each one.
 
 ## Quick start
 
 1. Choose a demo below and check its board and network requirements.
-2. Open [Set up a device](https://warbletiot.com/flash) in desktop Chrome or Edge. Connect the board with a USB data cable and follow the setup steps.
-3. Open the device page to see its data and try its controls. Browser setup adds the demo spec and decoder for you.
+2. Open [Set up a device](https://warbletiot.com/flash) in desktop Chrome or Edge and follow the selected demo’s steps. Board demos use a USB data cable; the computer, ESPHome and Tasmota guides explain their setup without flashing.
+3. Open the device page to see its data and try any controls. Browser setup adds the demo spec and decoder for you.
 
 To build or install files yourself, follow the demo's build, flash and connection instructions. Close other serial tools before connecting from the browser. The STM32 USB-relay demo needs a computer running the relay; the Thread demo needs a border router with DNS64/NAT64.
 
@@ -31,6 +31,7 @@ The [Open starter](open-starter/README.md) sends text and echoes a message with 
 | [`nucleo-wba65-thread/`](nucleo-wba65-thread/README.md) | You want to send readings through a Thread border router. | ST NUCLEO-WBA65RI | STM32CubeWBA + GNU Arm + Make | Thread / UDP |
 | [`system-monitor/`](system-monitor/README.md) | You want your computer's disks and vitals on your dashboard, with nothing to flash. | Your computer: Linux, Raspberry Pi OS, macOS or Windows | Python 3.8 or newer | HTTPS |
 | [`esphome/`](esphome/README.md) | You already run ESPHome and want your device's readings on your dashboard, with nothing to flash from Warblet. | An ESP32 board running ESPHome | ESPHome 2026.10 or newer | HTTPS |
+| [`tasmota/`](tasmota/README.md) | You already run Tasmota on a plug and want its power readings on your dashboard, with nothing to flash from Warblet. | A plug with a power meter running Tasmota, such as the Sonoff S31 | Tasmota 16.0.0 or newer | HTTP, one way, not encrypted |
 
 The two WBA65 demos send simulated temperatures until you add a sensor. Other temperature demos measure the chip, not room temperature. The Pyboard D temperature demo and both WBA65 demos do not receive commands.
 

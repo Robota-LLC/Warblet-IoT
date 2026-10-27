@@ -90,7 +90,7 @@ With a signing key, the board prefixes the payload with 32 raw HMAC-SHA256 bytes
 
 This connection is unencrypted. Tokens and readings are visible on the network, and the demo cannot satisfy `enforceTls`.
 
-Commands arrive as `down:` followed by base64. For example, `down:bGVkOm9u` means `led:on`. The supported commands are `led:on`, `led:off`, and `led:blink`; blink selects repeated blinking. Use those exact strings in the device spec’s dashboard controls. Keys arrive through USB.
+Commands arrive as `down:` followed by base64. For example, `down:bGVkOm9u` means `led:on`. The supported commands are `led:on`, `led:off`, and `led:blink`. Here, `led:blink` keeps blinking until `led:on` or `led:off` arrives; the MicroPython demos flash once. Use those exact strings in the device spec’s dashboard controls. Keys arrive through USB.
 
 ## Decoder
 

@@ -117,7 +117,8 @@ NVS stores Wi-Fi passwords, the device token and signing key unencrypted. USB ac
 |---|---|
 | No networks stored | Send Wi-Fi settings and a device credential. |
 | JPEG format unsupported at startup | The driver tries RGB565 and software JPEG; check whether the next camera initialization succeeds. |
-| Camera probe or capture fails | Power off, check the ribbon seating, then restart. Check PSRAM settings too. |
+| Camera fails to initialize | USB setup stays available, but the board does not join Wi-Fi and appears offline in Warblet. The console repeats the reason once a minute. Power off, check the ribbon seating and PSRAM settings, then restart. |
+| Capture fails | Power off, check the ribbon seating, then restart. Check PSRAM settings too. |
 | Picture is mirrored | Check `CAM_HMIRROR` for software-encoded frames. |
 | Frame-age message | Capture is discarding an old queued frame. Repeated stale results can mean the sensor is delivering slowly. |
 | Message over the byte cap | Reduce frame dimensions or JPEG size. |
