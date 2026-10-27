@@ -17,12 +17,11 @@ static int is_hex_str(const char *s, unsigned n)
   return n > 0u;
 }
 
-/* Standard and URL-safe alphabets: the portal's paste field accepts either. */
+/* Standard base64, as the contract sends a key (§Fleet keys). */
 static int is_b64_char(char c)
 {
   return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-         (c >= '0' && c <= '9') ||
-         c == '+' || c == '/' || c == '-' || c == '_';
+         (c >= '0' && c <= '9') || c == '+' || c == '/';
 }
 
 /* A 32-byte signing key is encoded as 44 base64 characters ending in '='. */

@@ -343,6 +343,8 @@ int main(void)
         "bad-json", "key that is not 32 bytes");
   check("{\"claim\":\"C\",\"ssid\":\"s\",\"key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdH!8=\"}",
         "bad-json", "key with a character outside base64");
+  check("{\"claim\":\"C\",\"ssid\":\"s\",\"key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh-_\"}",
+        "bad-json", "key in the URL-safe alphabet (the contract sends standard base64)");
   check("{\"claim\":\"C\",\"ssid\":\"s\",\"key\":42}", "bad-json", "key must be a string");
 
   puts("\n--- v1.3 merges (the portal's L2 elevation flow) ---");

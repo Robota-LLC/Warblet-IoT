@@ -40,8 +40,8 @@ static int b64_val(char c)
   if (c >= 'A' && c <= 'Z') { return c - 'A'; }
   if (c >= 'a' && c <= 'z') { return c - 'a' + 26; }
   if (c >= '0' && c <= '9') { return c - '0' + 52; }
-  if (c == '+' || c == '-') { return 62; }   /* URL-safe alphabet too — the */
-  if (c == '/' || c == '_') { return 63; }   /* validator accepts both      */
+  if (c == '+' || c == '-') { return 62; }   /* - and _ too: an older image */
+  if (c == '/' || c == '_') { return 63; }   /* stored URL-safe keys        */
   return -1;
 }
 
