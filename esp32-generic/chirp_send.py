@@ -2,7 +2,10 @@
 send() posts a reading; send_answer() also says whether Warblet knows the
 board; poll() asks for one waiting command.
 The server certificate must chain to a root below and match the host name,
-or the request fails. A set clock adds a timestamp nonce to signed messages."""
+or the request fails. Certificate dates need a set clock, so nothing is sent
+without one, and a signed message always carries a timestamp nonce.
+It needs ssl.SSLContext with cadata, which a recent MicroPython has (these
+demos pin 1.28.0) and v1.14 has not."""
 import socket
 import time
 
@@ -132,9 +135,7 @@ NTP_AFTER_401_S = 15 * 60
 
 def sync_clock():
     """Try NTP to set the clock. Certificate checks need it, and a signed
-    message uses it as its nonce. A signature without a nonce covers
-    "\\ntag=<tag>\\n" + body (an empty nonce line) and gives no replay
-    protection."""
+    message uses it as its nonce."""
     global _ntp_at, _ntp_wait
     _ntp_at = time.time()
     _ntp_wait = NTP_RESYNC_S
@@ -159,12 +160,9 @@ def _require_clock():
 
 
 def _nonce_ms():
-    """Unix ms, strictly increasing, or None if the RTC was never set."""
+    """Unix ms, strictly increasing. Call it after _require_clock()."""
     global _last_nonce
-    secs = time.time() + _EPOCH_OFFSET
-    if secs < _CLOCK_SANE:
-        return None
-    ms = secs * 1000 + (time.ticks_ms() % 1000)
+    ms = (time.time() + _EPOCH_OFFSET) * 1000 + (time.ticks_ms() % 1000)
     if ms <= _last_nonce:
         ms = _last_nonce + 1  # the contract forbids two signed sends on one ms
     _last_nonce = ms
@@ -244,12 +242,11 @@ def _read_reply_body(s):
     return body
 
 
-def _request(method, url, headers, body=None, want_reply=False):
+def _request(method, host, path, headers, body=None, want_reply=False):
     """One HTTPS request with `Connection: close`. Returns (HTTP status code,
     reply body or None). Only a 200 answer to a GET carries a body we use,
     and a 2xx answer to a POST when the caller wants Warblet's word on it;
     for anything else the status is enough, so we do not wait for more."""
-    host, path = url[len("https://"):].split("/", 1)
     addr = socket.getaddrinfo(host, PORT)[0][-1]
     s = socket.socket()
     try:
@@ -260,7 +257,7 @@ def _request(method, url, headers, body=None, want_reply=False):
         except (OSError, ValueError) as e:
             # MicroPython raises ValueError for a rejected certificate.
             raise OSError("TLS to {} refused: {}".format(host, e))
-        lines = ["{} /{} HTTP/1.1".format(method, path),
+        lines = ["{} {} HTTP/1.1".format(method, path),
                  "Host: {}".format(host),
                  "Connection: close"]
         if body is not None:
@@ -321,16 +318,17 @@ def _send(config, payload, tag, want_reply):
         headers["X-Chirp-Tag"] = tag
 
     # The stored key is base64; chirp_sign decodes it.
+    # _require_clock() above means there is a nonce.
     signing_key_base64 = config.get("key")
     if signing_key_base64:
         nonce = _nonce_ms()
-        if nonce is not None:
-            headers["X-Chirp-Nonce"] = str(nonce)
+        headers["X-Chirp-Nonce"] = str(nonce)
         headers["X-Chirp-Signature"] = chirp_sign.sign(
             signing_key_base64, nonce, payload, tag)
 
-    url = "https://{}/ingest/{}".format(config.get("host") or HOST, config["hwid"])
-    code, reply = _request("POST", url, headers, payload, want_reply)
+    code, reply = _request("POST", config.get("host") or HOST,
+                           "/ingest/{}".format(config["hwid"]),
+                           headers, payload, want_reply)
     if code == 401 and signing_key_base64:
         _ntp_wait = NTP_AFTER_401_S  # the nonce may be outside the window
     return code, reply
@@ -353,9 +351,8 @@ def poll(config):
         headers["X-Chirp-Signature"] = chirp_sign.sign_poll(
             signing_key_base64, config["hwid"], nonce)
 
-    url = "https://{}/ingest/{}/down".format(config.get("host") or HOST,
-                                             config["hwid"])
-    code, reply = _request("GET", url, headers)
+    code, reply = _request("GET", config.get("host") or HOST,
+                           "/ingest/{}/down".format(config["hwid"]), headers)
     if code == 401 and signing_key_base64:
         _ntp_wait = NTP_AFTER_401_S  # the nonce may be outside the window
     if code != 200:
