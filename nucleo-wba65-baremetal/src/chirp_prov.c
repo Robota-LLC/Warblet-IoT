@@ -238,7 +238,9 @@ void chirp_prov_poll(void)
   while ((c = uart_getc()) >= 0) {
     if (c == '\n') {
       if (s_overflow) {
-        uart_line("CHIRP= err bad-json");     /* line longer than we accept */
+        /* Too long to take. A setup line hears why; any other line is junk,
+         * and junk gets no answer, as a short junk line gets none. */
+        if (s_starts(s_line, "CHIRP")) { uart_line("CHIRP= err bad-json"); }
       } else {
         s_line[s_fill] = '\0';
         handle_line(s_line, s_fill);
