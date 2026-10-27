@@ -25,7 +25,7 @@ The connection is not encrypted. The plug posts over plain HTTP, because Tasmota
 
 ## Keep the code private
 
-The setup code is your plug's key to Warblet. It is written in the rule, and Tasmota's console shows it each minute when the rule runs. Set a web password (`WebPassword`) so nobody else on your network can open the plug's page.
+The setup code is your plug's key to Warblet. It is written in the rule, and Tasmota's console shows it each minute when the rule runs. The line keeps Tasmota's answers to it, which show the rule, off your own MQTT server and out of the log. Once the line is in, check that reports arrive on the device's page in Warblet rather than by typing `Rule3`: its answer shows the code, and goes to your own MQTT server. Set a web password (`WebPassword`) so nobody else on your network can open the plug's page.
 
 ## What it sends
 
@@ -39,10 +39,10 @@ The routine **Tasmota: email when the power passes a limit** is added to your ac
 
 ## Go back
 
-Paste this into Tasmota's console, then delete the device in Warblet. It empties rule set 3 and sets the report period back to Tasmota's five minutes (set your own again if you had another):
+Paste this into Tasmota's console, then delete the device in Warblet. It empties rule set 3 and sets the report period back to Tasmota's five minutes (set your own again if you had another). Afterwards, `Rule3` shows `"Rules":""`.
 
 ```
-Backlog Rule3 0; Rule3 ""; TelePeriod 1
+Backlog3 Rule3 0; Rule3 ""; TelePeriod 1
 ```
 
 ## Make it real
