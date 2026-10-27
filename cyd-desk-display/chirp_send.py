@@ -16,8 +16,9 @@ TIMEOUT_S = 20
 # Dashboard commands are at most 256 bytes; a bigger reply is not a command.
 MAX_COMMAND_BYTES = 1024
 
-# MicroPython's epoch is 2000; the nonce needs Unix seconds.
-_EPOCH_2000 = 946684800
+# The nonce needs Unix seconds. MicroPython counts from 2000 on the ESP32 and
+# STM32 ports and from 1970 on some others (rp2, mimxrt).
+_EPOCH_OFFSET = 946684800 if time.gmtime(0)[0] == 2000 else 0
 _CLOCK_SANE = 1735689600  # Minimum Unix time accepted as a set clock
 
 # Let's Encrypt roots. X2 and X1 anchor today's chains; YE and YR are their successors.
@@ -148,9 +149,9 @@ def sync_clock():
 def _require_clock():
     """Certificate dates are checked against the RTC, so an unset clock gets
     one more NTP try and then fails the send."""
-    if time.time() + _EPOCH_2000 < _CLOCK_SANE:
+    if time.time() + _EPOCH_OFFSET < _CLOCK_SANE:
         sync_clock()
-    if time.time() + _EPOCH_2000 < _CLOCK_SANE:
+    if time.time() + _EPOCH_OFFSET < _CLOCK_SANE:
         raise OSError("no clock, so the server certificate cannot be checked "
                       "-- allow NTP on this network")
     if _ntp_at is None or time.time() - _ntp_at > _ntp_wait:
@@ -160,7 +161,7 @@ def _require_clock():
 def _nonce_ms():
     """Unix ms, strictly increasing, or None if the RTC was never set."""
     global _last_nonce
-    secs = time.time() + _EPOCH_2000
+    secs = time.time() + _EPOCH_OFFSET
     if secs < _CLOCK_SANE:
         return None
     ms = secs * 1000 + (time.ticks_ms() % 1000)

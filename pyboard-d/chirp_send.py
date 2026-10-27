@@ -12,12 +12,13 @@ import chirp_sign
 HOST = "http.warbletiot.com"
 PORT = 80
 
-# MicroPython's epoch is 2000; the nonce needs Unix seconds.
-_EPOCH_2000 = 946684800
+# The nonce needs Unix seconds. MicroPython counts from 2000 on the ESP32 and
+# STM32 ports and from 1970 on some others (rp2, mimxrt).
+_EPOCH_OFFSET = 946684800 if time.gmtime(0)[0] == 2000 else 0
 _CLOCK_SANE = 1735689600  # Minimum Unix time accepted as a set clock
 
-# Seconds between the NTP epoch (1900) and MicroPython's (2000).
-_NTP_DELTA = 3155673600
+# Seconds between the NTP epoch (1900) and this port's.
+_NTP_DELTA = 2208988800 + _EPOCH_OFFSET
 NTP_HOST = "pool.ntp.org"
 
 _last_nonce = 0
@@ -62,7 +63,7 @@ def sync_clock():
 def _nonce_ms():
     """Unix ms, strictly increasing, or None if the RTC was never set."""
     global _last_nonce
-    secs = time.time() + _EPOCH_2000
+    secs = time.time() + _EPOCH_OFFSET
     if secs < _CLOCK_SANE:
         return None
     ms = secs * 1000 + (time.ticks_ms() % 1000)
