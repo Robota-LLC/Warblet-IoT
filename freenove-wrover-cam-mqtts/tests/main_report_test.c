@@ -37,7 +37,7 @@ void camera_deinit(void) {}
 esp_err_t chirp_store_init(void) { return ESP_OK; }
 esp_err_t chirp_store_load(chirp_config_t *out) { *out = (chirp_config_t){ .ap_count = 1 }; return ESP_OK; }
 const char *chirp_store_hwid(const chirp_config_t *cfg) { return "test-camera"; }
-esp_err_t chirp_prov_start(const chirp_config_t *cfg) { return ESP_OK; }
+esp_err_t chirp_prov_start(const chirp_config_t *cfg, const char *slug) { return ESP_OK; }
 esp_err_t wifi_ladder_start(const chirp_config_t *cfg) { wifi_started++; return ESP_OK; }
 esp_err_t chirp_mqtt_start(const chirp_config_t *cfg, chirp_report_fn report, chirp_command_fn command) {
     assert(wifi_started && camera_calls == 0); mqtt_started++; return ESP_OK;
