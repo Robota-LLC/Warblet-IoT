@@ -222,7 +222,7 @@ chirp_send_result_t chirp_mqtt_send_bytes(const uint8_t *bytes, size_t length,
     if (bytes == NULL || length == 0 || tag == NULL) {
         return CHIRP_SKIPPED;
     }
-    if (length > FRAME_MAX_BYTES) {
+    if (length > FRAME_MAX_BYTES - (s_config.has_key ? CHIRP_SIG_SIZE : 0)) {
         ESP_LOGW(TAG, "message is %u bytes, over the %d byte cap -- dropped",
                  (unsigned)length, FRAME_MAX_BYTES);
         return CHIRP_SKIPPED;
