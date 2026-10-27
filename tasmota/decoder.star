@@ -14,8 +14,7 @@
 #
 #   Backlog3 Rule3 ON Tele-ENERGY#Voltage DO _Var14 %value% ENDON ON Tele-ENERGY#Current DO _Var15 %value% ENDON ON Tele-ENERGY#Today DO _Var16 %value% ENDON ON Tele-ENERGY#Power DO _WebQuery http://http.warbletiot.com/ingest/<your-board-id> POST [X-Chirp-Token:<your-setup-code>|X-Chirp-Claim:<your-setup-code>] {"Power":"%value%","Voltage":"%var14%","Current":"%var15%","Today":"%var16%"} ENDON; Rule3 1; TelePeriod 60
 #
-# The rule then overwrites Var14, Var15 and Var16
-# each minute, which your own rules share.
+# The rule then overwrites Var14, Var15 and Var16 each minute, which your own rules share.
 # A reading your meter does not measure is sent as whatever its variable last
 # held. This decoder already reads all four, so nothing else changes.
 
