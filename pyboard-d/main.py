@@ -3,7 +3,6 @@ import struct
 import time
 
 import machine
-import network
 import pyb
 import ubinascii
 import uhashlib
@@ -12,8 +11,6 @@ import chirp_prov
 import chirp_send
 
 INTERVAL_S = 30      # seconds between readings
-WIFI_TIMEOUT_S = 12  # per-attempt association wait
-PROV_PASS_S = 0.5    # responder time before each association attempt
 
 # Demo identifier included in the USB announce.
 DEMO_SLUG = "demo-pyboard-d"
@@ -83,45 +80,6 @@ def encode_temperature(celsius):
     return struct.pack(">h", temperature_tenths_c)
 
 
-def join(wlan, ssid, password):
-    """One attempt at one network. True once we have an address."""
-    print("chirp: joining", ssid)
-    try:
-        wlan.connect(ssid, password)
-    except OSError as e:
-        print("chirp: connect failed:", e)
-        return False
-
-    deadline = time.ticks_add(time.ticks_ms(), WIFI_TIMEOUT_S * 1000)
-    while time.ticks_diff(deadline, time.ticks_ms()) > 0:
-        if wlan.isconnected():
-            print("chirp: wifi up", wlan.ifconfig()[0])
-            return True
-        time.sleep_ms(250)
-
-    wlan.disconnect()  # drop the half-open attempt so the next try starts clean
-    print("chirp: no join to", ssid, "within", WIFI_TIMEOUT_S, "s")
-    return False
-
-
-def connect_wifi(config):
-    """Try the stored networks in order. True once we have an address.
-    Called before every reading, so the ladder reruns by itself when the link drops."""
-    wlan = network.WLAN(network.STA_IF)
-    wlan.active(True)
-    if wlan.isconnected():
-        return True
-
-    for ssid, password in chirp_prov.networks(config):
-        # Answer USB setup before the blocking join.
-        chirp_prov.service(config, PROV_PASS_S)
-        if join(wlan, ssid, password):
-            return True
-
-    print("chirp: no stored network joined -- will retry")
-    return False
-
-
 def main():
     ok_led = open_led(LED_OK)
     err_led = open_led(LED_ERR)
@@ -141,7 +99,7 @@ def main():
     adc = open_sensor()
     clock_sync_attempted = False
     while True:
-        if connect_wifi(config):
+        if chirp_prov.connect_wifi(config):
             if not clock_sync_attempted:
                 # One try only: without NTP the board signs without a nonce.
                 chirp_send.sync_clock()

@@ -21,7 +21,6 @@ DEMO_SLUG = "demo-cyd-desk-display"
 REPORT_EVERY_S = 30   # a report with the Wi-Fi signal; it also shows Warblet the board is there
 CHECK_EVERY_S = 5     # how often to ask Warblet for new messages
 MOST_PER_CHECK = 10   # messages taken in one check, so a long queue cannot hold up the loop
-WIFI_TIMEOUT_S = 12   # per attempt to join a network
 RESTART_AFTER_ERROR_S = 10
 STUCK_S = 600         # Wi-Fi up, yet no answer at all this long: restart (see restart_if_stuck)
 REFUSED_PATH = "chirp_refused.txt"   # a note that Warblet does not know the stored setup
@@ -330,46 +329,15 @@ def wait(config, seconds, online):
         pressed = touch
 
 
-def join(wlan, ssid, password):
-    """One attempt at one network. True once we have an address."""
-    print("chirp: joining", ssid)
-    try:
-        wlan.connect(ssid, password)
-    except OSError as e:
-        print("chirp: connect failed:", e)
-        drop(wlan)                          # an attempt left "connecting" (by a soft restart
-        return False                        # in the middle of one) blocks every next one
-    deadline = time.ticks_add(time.ticks_ms(), WIFI_TIMEOUT_S * 1000)
-    while time.ticks_diff(deadline, time.ticks_ms()) > 0:
-        if wlan.isconnected():
-            print("chirp: wifi up", wlan.ifconfig()[0])
-            return True
-        time.sleep_ms(250)
-    drop(wlan)                              # drop the half-open attempt
-    return False
-
-
-def drop(wlan):
-    """End a Wi-Fi attempt. The radio can refuse even that; the next try
-    goes ahead anyway."""
-    try:
-        wlan.disconnect()
-    except OSError:
-        pass
-
-
 def connect_wifi(config):
-    """Try the stored networks in order. True once we have an address."""
-    wlan = network.WLAN(network.STA_IF)
-    wlan.active(True)
-    if wlan.isconnected():
+    """Join a stored network, saying so in the top strip. True once we have
+    an address."""
+    if network.WLAN(network.STA_IF).isconnected():
         return True
     show_status("Joining Wi-Fi", AMBER)
-    for ssid, password in chirp_prov.networks(config):
-        chirp_prov.service(config, 0.5)     # answer USB setup before the wait
-        if join(wlan, ssid, password):
-            show_status("Reaching Warblet", AMBER)   # until the first check is done
-            return True
+    if chirp_prov.connect_wifi(config):
+        show_status("Reaching Warblet", AMBER)   # until the first check is done
+        return True
     show_status("No Wi-Fi, retrying", AMBER)
     return False
 

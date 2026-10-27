@@ -1,8 +1,9 @@
-"""USB provisioning and config storage.
+"""USB provisioning, config storage and the Wi-Fi join.
 CHIRP? reads identity; CHIRP+ validates, merges, and saves settings.
 The announce reports Wi-Fi and signing support. main.py supplies the demo slug."""
 import json
 import machine
+import network
 import select
 import sys
 import time
@@ -20,6 +21,9 @@ SLUG = ""
 
 # A setup line is never this long; more input than this without a newline is junk.
 MAX_LINE = 4096
+
+WIFI_TIMEOUT_S = 12  # per-attempt association wait
+PROV_PASS_S = 0.5    # USB setup time before each association attempt
 
 _poller = select.poll()
 _poller.register(sys.stdin, select.POLLIN)
@@ -65,6 +69,56 @@ def networks(config):
         if ssid and ssid not in [name for name, _ in pairs]:
             pairs.append((ssid, entry.get("pass") or ""))
     return pairs
+
+
+def connect_wifi(config):
+    """Try the stored networks in order. True once we have an address.
+    Called before every reading, so the ladder reruns by itself when the link
+    drops. USB setup is answered before each attempt, so a board that cannot
+    join is still set up."""
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    if wlan.isconnected():
+        return True
+
+    for ssid, password in networks(config):
+        service(config, PROV_PASS_S)
+        if _join(wlan, ssid, password):
+            return True
+
+    print("chirp: no stored network joined -- will retry")
+    return False
+
+
+def _join(wlan, ssid, password):
+    """One attempt at one network. True once we have an address."""
+    print("chirp: joining", ssid)
+    try:
+        wlan.connect(ssid, password)
+    except OSError as e:
+        print("chirp: connect failed:", e)
+        _drop(wlan)  # an attempt left "connecting" (by a soft restart in the
+        return False  # middle of one) blocks every next one
+
+    deadline = time.ticks_add(time.ticks_ms(), WIFI_TIMEOUT_S * 1000)
+    while time.ticks_diff(deadline, time.ticks_ms()) > 0:
+        if wlan.isconnected():
+            print("chirp: wifi up", wlan.ifconfig()[0])
+            return True
+        time.sleep_ms(250)
+
+    _drop(wlan)  # the half-open attempt, so the next try starts clean
+    print("chirp: no join to", ssid, "within", WIFI_TIMEOUT_S, "s")
+    return False
+
+
+def _drop(wlan):
+    """End a Wi-Fi attempt. The radio can refuse even that; the next try
+    goes ahead anyway."""
+    try:
+        wlan.disconnect()
+    except OSError:
+        pass
 
 
 def service(config, seconds=0):
