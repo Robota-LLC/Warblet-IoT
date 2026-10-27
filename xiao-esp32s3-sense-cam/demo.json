@@ -1,4 +1,14 @@
 {
+  "homepage": {
+    "placement": "primary",
+    "order": 1,
+    "title": "Get a photo by email",
+    "description": "Set your alert email, then press the board’s button to send a photo.",
+    "requirements": "XIAO ESP32-S3 Sense with camera · 2.4 GHz Wi-Fi",
+    "action": "Try the camera demo",
+    "guidePath": "/blog/esp32-camera-photo-email",
+    "guideLabel": "Read the photo guide"
+  },
   "slug": "demo-xiao-s3-cam",
   "chips": ["ESP32-S3"],
   "board": "Seeed Studio XIAO ESP32-S3 Sense",

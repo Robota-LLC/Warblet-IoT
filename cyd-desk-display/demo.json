@@ -1,4 +1,12 @@
 {
+  "homepage": {
+    "placement": "primary",
+    "order": 2,
+    "title": "Put a message on your desk",
+    "description": "Send a message to a small display, then tap the screen to acknowledge it.",
+    "requirements": "Sunton ESP32-2432S028R display · 2.4 GHz Wi-Fi",
+    "action": "Try the desk display"
+  },
   "slug": "demo-cyd-desk-display",
   "chips": ["ESP32"],
   "board": "Cheap Yellow Display (Sunton ESP32-2432S028R)",

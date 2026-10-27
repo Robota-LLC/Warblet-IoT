@@ -1,4 +1,10 @@
 {
+  "homepage": {
+    "placement": "secondary",
+    "order": 1,
+    "title": "Already use ESPHome?",
+    "description": "Connect a compatible ESP32 project you already run with ESPHome."
+  },
   "slug": "demo-esphome",
   "chips": [],
   "board": "An ESP32 board running ESPHome 2026.10 or newer",

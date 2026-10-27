@@ -1,4 +1,12 @@
 {
+  "homepage": {
+    "placement": "primary",
+    "order": 3,
+    "title": "See your computer’s readings",
+    "description": "Run the Python demo to bring disk and system readings into your Warblet dashboard.",
+    "requirements": "Windows, macOS or Linux · Python 3.8+ · internet",
+    "action": "Try the computer demo"
+  },
   "slug": "demo-system-monitor",
   "chips": [],
   "board": "Your computer: Linux, Raspberry Pi OS, macOS or Windows",
