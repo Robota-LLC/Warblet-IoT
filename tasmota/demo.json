@@ -4,17 +4,13 @@
   "board": "A Tasmota plug with a power meter, such as the Sonoff S31",
   "network": "none",
   "starter": false,
-  "result": "See your Tasmota plug's power readings on your dashboard, switch it from anywhere, and get an email when the power passes a limit.",
-  "firstMessage": "It sends its first message as soon as it connects, then a report every minute.",
+  "result": "See your Tasmota plug's power readings on your dashboard, with their history, and get an email when the power passes a limit.",
+  "firstMessage": "It sends its first report a few seconds after you paste the line, then one a minute.",
   "spec": {
-    "transport": "mqtt",
+    "transport": "http",
     "securityLevel": 1,
     "retentionDays": 7,
-    "uiConfig": {
-      "controls": [
-        {"type": "toggle", "label": "Plug", "onText": "ON", "offText": "OFF", "stateField": "Relay"}
-      ]
-    }
+    "uiConfig": {}
   },
   "routine": {
     "file": "power-limit.star",
@@ -27,19 +23,19 @@
     "connect": [
       {
         "label": "Tasmota console",
-        "text": "Backlog MqttHost {host}; MqttPort 1883; MqttClient {id}; MqttUser {id}; MqttPassword2 {code}; FullTopic chirp/{id}/%prefix%/; Prefix2 up; Prefix3 up; TelePeriod 60; Rule3 ON Mqtt#Connected DO Subscribe2 Warblet, chirp/{id}/down ENDON ON Event#Warblet=ON DO Power1 1 ENDON ON Event#Warblet=OFF DO Power1 0 ENDON; Rule3 1",
+        "text": "Backlog Rule3 ON Tele-ENERGY#Voltage DO _Var14 %value% ENDON ON Tele-ENERGY#Current DO _Var15 %value% ENDON ON Tele-ENERGY#Today DO _Var16 %value% ENDON ON Tele-ENERGY#Power DO _WebQuery http://{host}/ingest/{id} POST [X-Chirp-Token:{code}|X-Chirp-Claim:{code}] {{\"Power\":\"%value%\",\"Voltage\":\"%var14%\",\"Current\":\"%var15%\",\"Today\":\"%var16%\"}} ENDON; Rule3 1; TelePeriod 60",
         "steps": [
           {
-            "title": "Check Rule1, Rule2 and Rule3 first, then paste this line",
-            "text": "Backlog MqttHost {host}; MqttPort 1883; MqttClient {id}; MqttUser {id}; MqttPassword2 {code}; FullTopic chirp/{id}/%prefix%/; Prefix2 up; Prefix3 up; TelePeriod 60; Rule3 ON Mqtt#Connected DO Subscribe2 Warblet, chirp/{id}/down ENDON ON Event#Warblet=ON DO Power1 1 ENDON ON Event#Warblet=OFF DO Power1 0 ENDON; Rule3 1"
+            "title": "Check that Rule3 is empty, then paste this line",
+            "text": "Backlog Rule3 ON Tele-ENERGY#Voltage DO _Var14 %value% ENDON ON Tele-ENERGY#Current DO _Var15 %value% ENDON ON Tele-ENERGY#Today DO _Var16 %value% ENDON ON Tele-ENERGY#Power DO _WebQuery http://{host}/ingest/{id} POST [X-Chirp-Token:{code}|X-Chirp-Claim:{code}] {{\"Power\":\"%value%\",\"Voltage\":\"%var14%\",\"Current\":\"%var15%\",\"Today\":\"%var16%\"}} ENDON; Rule3 1; TelePeriod 60"
           }
         ]
       }
     ]
   },
   "provision": {
-    "host": "mqtt.warbletiot.com",
-    "commands": ["ON", "OFF"],
+    "host": "http.warbletiot.com",
+    "commands": [],
     "knobs": {
       "level": {"max": 1}
     }
