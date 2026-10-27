@@ -66,4 +66,4 @@ This disables and clears the demo's rule and restores Tasmota's five-minute repo
 
 ## Make it real
 
-In Warblet's **Routines**, edit the installed routine's `FIELD`, `LIMIT`, `BELOW` and `MARGIN`; [power-limit.star](power-limit.star) explains them. For a washer, `LIMIT = 5` and `BELOW = True` email on the first idle reading, then after each run that rose above `LIMIT + MARGIN`. Editing the file here does not change the routine in your account.
+In Warblet's **Routines**, edit the installed routine's `FIELD`, `LIMIT`, `BELOW` and `MARGIN`; [power-limit.star](power-limit.star) explains them. For a washer, `LIMIT = 5` and `BELOW = True` email on the first idle reading, then after each run that reached `LIMIT + MARGIN`. Editing the file here does not change the routine in your account.
