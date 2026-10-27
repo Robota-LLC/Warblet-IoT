@@ -75,33 +75,18 @@ static size_t order_candidates(uint8_t *order)
         }
     }
 
-    size_t n = 0;
-    for (uint8_t pass = 0; pass < 2; pass++) {
-        bool want_seen = (pass == 0);
-        for (;;) {
-            int best = -1;
-            for (uint8_t i = 0; i < s_config.ap_count; i++) {
-                bool used = false;
-                for (size_t k = 0; k < n; k++) {
-                    used = used || (order[k] == i);
-                }
-                if (used || seen[i] != want_seen) {
-                    continue;
-                }
-                if (best < 0 || (want_seen && rssi[i] > rssi[best])) {
-                    best = i;
-                }
-                if (!want_seen) {
-                    break;  /* unseen networks keep their provisioned order */
-                }
-            }
-            if (best < 0) {
-                break;
-            }
-            order[n++] = (uint8_t)best;
+    /* A stable insertion sort: a network the scan saw moves ahead of every
+     * unseen one and every weaker one. Ties and unseen networks keep their
+     * provisioned order. */
+    for (uint8_t i = 0; i < s_config.ap_count; i++) {
+        uint8_t k = i;
+        while (k > 0 && seen[i] && (!seen[order[k - 1]] || rssi[i] > rssi[order[k - 1]])) {
+            order[k] = order[k - 1];
+            k--;
         }
+        order[k] = i;
     }
-    return n;
+    return s_config.ap_count;
 }
 
 static bool try_connect(const chirp_ap_t *ap)
