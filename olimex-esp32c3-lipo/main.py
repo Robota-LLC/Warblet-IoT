@@ -181,13 +181,8 @@ def main():
     presses = 0
     was_up = not pressed(button)
     on_press = False
-    clock_sync_attempted = False
     while True:
         if chirp_prov.connect_wifi(config):
-            if not clock_sync_attempted:
-                # One try only: without NTP the board signs without a nonce.
-                chirp_send.sync_clock()
-                clock_sync_attempted = True
             flags = 0
             if pressed(button):
                 flags |= FLAG_BUTTON_DOWN

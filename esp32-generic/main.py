@@ -148,13 +148,8 @@ def main():
     print("chirp: reporting as", config["hwid"],
           "signed" if config.get("key") else "token only")
 
-    clock_sync_attempted = False
     while True:
         if chirp_prov.connect_wifi(config):
-            if not clock_sync_attempted:
-                # One try only: without NTP the board signs without a nonce.
-                chirp_send.sync_clock()
-                clock_sync_attempted = True
             celsius = read_temperature_c()
             if celsius is None:
                 print("chirp: this chip has no die temperature -- nothing to "

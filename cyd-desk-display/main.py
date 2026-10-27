@@ -375,14 +375,10 @@ def main():
 
     show_waiting(config)
     heard()                                 # the ten minutes count from the start
-    clock_set = False
     said_hello = False
     while True:
         online = connect_wifi(config)
         if online:
-            if not clock_set:
-                chirp_send.sync_clock()     # the server's certificate needs the date
-                clock_set = True
             try:
                 code, said_hello = check_in(config, said_hello)
                 if code == 401:

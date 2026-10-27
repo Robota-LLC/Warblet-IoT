@@ -98,13 +98,8 @@ def main():
           "signed" if config.get("key") else "token only")
 
     adc = open_sensor()
-    clock_sync_attempted = False
     while True:
         if chirp_prov.connect_wifi(config):
-            if not clock_sync_attempted:
-                # One try only: without NTP the board signs without a nonce.
-                chirp_send.sync_clock()
-                clock_sync_attempted = True
             try:
                 celsius = read_temperature_c(adc)
                 code = chirp_send.send(config, encode_temperature(celsius))
