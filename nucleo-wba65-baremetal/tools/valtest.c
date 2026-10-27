@@ -423,6 +423,23 @@ int main(void)
     check_merge_has("{\"token\":\"T\",\"ssid\":\"s\"}",
                     "{\"thread\":{\"dataset\":\"0e08\"}}", "thread", 1,
                     "a thread-only push lands against a wifi board");
+
+    /* What an older image stored must not block a later push. */
+    const char *old_key = "{\"token\":\"T\",\"key\":\"-_-_MzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=\"}";
+    check_merge(old_key, "{\"host\":\"core.example.com\"}", "key",
+                "+/+/MzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+                "a URL-safe key an older image stored goes on in the standard alphabet");
+    check_merge_ok(old_key, "{\"host\":\"core.example.com\"}", "  ... and a host push is taken");
+    check_merge_ok(old_key, "{\"hwid\":\"wba-2\"}", "  ... and an hwid push is taken");
+    const char *old_host = "{\"token\":\"T\",\"host\":"
+        "\"h0123456789012345678901234567890123456789012345678901234567890123456789012345.example\"}";
+    check_merge(old_host, "{\"token\":\"T2\"}", "host", NULL,
+                "a stored host longer than the board holds is not carried");
+    check_merge_ok(old_host, "{\"token\":\"T2\"}", "  ... and a token push is taken");
+    check_merge_ok("{\"token\":\"T\",\"host\":5}", "{\"hwid\":\"wba-2\"}",
+                   "a stored host that is not text is not carried, and the push is taken");
+    check_merge("{\"token\":\"T\",\"host\":\"core.example.com\"}", "{\"hwid\":\"wba-2\"}",
+                "host", "core.example.com", "a stored host that fits is carried");
   }
 
   puts("\n--- sha256 (FIPS 180-4 examples) ---");

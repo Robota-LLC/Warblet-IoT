@@ -165,6 +165,19 @@ static jsrc pick(jsrc push, jsrc stored, const char *name)
   return src_has(push, name) ? push : stored;
 }
 
+/* A value longer than the board holds, or not text, is not carried. A pushed
+ * one has already been refused for it; a stored one came from an older image
+ * with no such rule, and the board never used it. */
+static jsrc fitting(jsrc src, const char *name, unsigned max)
+{
+  js_val v;
+  if (src.p != 0 && js_obj_get(src.p, src.n, name, &v) == 1 &&
+      (v.t != JS_STR || v.n > max)) {
+    src.p = 0;
+  }
+  return src;
+}
+
 static void put(emitter *e, const char *s, unsigned n)
 {
   if (e->bad || e->len + n > e->cap) { e->bad = 1; return; }
@@ -225,9 +238,18 @@ int chirp_merge(const char *stored, unsigned slen,
 
   /* The rest are independent fields, and the push wins on each one it carries. */
   put_field(&e, "thread", pick(P, S, "thread"));
-  put_field(&e, "key",    pick(P, S, "key"));
+  /* A key an older image stored in the URL-safe alphabet goes on in the
+   * standard one, the only one a push may use: the same 32 bytes. */
+  {
+    unsigned at = e.len;
+    put_field(&e, "key", pick(P, S, "key"));
+    for (unsigned i = at; !e.bad && i < e.len; i++) {
+      if (e.out[i] == '-') { e.out[i] = '+'; }
+      else if (e.out[i] == '_') { e.out[i] = '/'; }
+    }
+  }
   put_field(&e, "hwid",   pick(P, S, "hwid"));
-  put_field(&e, "host",   pick(P, S, "host"));
+  put_field(&e, "host",   fitting(pick(P, S, "host"), "host", CHIRP_HOST_MAX));
   put_field(&e, "level",  pick(P, S, "level"));
 
   put(&e, "}", 1u);
