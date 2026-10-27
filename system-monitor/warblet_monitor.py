@@ -24,6 +24,7 @@ REPORT_S = 60      # a report every minute
 UNKNOWN_S = 3600   # once an hour while Warblet does not know this computer: only
                    # --setup here mends that, and each try hands Warblet its name and disks
 WAIT_S = 15        # each step of a request waits 15 seconds at most
+MOST_DISKS = 8     # disks in one report, once merged; the rest are named, not sent
 SYSTEM = platform.system()                        # "Linux", "Darwin" or "Windows"
 LOCAL = {"ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "vfat", "exfat",
          "ntfs", "ntfs3", "fuseblk", "zfs"}       # Linux disks, never network shares
@@ -185,7 +186,7 @@ def readings():
                 if (total, free) in containers:  # and its numbers name the container:
                     continue                     # send each container once
                 containers.add((total, free))
-            if len(data["disks"]) == 8:          # 8 disks at most, once merged
+            if len(data["disks"]) == MOST_DISKS:
                 left.append(label(path))
                 continue
             name, clash = label(path), 0
@@ -198,7 +199,8 @@ def readings():
         except Exception as error:               # a locked drive, another user's mount:
             once(path, "cannot read disk", label(path), "-", error)   # the others still go
     if left:
-        once("left out " + " ".join(left), "8 disks at most, so these are not sent:", ", ".join(left))
+        once("left out " + " ".join(left), "%d disks at most, so these are not sent:" % MOST_DISKS,
+             ", ".join(left))
     return data
 
 
@@ -232,9 +234,9 @@ def report(me):
     return REPORT_S
 
 
-def typed(options=""):
+def typed(options):
     """The command a person types here: python on Windows, python3 elsewhere."""
-    return (("python" if SYSTEM == "Windows" else "python3") + " warblet_monitor.py " + options).strip()
+    return ("python" if SYSTEM == "Windows" else "python3") + " warblet_monitor.py " + options
 
 
 def can_ask():
@@ -268,8 +270,7 @@ def setup():
     me = {"id": old["id"] if old else "%s-%s" % (name or "computer", secrets.token_hex(8)), "key": key}
     temp = KEY_FILE.with_name(KEY_FILE.name + ".new")
     try:
-        if temp.exists():                        # left by a save that was cut short
-            temp.unlink()
+        temp.unlink(missing_ok=True)             # left by a save that was cut short
         fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)   # only you, from the start
         with open(fd, "w") as f:
             json.dump(me, f)
