@@ -3,6 +3,9 @@
 #ifndef CHIRPVAL_H
 #define CHIRPVAL_H
 
+/* The longest host the board holds; a longer pushed host is refused. */
+#define CHIRP_HOST_MAX 63u
+
 /* Validate field types, lengths, ranges, and at most one credential.
  * Return 0 or bad-json; completeness is checked after merging. */
 const char *chirp_validate_fields(const char *json, unsigned len);

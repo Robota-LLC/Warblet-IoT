@@ -706,6 +706,11 @@ int main(void)
   puts("\n--- rejected ---");
   check("{\"claim\":\"X\",\"thread\":{", "bad-json", "truncated object");
   check("{\"host\":\"h\"}", "missing-field", "no claim/token");
+  check("{\"claim\":\"C\",\"ssid\":\"s\",\"host\":5}", "bad-json", "host must be a string");
+  check("{\"claim\":\"C\",\"ssid\":\"s\",\"host\":\"h012345678901234567890123456789012345678901234567890123.example\"}",
+        0, "a host of 63 characters, the most the board holds");
+  check("{\"claim\":\"C\",\"ssid\":\"s\",\"host\":\"h0123456789012345678901234567890123456789012345678901234.example\"}",
+        "bad-json", "a host of 64 characters would be cut short");
   check("{\"claim\":\"C\"}", "missing-field", "claim but no ssid and no thread");
   check("{\"claim\":\"C\",\"token\":\"T\",\"ssid\":\"s\"}", "bad-json", "both claim and token");
   check("{\"claim\":\"C\",\"thread\":{\"name\":\"n\"}}", "missing-field", "thread name without key");

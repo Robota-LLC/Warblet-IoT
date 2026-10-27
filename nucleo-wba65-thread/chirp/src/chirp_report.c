@@ -10,6 +10,7 @@
 #include "chirp_report.h"
 #include "chirp_hwid.h"
 #include "chirp_sign.h"
+#include "chirpval.h"
 #include "json.h"
 
 
@@ -42,7 +43,7 @@ static otInstance *s_inst;
 
 /* From the config record. The credential slot holds `token` or `claim`
  * (chirpval enforces at most one). */
-static char s_host[64] = CHIRP_REPORT_DEFAULT_HOST;
+static char s_host[CHIRP_HOST_MAX + 1u] = CHIRP_REPORT_DEFAULT_HOST;
 static char s_token[96];
 static int  s_configured;
 
@@ -231,7 +232,9 @@ static void copy_str(const char *json, unsigned len, const char *key,
 {
   js_val v;
 
-  if (js_obj_get(json, len, key, &v) == 1 && v.t == JS_STR) {
+  /* A value too long for dst (stored by an older image) is not copied cut
+   * short; dst keeps what it holds. Unescaping never lengthens a string. */
+  if (js_obj_get(json, len, key, &v) == 1 && v.t == JS_STR && v.n < dstsz) {
     (void)js_str_copy(&v, dst, dstsz);
   }
 }
