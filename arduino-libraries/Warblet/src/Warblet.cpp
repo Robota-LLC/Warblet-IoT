@@ -27,6 +27,9 @@ const unsigned long kCommandCheckMinMs = 5000UL;  // the fastest a sketch may as
 const unsigned long kStuckMinMs = 300000UL;
 const unsigned long kCommandCheckMaxMs = 600000UL;  // the longest back-off, after refusals
 const unsigned long kUnansweredMaxMs = 60000UL;     // ...and when nothing answers (an outage)
+// Reports have no pace of their own (the sketch sends them): after a 429, a
+// 5xx or no answer they wait twice this first (20 s), then longer.
+const unsigned long kReportRetryMs = 10000UL;
 const unsigned long kSetupQuietMs = 10000UL;    // after a CHIRP? answer: USB only
 const unsigned long kJoinWaitMs = 12000UL;      // per network, as the demos do
 const unsigned long kJoinRetryMs = 15000UL;     // between rounds of the list
@@ -35,7 +38,6 @@ const unsigned long kClockResyncMs = 6UL * 3600UL * 1000UL;  // a crystal drifts
 const unsigned long kClockAfterRefusalMs = 15UL * 60UL * 1000UL;
 const unsigned long kAnswerWaitMs = 20000UL;
 const size_t kStoreMax = 2048;
-const size_t kCommandMax = 8192;  // the queue's own cap on a command (contract v0.40)
 const int kTakeAtOnce = 10;       // commands taken one after another before the normal pace
 
 // Static, not on the stack: small boards have small stacks.
@@ -57,7 +59,7 @@ bool copyField(char* field, size_t cap, const char* value) {
 Warblet::Warblet()
     : settings_(), scratch_(), setup_(scratch_), response_(nullptr, 0),
       commandChecks_(kCommandCheckMs, kCommandCheckMaxMs, kUnansweredMaxMs),
-      reports_(kCommandCheckMs, kCommandCheckMaxMs, kUnansweredMaxMs),
+      reports_(kReportRetryMs, kCommandCheckMaxMs, kUnansweredMaxMs),
       mqttRefusals_(kCommandCheckMs, kCommandCheckMaxMs, kUnansweredMaxMs) {}
 
 void Warblet::say(const char* text) {
@@ -296,10 +298,13 @@ bool Warblet::serviceSetup() {
         lastJoin_ = 0;
         joinFailSaid_ = false;  // new networks: say the first round again
         waitingSaid_ = false;
-        headSaid_ = false;
         nextPoll_ = millis();
-        holdMs_ = 0;  // reports refused with the old settings wait no longer
+        // What was refused with the old settings says nothing about these:
+        // reports, command checks and MQTT sessions start their waits afresh.
+        holdMs_ = 0;
         reports_.reset();
+        commandChecks_.reset();
+        mqttRefusals_.reset();
         changed = true;
         if (stopped_) {
           char mark[33], fp[17];
@@ -467,16 +472,13 @@ bool Warblet::post(const uint8_t* bytes, size_t length, const char* tag) {
   uint64_t nonce = 0;
   char signature[65];
   if (hasKey_) {
-    nonce = nonces_.next(board::clockMs());  // 0 without a clock: body-only signature
+    nonce = nonces_.next(board::clockMs());  // never 0: nothing is sent before the clock is set
     signHeader(key_, sizeof key_, nonce, tag, bytes, length, signature);
   }
   HttpIngest request = {host(), settings_.hwId, settings_.credential, tag, nonce,
                         hasKey_ ? signature : nullptr, length};
+  // Fits: the longest head the setup's limits allow is host-tested.
   size_t headLen = httpIngestHead(request, head_, sizeof head_);
-  if (headLen == 0) {
-    say("the request does not fit; not sent");
-    return false;
-  }
   int status = exchange(headLen, bytes, length, answerBody_, sizeof answerBody_);
   if (status == 202 && answerIsUnclaimed(answerBody_, response_.bodyLen())) {
     // Warblet only noted a board it does not know (contract §HTTP): the device
@@ -540,22 +542,12 @@ int Warblet::poll() {
   char signature[65];
   if (hasKey_) {
     // At Signed, a poll must prove the key (contract §Auth → Downlink poll).
-    nonce = nonces_.next(board::clockMs());
-    if (nonce == 0) {
-      if (!noClockSaid_) say("no clock, so a signed board cannot ask for commands yet");
-      noClockSaid_ = true;
-      return -1;
-    }
+    nonce = nonces_.next(board::clockMs());  // never 0: no check before the clock is set
     signPoll(key_, sizeof key_, settings_.hwId, nonce, signature);
   }
   HttpPoll request = {host(), settings_.hwId, settings_.credential, nonce, hasKey_ ? signature : nullptr};
+  // Fits: the longest head the setup's limits allow is host-tested.
   size_t headLen = httpPollHead(request, head_, sizeof head_);
-  if (headLen == 0) {
-    // Cannot happen with settings the setup accepts (host-tested); said once if it does.
-    if (!headSaid_) say("the command check does not fit its buffer; commands cannot be collected");
-    headSaid_ = true;
-    return -1;
-  }
   int status = exchange(headLen, nullptr, 0, commandBody, kCommandMax);
   if (status == 202 && answerIsUnclaimed(commandBody, response_.bodyLen())) {
     // The ingest's answer for a board Warblet does not know, on a command
@@ -580,7 +572,7 @@ int Warblet::poll() {
   }
   if (status != 200) return status;
   if (response_.tooLong()) {
-    say("a command longer than 8192 bytes arrived and was dropped");
+    sayTooLong();
     return status;
   }
   deliverCommand(response_.bodyLen());
@@ -645,6 +637,13 @@ void Warblet::deliverCommand(size_t len) {
   handler_(String(reinterpret_cast<const char*>(commandBody)));
 }
 
+// A command over kCommandMax, from either transport.
+void Warblet::sayTooLong() {
+  Serial.print("warblet: a command longer than ");
+  Serial.print((unsigned)kCommandMax);
+  Serial.println(" bytes arrived and was dropped");
+}
+
 // The command buffer, for the MQTT code in WarbletMqtt.cpp.
 uint8_t* Warblet::commandBuffer(size_t* cap) {
   *cap = kCommandMax;
@@ -687,10 +686,9 @@ int Warblet::exchange(size_t headLen, const uint8_t* body, size_t bodyLen, uint8
       if (n > 0) response_.feed(io_, (size_t)n);
       continue;
     }
-    if (!client.connected()) {
-      response_.finishAtClose();
-      break;
-    }
+    // Closed before the answer was whole: no answer (wire.h says why a body
+    // with neither a length nor chunking is never whole).
+    if (!client.connected()) break;
     delay(5);
   }
   client.stop();

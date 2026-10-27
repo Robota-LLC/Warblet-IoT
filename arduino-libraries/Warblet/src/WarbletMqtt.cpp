@@ -46,8 +46,9 @@ void Warblet::restartMqtt() {
 // broker counted them delivered).
 void Warblet::serviceMqtt() {
   bool backingOff = !mqttStarted_ && mqttRetryAt_ != 0 && (long)(millis() - mqttRetryAt_) < 0;
-  char down[160];
-  if (!mqttStarted_ && !backingOff && topicDown(settings_.hwId, down, sizeof down) != 0) {
+  if (!mqttStarted_ && !backingOff) {
+    char down[160];
+    topicDown(settings_.hwId, down, sizeof down);  // fits: the longest topic is host-tested
     const char* pass = settings_.credential[0] ? settings_.credential : nullptr;  // none at Open
     if (board::mqttStart(mqttHost(), kMqttPort, settings_.hwId, settings_.hwId, pass, down)) {
       mqttStarted_ = true;
@@ -75,13 +76,13 @@ void Warblet::serviceMqtt() {
     } else if (n == board::kMqttLost) {
       answered(-1);
       say("MQTT session lost; the client reconnects by itself");
-    } else if (n == board::kMqttUnreachable && repeat) {
-      answered(-1);
     } else if (n == board::kMqttUnreachable) {
       answered(-1);
-      Serial.print("warblet: MQTT has no session (");
-      Serial.print(detail);
-      Serial.println("); the client keeps trying by itself - check the network, NTP and the host");
+      if (!repeat) {  // said once, not at every failed attempt
+        Serial.print("warblet: MQTT has no session (");
+        Serial.print(detail);
+        Serial.println("); the client keeps trying by itself - check the network, NTP and the host");
+      }
     } else if (n == board::kMqttNoDevice) {
       // Not on an account (its device was deleted, or its setup code was
       // spent): stop, as an "unclaimed" answer does over HTTPS.
@@ -106,7 +107,7 @@ void Warblet::serviceMqtt() {
     int len = board::mqttTake(body, cap);
     if (len == 0) break;
     if (len < 0) {
-      say("a command longer than 8192 bytes arrived and was dropped");
+      sayTooLong();
       continue;
     }
     deliverCommand((size_t)len);
@@ -118,10 +119,7 @@ void Warblet::serviceMqtt() {
 // has no answer that says the message was stored: true means the broker took it.
 bool Warblet::publishMqtt(const uint8_t* bytes, size_t length, const char* tag) {
   char topic[200];
-  if (topicUp(settings_.hwId, tag, topic, sizeof topic) == 0) {
-    say("the MQTT topic does not fit; not sent");
-    return false;
-  }
+  topicUp(settings_.hwId, tag, topic, sizeof topic);  // fits (host-tested); send() has checked the tag
   if (!mqttStarted_) serviceMqtt();
   // Wait for the session only while it is coming up (nothing heard since it
   // started): once the client says it has none, a report returns at once.

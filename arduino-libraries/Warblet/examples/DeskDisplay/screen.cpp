@@ -17,22 +17,23 @@ namespace {
 // MicroPython desk display's; the ST7789's come from TFT_eSPI and the CYD
 // board files, not yet from a board: its rotation table differs from the ILI9341's by the
 // mirror bit (0x40), and its C0h register, left at its reset value 0x2C,
-// would swap blue and red.
+// would swap blue and red. Neither inverts its colours on these boards;
+// INVERT in screen.h does, for a panel that needs it.
 struct Chip {
   const char* name;
   uint8_t turn;
-  bool invert;
   uint8_t mode;
   bool c0;
 };
-const Chip ILI9341 = {"ILI9341", 0xE8, false, 0, false};
-const Chip ST7789 = {"ST7789", 0xA8, false, 3, true};
+const Chip ILI9341 = {"ILI9341", 0xE8, 0, false};
+const Chip ST7789 = {"ST7789", 0xA8, 3, true};
 // If the screen does not answer: the ST7789 board's data line from the
 // screen is not connected, so it never answers; ILI9341 boards do.
 const Chip& FALLBACK = ST7789;
 
 const int PRESS = 400;  // how hard a touch must be (the touch chip's pressure reading)
 
+const int SCREEN_CLOCK = 14, SCREEN_TO_CHIP = 13, SCREEN_FROM_CHIP = 12;
 const int SCREEN_DC = 2, SCREEN_CS = 15, SCREEN_LIGHT = 21;
 const int TOUCH_PEN = 36, TOUCH_CS = 33, TOUCH_CLOCK = 25, TOUCH_TO_CHIP = 32, TOUCH_FROM_CHIP = 39;
 
@@ -164,28 +165,33 @@ void openBus(uint8_t mode, uint32_t speed) {
   shape = SPISettings(speed, MSBFIRST, mode == 3 ? SPI_MODE3 : SPI_MODE0);
 }
 
-// Send one command byte, then its data bytes.
-void command(uint8_t code, const uint8_t* data = nullptr, size_t len = 0) {
+// Take the bus and send a command byte; what follows is its data, until end().
+void begin(uint8_t code) {
   bus.beginTransaction(shape);
   digitalWrite(SCREEN_CS, LOW);
   digitalWrite(SCREEN_DC, LOW);
   bus.transfer(code);
   digitalWrite(SCREEN_DC, HIGH);
-  if (len > 0) bus.writeBytes(data, len);
+}
+
+// Let go of the bus.
+void end() {
   digitalWrite(SCREEN_CS, HIGH);
   bus.endTransaction();
 }
 
+// Send one command byte, then its data bytes.
+void command(uint8_t code, const uint8_t* data = nullptr, size_t len = 0) {
+  begin(code);
+  if (len > 0) bus.writeBytes(data, len);
+  end();
+}
+
 // Ask for one byte of a register the chip can read back.
 uint8_t read(uint8_t code) {
-  bus.beginTransaction(shape);
-  digitalWrite(SCREEN_CS, LOW);
-  digitalWrite(SCREEN_DC, LOW);
-  bus.transfer(code);
-  digitalWrite(SCREEN_DC, HIGH);
+  begin(code);
   uint8_t value = bus.transfer(0);
-  digitalWrite(SCREEN_CS, HIGH);
-  bus.endTransaction();
+  end();
   return value;
 }
 
@@ -211,22 +217,13 @@ const Chip* askChip(uint8_t answer[6], int& count) {
 }
 
 // Choose the rectangle the next pixels go into, and start sending; the
-// caller sends the pixels and calls endPixels().
+// caller sends the pixels and calls end().
 void area(int x, int y, int w, int h) {
   uint8_t xs[4] = {(uint8_t)(x >> 8), (uint8_t)(x & 0xFF), (uint8_t)((x + w - 1) >> 8), (uint8_t)((x + w - 1) & 0xFF)};
   uint8_t ys[4] = {(uint8_t)(y >> 8), (uint8_t)(y & 0xFF), (uint8_t)((y + h - 1) >> 8), (uint8_t)((y + h - 1) & 0xFF)};
   command(0x2A, xs, 4);
   command(0x2B, ys, 4);
-  bus.beginTransaction(shape);
-  digitalWrite(SCREEN_CS, LOW);
-  digitalWrite(SCREEN_DC, LOW);
-  bus.transfer(0x2C);  // pixels follow
-  digitalWrite(SCREEN_DC, HIGH);
-}
-
-void endPixels() {
-  digitalWrite(SCREEN_CS, HIGH);
-  bus.endTransaction();
+  begin(0x2C);  // pixels follow
 }
 
 // One byte to and from the touch chip, on its own pins (1 MHz or less,
@@ -270,7 +267,7 @@ const char* start() {
   digitalWrite(TOUCH_CLOCK, LOW);
   pinMode(TOUCH_TO_CHIP, OUTPUT);
   pinMode(TOUCH_FROM_CHIP, INPUT);
-  bus.begin(14, 12, 13, -1);  // clock, from the screen, to the screen
+  bus.begin(SCREEN_CLOCK, SCREEN_FROM_CHIP, SCREEN_TO_CHIP, -1);  // -1: SCREEN_CS is set by hand
 
   const Chip* chip = nullptr;
   uint8_t answer[6];
@@ -302,7 +299,7 @@ const char* start() {
   }
   uint8_t turn = found.turn ^ (FLIP ? 0xC0 : 0) ^ (MIRROR ? 0x80 : 0) ^ (SWAP_RED_BLUE ? 0x08 : 0);
   command(0x36, &turn, 1);                          // sideways, right way up
-  command(found.invert || INVERT ? 0x21 : 0x20);    // colours inverted or not
+  command(INVERT ? 0x21 : 0x20);                    // colours inverted or not
   command(0x29);                                    // screen on
   fill(0, 0, WIDTH, HEIGHT, rgb(0, 0, 0));
   backlight(true);
@@ -329,7 +326,7 @@ void fill(int x, int y, int w, int h, uint16_t colour) {
   uint8_t two[2] = {(uint8_t)(colour >> 8), (uint8_t)(colour & 0xFF)};
   area(x, y, w, h);
   bus.writePattern(two, 2, (uint32_t)w * (uint32_t)h);
-  endPixels();
+  end();
 }
 
 void text(int x, int y, const char* words, int size, uint16_t colour, uint16_t background) {
@@ -351,7 +348,7 @@ void text(int x, int y, const char* words, int size, uint16_t colour, uint16_t b
     }
     for (int s = 0; s < size; s++) bus.writeBytes(row, (size_t)i);  // ...and repeated size times
   }
-  endPixels();
+  end();
 }
 
 bool touched() {

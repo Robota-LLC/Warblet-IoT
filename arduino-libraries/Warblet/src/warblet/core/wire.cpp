@@ -49,8 +49,6 @@ class Out {
   bool ok_ = true;
 };
 
-bool present(const char* s) { return s != nullptr && s[0] != '\0'; }
-
 bool equalsNoCase(const char* a, size_t n, const char* b) {
   if (strlen(b) != n) return false;
   for (size_t i = 0; i < n; i++) {
@@ -168,7 +166,6 @@ void HttpResponse::reset(uint8_t* body, size_t cap) {
   bodyLen_ = 0;
   bodySeen_ = 0;
   tooLong_ = false;
-  down_[0] = '\0';
   retryAfter_ = 0;
   budget_ = false;
 }
@@ -203,7 +200,6 @@ bool HttpResponse::line(const char* s, size_t n) {
           // An interim answer (100 Continue): the real one follows.
           contentLength_ = -1;
           chunked_ = false;
-          down_[0] = '\0';
           retryAfter_ = 0;
           budget_ = false;
           state_ = kStatus;
@@ -236,10 +232,6 @@ bool HttpResponse::line(const char* s, size_t n) {
       } else if (equalsNoCase(s, nameLen, "transfer-encoding")) {
         chunked_ = equalsNoCase(v, vlen, "chunked");
         if (!chunked_) return false;  // no other coding is expected from the platform
-      } else if (equalsNoCase(s, nameLen, "x-chirp-down")) {
-        size_t m = vlen < sizeof down_ - 1 ? vlen : sizeof down_ - 1;
-        memcpy(down_, v, m);
-        down_[m] = '\0';
       } else if (equalsNoCase(s, nameLen, "x-chirp-budget")) {
         budget_ = true;
       } else if (equalsNoCase(s, nameLen, "retry-after")) {
@@ -315,12 +307,6 @@ bool HttpResponse::feed(const uint8_t* data, size_t n) {
     }
   }
   return state_ != kBad;
-}
-
-bool HttpResponse::finishAtClose() {
-  // A body with neither a length nor chunking stays incomplete: a reply cut
-  // short at that point looks exactly like a whole one.
-  return state_ == kDone;
 }
 
 bool answerIsUnclaimed(const uint8_t* body, size_t len) {

@@ -6,9 +6,10 @@
 // your computers' disks are, and each computer keeps its own line.
 //
 // Choose the board "ESP32-2432S028R CYD" and upload. Then set it up over USB
-// at warbletiot.com/flash; the screen says what to do. Paste decoder.star
-// into the device's spec, and add a Message box and a "Clear" button (text
-// "clear") to its dashboard. screen.h has the settings for a wrong picture.
+// at warbletiot.com/flash; the screen says what to do. The setup page gives
+// the device this demo's decoder, its Message box and Clear button, and adds
+// the disk routine to your account. screen.h has the settings for a wrong
+// picture.
 #include <WiFi.h>
 #include <Warblet.h>
 #include <ctype.h>
@@ -410,10 +411,8 @@ void setup() {
   board.onCommand(onCommand);
   board.checkCommandsEvery(CHECK_EVERY_MS);
   board.restartWhenStuck(STUCK_MS);
-  board.begin();  // shows the first state
+  board.begin();  // shows the first state, and the waiting text once it is set up
   Serial.println(found);
-  Warblet::State state = board.state();
-  if (state != Warblet::NOT_SET_UP && state != Warblet::NOT_ON_ACCOUNT) showWaiting();
 }
 
 void loop() {

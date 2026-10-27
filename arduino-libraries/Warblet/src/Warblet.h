@@ -136,6 +136,7 @@ class Warblet {
   void serviceMqtt();
   void restartMqtt();
   void deliverCommand(size_t len);
+  void sayTooLong();
   const char* mqttHost() const;
   uint8_t* commandBuffer(size_t* cap);
   // The MQTT code (WarbletMqtt.cpp) is reached only through this table, and
@@ -193,8 +194,6 @@ class Warblet {
   bool badSlug_ = false;  // demo() was given a slug the setup page cannot use
   bool joinFailSaid_ = false;
   bool clockSet_ = false;
-  bool noClockSaid_ = false;
-  bool headSaid_ = false;
   unsigned long nextPoll_ = 0;
   int taken_ = 0;  // commands taken one after another this round
   unsigned long lastJoin_ = 0;
