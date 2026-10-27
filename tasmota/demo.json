@@ -23,11 +23,11 @@
     "connect": [
       {
         "label": "Tasmota console",
-        "text": "Backlog Rule3 ON Tele-ENERGY#Power DO _WebQuery http://{host}/ingest/{id} POST [X-Chirp-Token:{code}|X-Chirp-Claim:{code}] {{\"Power\":\"%value%\"}} ENDON; Rule3 1; TelePeriod 60",
+        "text": "Backlog3 Rule3 ON Tele-ENERGY#Power DO _WebQuery http://{host}/ingest/{id} POST [X-Chirp-Token:{code}|X-Chirp-Claim:{code}] {{\"Power\":\"%value%\"}} ENDON; Rule3 1; TelePeriod 60",
         "steps": [
           {
             "title": "Check that Rule3 is empty, then paste this line",
-            "text": "Backlog Rule3 ON Tele-ENERGY#Power DO _WebQuery http://{host}/ingest/{id} POST [X-Chirp-Token:{code}|X-Chirp-Claim:{code}] {{\"Power\":\"%value%\"}} ENDON; Rule3 1; TelePeriod 60"
+            "text": "Backlog3 Rule3 ON Tele-ENERGY#Power DO _WebQuery http://{host}/ingest/{id} POST [X-Chirp-Token:{code}|X-Chirp-Claim:{code}] {{\"Power\":\"%value%\"}} ENDON; Rule3 1; TelePeriod 60"
           }
         ]
       }
