@@ -1,10 +1,7 @@
-# System monitor: the computer sends one JSON object, like
-#   {"host": "kitchen-pi", "os": "Linux", "uptime_h": 51.2, "load": 0.12,
-#    "memory_pct": 38.5, "temp_c": 47.2,
-#    "disks": {"/": {"used_pct": 61.4, "free_gb": 11.3}}}
-# Every reading becomes a field as it is. Each disk becomes two fields,
-# "/ used %" and "/ free GB", so the dashboard shows one line per disk and the
-# routine can watch every disk the same way.
+# Starlark decoder: decode(payload, meta) processes incoming payload bytes.
+# Return a dict of named fields for Warblet dashboards and routines.
+# The computer sends a JSON object. Non-null top-level readings keep their
+# names; each disk becomes "<path> used %" and "<path> free GB" fields.
 
 def decode(payload, meta):
     data = json.decode(payload)
