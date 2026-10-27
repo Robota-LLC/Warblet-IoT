@@ -160,8 +160,8 @@ def connected():
 
 def ensure_time():
     """Try NTP when the clock is below the configured year threshold, and
-    again every NTP_RESYNC_S on a set clock, since an RTC drifts.
-    Return whether time is usable; the caller still attempts TLS after failure."""
+    again every NTP_RESYNC_S on a set clock, since an RTC drifts. The
+    caller attempts TLS either way: with no clock it fails, and says why."""
     global _clock_ok, _ntp_at
     import time
     if _clock_ok or time.localtime()[0] >= 2024:
@@ -174,7 +174,7 @@ def ensure_time():
                 _ntp_at = time.time()  # the clock may have jumped
             except Exception as e:
                 print("chirp: ntp re-sync failed:", e)
-        return True
+        return
 
     import ntptime
     for attempt in range(NTP_TRIES):
@@ -188,7 +188,7 @@ def ensure_time():
             _clock_ok = True
             _ntp_at = time.time()
             print("chirp: clock set from ntp --", time.localtime())
-            return True
+            return
 
     print("chirp: NO CLOCK. ntp did not answer and the board still thinks the")
     print("chirp: year is", time.localtime()[0], "-- so TLS will fail, and it")
@@ -197,7 +197,6 @@ def ensure_time():
     print("chirp: chirp_cfg.json to fall back to port", PORT_PLAINTEXT,
           "in the clear")
     print("chirp: (an enforceTls device is then refused at ingest, by design).")
-    return False
 
 
 def ssl_context():
