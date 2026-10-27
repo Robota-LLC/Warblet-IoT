@@ -44,7 +44,7 @@ static otInstance *s_inst;
 /* From the config record. The credential slot holds `token` or `claim`
  * (chirpval enforces at most one). */
 static char s_host[CHIRP_HOST_MAX + 1u] = CHIRP_REPORT_DEFAULT_HOST;
-static char s_token[96];
+static char s_token[CHIRP_CRED_MAX + 1u];
 static int  s_configured;
 
 /* Base64 signing key from the config. An empty string disables signing. */

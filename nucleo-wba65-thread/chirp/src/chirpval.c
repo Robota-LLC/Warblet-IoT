@@ -96,8 +96,9 @@ const char *chirp_validate_fields(const char *json, unsigned len)
   int t = js_obj_get(json, len, "token", &token);
   if (c < 0 || t < 0) { return "bad-json"; }
   if (c == 1 && t == 1) { return "bad-json"; }        /* Allow at most one credential. */
-  if (c == 1 && claim.t != JS_STR) { return "bad-json"; }
-  if (t == 1 && token.t != JS_STR) { return "bad-json"; }
+  /* A credential longer than the board holds would not fit its buffer. */
+  if (c == 1 && (claim.t != JS_STR || claim.n > CHIRP_CRED_MAX)) { return "bad-json"; }
+  if (t == 1 && (token.t != JS_STR || token.n > CHIRP_CRED_MAX)) { return "bad-json"; }
 
   if (js_obj_get(json, len, "key", &key) == 1) {
     if (key.t != JS_STR || !is_key_b64_32(key.p, key.n)) { return "bad-json"; }
@@ -220,10 +221,12 @@ unsigned chirp_merge(char *out, unsigned outsz,
     if (push_cred && (key_is(&k, "claim") || key_is(&k, "token"))) { continue; }
     if (drop_aps  && key_is(&k, "aps"))                            { continue; }
 
-    /* A stored host longer than the board holds, or not text, came from an
-     * older image with no such rule; the board never used it, so it is not
-     * carried. A pushed one has been refused for it already. */
+    /* A stored host or credential longer than the board holds, or not text,
+     * came from an older image with no such rule; the board never used it, so
+     * it is not carried. A pushed one has been refused for it already. */
     if (key_is(&k, "host") && (v.t != JS_STR || v.n > CHIRP_HOST_MAX)) { continue; }
+    if ((key_is(&k, "claim") || key_is(&k, "token")) &&
+        (v.t != JS_STR || v.n > CHIRP_CRED_MAX)) { continue; }
 
     if (!emit(out, outsz, &o, &first, &k, &v)) { return 0u; }
   }

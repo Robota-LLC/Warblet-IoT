@@ -355,6 +355,15 @@ int main(void)
         "bad-json", "a host of 80 characters would be cut short");
   check("{\"claim\":\"C\",\"host\":5}", "bad-json", "host must be a string");
 
+  puts("\n--- credential length ---");
+  check("{\"token\":\"TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT\"}", 0, "a token of 95 characters, the most the board holds");
+  check("{\"token\":\"TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT\"}", "bad-json", "a token of 96 characters would be dropped");
+  check("{\"claim\":\"TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT\"}", "bad-json", "a claim of 96 characters would be dropped");
+  check_merge_ok("{\"token\":\"TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT\"}", "{\"token\":\"T\"}",
+                 "a stored over-long token is replaced by a pushed one");
+  check_merge_err("{\"token\":\"TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT\"}", "{\"hwid\":\"wba-2\"}", "missing-field",
+                  "a stored over-long token is not carried: the board holds no usable one");
+
   puts("\n--- v1.3 merges (the portal's L2 elevation flow) ---");
   {
     /* Check key-only pushes and pushes containing both a key and a replacement

@@ -179,6 +179,16 @@ static void test_merge(void)
   mvalid("{\"claim\":\"C\",\"ssid\":\"s\",\"host\":\"h01234567890123456789012345678901234567890123456789012345678901.example\"}",
          "{\"hwid\":\"wba-2\"}", 0,
          "a stored host longer than the board holds does not block a push");
+  mvalid("{}", "{\"token\":\"TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT\",\"ssid\":\"s\"}", 0,
+         "a token of 95 characters, the most the board holds");
+  mvalid("{}", "{\"token\":\"TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT\",\"ssid\":\"s\"}", "bad-json",
+         "a token of 96 characters would not fit");
+  mvalid("{}", "{\"claim\":\"TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT\",\"ssid\":\"s\"}", "bad-json",
+         "a claim of 96 characters would not fit");
+  mvalid("{\"token\":\"TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT\",\"ssid\":\"s\"}", "{\"token\":\"T\"}", 0,
+         "a stored over-long token is replaced by a pushed one");
+  mvalid("{\"token\":\"TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT\",\"ssid\":\"s\"}", "{\"hwid\":\"wba-2\"}", "missing-field",
+         "a stored over-long token is not carried: the board holds no usable one");
   mcheck("{\"claim\":\"C\",\"host\":\"h01234567890123456789012345678901234567890123456789012345678901.example\"}", "{\"hwid\":\"wba-2\"}",
          "{\"hwid\":\"wba-2\",\"claim\":\"C\"}", "  ... and it is not carried");
 }

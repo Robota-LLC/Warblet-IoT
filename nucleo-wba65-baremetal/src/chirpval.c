@@ -94,8 +94,9 @@ const char *chirp_validate_fields(const char *json, unsigned len)
   int t = js_obj_get(json, len, "token", &token);
   if (c < 0 || t < 0) { return "bad-json"; }
   if (c == 1 && t == 1) { return "bad-json"; }        /* Allow at most one credential. */
-  if (c == 1 && claim.t != JS_STR) { return "bad-json"; }
-  if (t == 1 && token.t != JS_STR) { return "bad-json"; }
+  /* A credential longer than the board holds would be dropped unseen. */
+  if (c == 1 && (claim.t != JS_STR || claim.n > CHIRP_CRED_MAX)) { return "bad-json"; }
+  if (t == 1 && (token.t != JS_STR || token.n > CHIRP_CRED_MAX)) { return "bad-json"; }
 
   if (js_obj_get(json, len, "key", &key) == 1) {
     if (key.t != JS_STR || !is_key_b64_32(key.p, key.n)) { return "bad-json"; }
@@ -227,8 +228,8 @@ int chirp_merge(const char *stored, unsigned slen,
 
   /* A pushed claim or token replaces the stored credential; both together would be invalid. */
   cred = (src_has(P, "claim") || src_has(P, "token")) ? P : S;
-  put_field(&e, "claim", cred);
-  put_field(&e, "token", cred);
+  put_field(&e, "claim", fitting(cred, "claim", CHIRP_CRED_MAX));
+  put_field(&e, "token", fitting(cred, "token", CHIRP_CRED_MAX));
 
   /* Replace stored Wi-Fi settings as a group when a network is supplied. */
   wifi = (src_has(P, "ssid") || src_has(P, "aps") || src_has(P, "pass")) ? P : S;
