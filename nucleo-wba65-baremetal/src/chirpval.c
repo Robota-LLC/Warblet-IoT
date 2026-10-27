@@ -84,25 +84,18 @@ static const char *check_thread(const js_val *t)
   return 0;
 }
 
-/* Per-field rules, plus what was present, so one pass serves both the push
- * check and the merged check. */
-static const char *check_fields(const char *json, unsigned len,
-                                int *have_cred, int *have_net)
+const char *chirp_validate_fields(const char *json, unsigned len)
 {
   js_val claim, token, ssid, thread, key, hwid, host;
-
-  *have_cred = 0;
-  *have_net  = 0;
 
   if (len == 0u || !js_validate(json, len) || json[0] != '{') { return "bad-json"; }
 
   int c = js_obj_get(json, len, "claim", &claim);
   int t = js_obj_get(json, len, "token", &token);
   if (c < 0 || t < 0) { return "bad-json"; }
-  if (c == 1 && t == 1) { return "bad-json"; }        /* Require exactly one credential. */
+  if (c == 1 && t == 1) { return "bad-json"; }        /* Allow at most one credential. */
   if (c == 1 && claim.t != JS_STR) { return "bad-json"; }
   if (t == 1 && token.t != JS_STR) { return "bad-json"; }
-  *have_cred = (c == 1 || t == 1);
 
   if (js_obj_get(json, len, "key", &key) == 1) {
     if (key.t != JS_STR || !is_key_b64_32(key.p, key.n)) { return "bad-json"; }
@@ -118,40 +111,26 @@ static const char *check_fields(const char *json, unsigned len,
     if (host.t != JS_STR || host.n > CHIRP_HOST_MAX) { return "bad-json"; }
   }
 
-  int has_ssid = js_obj_get(json, len, "ssid", &ssid) == 1;
-  if (has_ssid && ssid.t != JS_STR) { return "bad-json"; }
+  if (js_obj_get(json, len, "ssid", &ssid) == 1 && ssid.t != JS_STR) { return "bad-json"; }
 
-  int has_thread = js_obj_get(json, len, "thread", &thread) == 1;
-  if (has_thread && thread.t != JS_OBJ) { return "bad-json"; }
-  *have_net = (has_ssid || has_thread);
-
-  if (has_thread) { return check_thread(&thread); }
+  if (js_obj_get(json, len, "thread", &thread) == 1) {
+    if (thread.t != JS_OBJ) { return "bad-json"; }
+    return check_thread(&thread);
+  }
   return 0;
-}
-
-const char *chirp_validate_fields(const char *json, unsigned len)
-{
-  int cred = 0, net = 0;
-  return check_fields(json, len, &cred, &net);
 }
 
 const char *chirp_validate(const char *json, unsigned len)
 {
-  int cred = 0, net = 0;
-  const char *err = check_fields(json, len, &cred, &net);
+  const char *err = chirp_validate_fields(json, len);
+  js_val      v;
 
   if (err) { return err; }
 
-  /* A credential is always required. */
-  if (!cred) { return "missing-field"; }
-
-  /* This image joins no network, so a credential alone is complete. */
-#if CHIRP_REQUIRE_NETWORK
-  if (!net) { return "missing-field"; }
-#else
-  (void)net;
-#endif
-
+  /* A credential is always required; this image joins no network, so a
+   * credential alone is complete. */
+  if (js_obj_get(json, len, "claim", &v) != 1 &&
+      js_obj_get(json, len, "token", &v) != 1) { return "missing-field"; }
   return 0;
 }
 

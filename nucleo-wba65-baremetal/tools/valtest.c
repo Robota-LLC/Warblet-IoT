@@ -291,7 +291,7 @@ int main(void)
   check("{\"claim\":\"C\",\"ssid\":\"caf\\u00e9 \\\"guest\\\"\"}", 0, "escapes and \\u in strings");
 
   /* This relay image needs a credential but no network settings. */
-  puts("\n--- fresh setup, no network (CHIRP_REQUIRE_NETWORK == 0) ---");
+  puts("\n--- fresh setup, no network (a credential alone is complete) ---");
   check("{\"claim\":\"C\"}", 0, "a claim alone is a complete config for this image");
   check("{\"token\":\"T\"}", 0, "a token alone is a complete config for this image");
   check("{\"claim\":\"CHIRP-PLACEHOLDER\",\"hwid\":\"wba65-demo-3f9a12\",\"host\":\"h\","
