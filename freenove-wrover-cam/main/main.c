@@ -13,6 +13,8 @@
 #include "driver/uart.h"
 #include "driver/uart_vfs.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "warblet";
 
@@ -85,9 +87,18 @@ void app_main(void)
     /* Always listening, provisioned or not. */
     ESP_ERROR_CHECK(chirp_prov_start(&config));
 
-    /* Camera before network, and fatal on purpose: a board with no ribbon
-     * seated should say so at the console. */
-    ESP_ERROR_CHECK(camera_init());
+    /* Camera before network. With no camera there is nothing to send, but a
+     * restart loop would also stop the board being set up over USB: so stay
+     * up, send nothing, and say why once a minute. */
+    esp_err_t camera = camera_init();
+    if (camera != ESP_OK) {
+        for (;;) {
+            ESP_LOGE(TAG, "no camera (%s): power the board off, check the "
+                          "camera ribbon sits fully in its socket, then power "
+                          "it on", esp_err_to_name(camera));
+            vTaskDelay(pdMS_TO_TICKS(60000));
+        }
+    }
 
     if (config.ap_count == 0) {
         ESP_LOGI(TAG, "no networks stored, waiting to be provisioned");
