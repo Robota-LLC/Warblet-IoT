@@ -1,0 +1,6 @@
+## No managed components: this only says which ESP-IDF builds the demo.
+## The ESP32-C5 is a preview target in 5.5, and the driver and console
+## names main.c uses need 5.3 or later.
+dependencies:
+  idf:
+    version: ">=5.5"
