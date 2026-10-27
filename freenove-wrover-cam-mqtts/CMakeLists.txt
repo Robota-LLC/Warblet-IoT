@@ -2,13 +2,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(freenove-wrover-cam-mqtts-demo)
-
-# The catalogue publishes the app image as freenove-wrover-cam-mqtts-update.bin (the full
-# image is freenove-wrover-cam-mqtts-full.bin, from `idf.py merge-bin -o`). The names say
-# what each file is for; IDF names the app after the project, so copy it.
-add_custom_command(TARGET app POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_BINARY_DIR}/${PROJECT_NAME}.bin
-            ${CMAKE_BINARY_DIR}/freenove-wrover-cam-mqtts-update.bin
-    VERBATIM)
+# IDF names the app image after the project: build/freenove-wrover-cam-mqtts-update.bin is the
+# image for a board that is set up already. `idf.py merge-bin -o
+# freenove-wrover-cam-mqtts-full.bin` makes the one for a blank board.
+project(freenove-wrover-cam-mqtts-update)
