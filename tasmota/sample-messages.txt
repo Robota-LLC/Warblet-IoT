@@ -1,22 +1,19 @@
-# What a Tasmota plug sends to Warblet, one message per line: the tag first
-# (the last word of Tasmota's topic, chirp/<your-board-id>/up/<tag>), then one
-# space, then the message exactly as the plug sends it.
+# What a Tasmota plug posts to Warblet once a minute: one request body per
+# line, as the rule in the setup line builds it (the plug puts one space in
+# front). Each reading is the text the power meter gave, in quotes; a reading
+# the meter does not have arrives empty.
 #
 # These were not captured from a plug. They are written from Tasmota 16.0.0's
-# source (the code that builds each message), with made-up readings. The Wi-Fi
-# name is <wifi-name>, and the router's and the plug's own addresses are
-# example addresses: a real STATE message carries yours.
+# source (the rule fills each %value% and %varN% from the meter's ENERGY
+# readings), with made-up readings. Nothing else from the plug is ever in a
+# post: not the Wi-Fi network's name, not the plug's network name, not an
+# address.
 #
-# Each time it connects:
-LWT Online
-INFO1 {"Info1":{"Module":"Sonoff S31","Version":"16.0.0(release-tasmota)","FallbackTopic":"cmnd/<your-board-id>_fb/","GroupTopic":"chirp/<your-board-id>/cmnd/"}}
-INFO2 {"Info2":{"WebServerMode":"Admin","Hostname":"tasmota-ABCDEF-1234","IPAddress":"192.0.2.10"}}
-INFO3 {"Info3":{"RestartReason":"Software/System restart","BootCount":12}}
-RESULT {"POWER":"ON"}
-POWER ON
-# Every minute:
-STATE {"Time":"2026-10-27T13:00:00","Uptime":"0T01:00:00","UptimeSec":3600,"Heap":25,"SleepMode":"Dynamic","Sleep":50,"LoadAvg":19,"MqttCount":1,"POWER":"ON","Wifi":{"AP":1,"SSId":"<wifi-name>","BSSId":"00:00:5E:00:53:01","Channel":6,"Mode":"11n","RSSI":78,"Signal":-61,"LinkCount":1,"Downtime":"0T00:00:04"},"Hostname":"tasmota-ABCDEF-1234","IPAddress":"192.0.2.10"}
-SENSOR {"Time":"2026-10-27T13:00:00","ENERGY":{"TotalStartTime":"2026-10-27T12:00:00","Total":0.123,"Yesterday":0.000,"Today":0.123,"Period":1,"Power":42,"ApparentPower":50,"ReactivePower":27,"Factor":0.84,"Voltage":121,"Current":0.413}}
-# After OFF from Warblet:
-RESULT {"POWER":"OFF"}
-POWER OFF
+# A lamp on:
+{"Power":"42","Voltage":"121","Current":"0.413","Today":"0.123"}
+# The relay off:
+{"Power":"0","Voltage":"121","Current":"0.000","Today":"0.123"}
+# A heater on:
+{"Power":"1450","Voltage":"118","Current":"12.288","Today":"3.456"}
+# A meter that does not measure voltage or current:
+{"Power":"42","Voltage":"","Current":"","Today":"0.123"}
