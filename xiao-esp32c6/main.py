@@ -129,11 +129,7 @@ def read_temperature_c():
 def encode_temperature(celsius):
     """Encode signed tenths of Celsius in two big-endian bytes. Clamp values to
     the int16 range and keep decoder.star consistent."""
-    temperature_tenths_c = int(round(celsius * 10.0))
-    if temperature_tenths_c < -32768:
-        temperature_tenths_c = -32768
-    elif temperature_tenths_c > 32767:
-        temperature_tenths_c = 32767
+    temperature_tenths_c = max(-32768, min(32767, int(round(celsius * 10.0))))
     return struct.pack(">h", temperature_tenths_c)
 
 
