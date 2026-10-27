@@ -23,6 +23,8 @@ You paste one line into Tasmota's console. It adds one rule and sets Tasmota's r
 
 The connection is not encrypted. The plug posts over plain HTTP, because Tasmota's builds for this plug's chip cannot make HTTPS requests. Anyone who can watch the traffic between your plug and Warblet, on your Wi-Fi or further along the way, can read its readings and its setup code, and with the code they can post readings as your plug. Nothing on the connection can command the plug: it never acts on anything Warblet sends back. Leave **Encrypted** off for this device, because the plug cannot use it.
 
+While Warblet cannot be reached, each minute's report can hold the plug up for up to about 15 seconds: its button may not answer in that time, and its other work waits. This is read from Tasmota's source and has not been measured on a plug yet.
+
 ## Keep the code private
 
 The setup code is your plug's key to Warblet. It is written in the rule, and Tasmota's console shows it each minute when the rule runs. The line keeps Tasmota's answers to it, which show the rule, off your own MQTT server and out of the log. Once the line is in, check that reports arrive on the device's page in Warblet rather than by typing `Rule3`: its answer shows the code, and goes to your own MQTT server. Set a web password (`WebPassword`) so nobody else on your network can open the plug's page.
