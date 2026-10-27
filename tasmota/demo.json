@@ -30,7 +30,7 @@
         "text": "Backlog MqttHost {host}; MqttPort 1883; MqttClient {id}; MqttUser {id}; MqttPassword2 {code}; FullTopic chirp/{id}/%prefix%/; Prefix2 up; Prefix3 up; TelePeriod 60; Rule3 ON Mqtt#Connected DO Subscribe2 Warblet, chirp/{id}/down ENDON ON Event#Warblet=ON DO Power1 1 ENDON ON Event#Warblet=OFF DO Power1 0 ENDON; Rule3 1",
         "steps": [
           {
-            "title": "Paste this line in Tasmota's console (it uses Rule3)",
+            "title": "Check Rule1, Rule2 and Rule3 first, then paste this line",
             "text": "Backlog MqttHost {host}; MqttPort 1883; MqttClient {id}; MqttUser {id}; MqttPassword2 {code}; FullTopic chirp/{id}/%prefix%/; Prefix2 up; Prefix3 up; TelePeriod 60; Rule3 ON Mqtt#Connected DO Subscribe2 Warblet, chirp/{id}/down ENDON ON Event#Warblet=ON DO Power1 1 ENDON ON Event#Warblet=OFF DO Power1 0 ENDON; Rule3 1"
           }
         ]
