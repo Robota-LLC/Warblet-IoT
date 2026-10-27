@@ -1,11 +1,23 @@
-# Tasmota: the plug posts its power meter's readings once a minute, as text
-# in one small JSON object, like
-#   {"Power":"42","Voltage":"121","Current":"0.413","Today":"0.123"}
+# Tasmota: the plug posts its power once a minute, as text in one small JSON
+# object, like
+#   {"Power":"42"}
 # The rule in the setup line builds it from Tasmota's ENERGY readings; nothing
 # else from the plug is in it. sample-messages.txt has a few.
 #
-# Each reading becomes a number on your dashboard. One the meter does not
-# have arrives empty and is left out.
+# Power becomes a number on your dashboard, in watts.
+#
+# To send Voltage, Current and Energy today as well: a rule can put only the
+# reading that set it off into a post, so the other three are kept in rule
+# variables first and sent with Power. Paste this line instead of the one the
+# setup page showed, with your board id and setup code in place of
+# <your-board-id> and <your-setup-code> (both are in the page's line):
+#
+#   Backlog Rule3 ON Tele-ENERGY#Voltage DO _Var14 %value% ENDON ON Tele-ENERGY#Current DO _Var15 %value% ENDON ON Tele-ENERGY#Today DO _Var16 %value% ENDON ON Tele-ENERGY#Power DO _WebQuery http://http.warbletiot.com/ingest/<your-board-id> POST [X-Chirp-Token:<your-setup-code>|X-Chirp-Claim:<your-setup-code>] {"Power":"%value%","Voltage":"%var14%","Current":"%var15%","Today":"%var16%"} ENDON; Rule3 1; TelePeriod 60
+#
+# The rule then overwrites Var14, Var15 and Var16
+# each minute, which your own rules share.
+# A reading your meter does not measure is sent as whatever its variable last
+# held. This decoder already reads all four, so nothing else changes.
 
 READINGS = {                       # the name in the post: the name on your dashboard
     "Power": "Power",              # watts
