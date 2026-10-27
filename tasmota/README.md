@@ -29,9 +29,9 @@ The setup code is your plug's key to Warblet. It is written in the rule, and Tas
 
 ## What it sends
 
-Once a minute, one report: Power (W), Voltage (V), Current (A) and Energy today (kWh), from the plug's power meter. Nothing else leaves the plug for Warblet: not your Wi-Fi network's name, and not the plug's network name or addresses. [sample-messages.txt](sample-messages.txt) shows some reports.
+Once a minute, one report: the plug's power, in watts, from its power meter. Nothing else leaves the plug for Warblet: not your Wi-Fi network's name, and not the plug's network name or addresses. [sample-messages.txt](sample-messages.txt) shows some reports. To send Voltage, Current and Energy today as well, see the comment at the top of [decoder.star](decoder.star).
 
-While it builds the report, the rule keeps three readings in `Var14`, `Var15` and `Var16`. The one-minute report period also applies to the reports Tasmota sends to your own MQTT server.
+The one-minute report period also applies to the reports Tasmota sends to your own MQTT server.
 
 ## Email
 
