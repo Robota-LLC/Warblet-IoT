@@ -251,13 +251,10 @@ static void test_ds(const char *full, const char *dataset)
   ds_field(!ds.have_key && !ds.have_name,       "dataset: discrete fields not populated");
 
   /* dataset wins even over broken discrete fields, as in chirpval.c */
-  memset(&ds, 0, sizeof ds);
   ds_expect("{\"claim\":\"C\",\"thread\":{\"dataset\":\"0e08\",\"name\":\"x\",\"key\":\"nope\"}}",
             1, "dataset wins over broken discrete fields");
-  chirp_ds_parse("{\"claim\":\"C\",\"thread\":{\"dataset\":\"0e08\",\"name\":\"x\",\"key\":\"nope\"}}",
-                 55u + 12u, &ds);
 
-  /* things validation lets through that the extractor must still refuse */
+  /* validation refuses these too; the extractor must not rely on it */
   ds_expect("{\"claim\":\"C\",\"thread\":{\"dataset\":\"0e0\"}}", -1, "odd-length dataset refused");
   ds_expect("{\"claim\":\"C\",\"thread\":{\"key\":\"00112233\"}}", -1, "short key refused");
 
