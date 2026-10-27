@@ -20,6 +20,3 @@ SENSOR {"Time":"2026-10-27T13:00:00","ENERGY":{"TotalStartTime":"2026-10-27T12:0
 # After OFF from Warblet:
 RESULT {"POWER":"OFF"}
 POWER OFF
-# With no mains power (on a bench, the plug opened and fed from a USB
-# adapter): the meter sends nothing, so Tasmota reports zeros.
-SENSOR {"Time":"2026-10-27T13:00:00","ENERGY":{"TotalStartTime":"2026-10-27T12:00:00","Total":0.000,"Yesterday":0.000,"Today":0.000,"Period":0,"Power":0,"ApparentPower":0,"ReactivePower":0,"Factor":0.00,"Voltage":0,"Current":0.000}}
