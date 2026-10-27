@@ -24,7 +24,7 @@
     "connect": [
       {
         "label": "ESPHome",
-        "text": "warblet_{id}: \"{code}\"\npackages:\n  warblet:\n    url: https://github.com/Robota-LLC/Warblet-IoT\n    ref: v1.5.0\n    files:\n      - path: esphome/warblet.yaml\n        vars:\n          id: {id}\n          code: !secret warblet_{id}",
+        "text": "warblet_{id}: \"{code}\"\npackages:\n  warblet:\n    url: https://github.com/Robota-LLC/Warblet-IoT\n    ref: v1.6.0\n    files:\n      - path: esphome/warblet.yaml\n        vars:\n          id: {id}\n          code: !secret warblet_{id}",
         "steps": [
           {
             "title": "Add your setup code to secrets.yaml",
@@ -32,7 +32,7 @@
           },
           {
             "title": "Add these lines to your device's YAML, then install it",
-            "text": "packages:\n  warblet:\n    url: https://github.com/Robota-LLC/Warblet-IoT\n    ref: v1.5.0\n    files:\n      - path: esphome/warblet.yaml\n        vars:\n          id: {id}\n          code: !secret warblet_{id}"
+            "text": "packages:\n  warblet:\n    url: https://github.com/Robota-LLC/Warblet-IoT\n    ref: v1.6.0\n    files:\n      - path: esphome/warblet.yaml\n        vars:\n          id: {id}\n          code: !secret warblet_{id}"
           }
         ]
       }
