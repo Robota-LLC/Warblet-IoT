@@ -37,8 +37,10 @@ def open_led():
     if LED_PIN is None:
         return None
     try:
-        led = machine.Pin(LED_PIN, machine.Pin.OUT)
-        led.value(1 if LED_ACTIVE_LOW else 0)  # start dark
+        # A Signal turns "on" into the pin level the LED needs.
+        led = machine.Signal(machine.Pin(LED_PIN, machine.Pin.OUT),
+                             invert=LED_ACTIVE_LOW)
+        led.off()  # start dark
         return led
     except Exception as e:
         print("chirp: no LED on pin", LED_PIN, "--", e)
@@ -50,7 +52,7 @@ def drive_led(led, on):
     if led is None:
         return
     try:
-        led.value((0 if on else 1) if LED_ACTIVE_LOW else (1 if on else 0))
+        led.value(on)
     except Exception:
         pass
 
@@ -106,7 +108,10 @@ def check_for_command(config, led):
 def open_button():
     """BUT1 as an input with the pull-up it has no board resistor for."""
     try:
-        return machine.Pin(BUTTON_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
+        # A Signal reads 1 while the button is held, whichever level that is.
+        return machine.Signal(
+            machine.Pin(BUTTON_PIN, machine.Pin.IN, machine.Pin.PULL_UP),
+            invert=BUTTON_ACTIVE_LOW)
     except Exception as e:
         print("chirp: no button on pin", BUTTON_PIN, "--", e)
         return None
@@ -116,7 +121,7 @@ def pressed(button):
     """True while the button is held. False on a board without one."""
     if button is None:
         return False
-    return (button.value() == 0) if BUTTON_ACTIVE_LOW else (button.value() == 1)
+    return button.value() == 1
 
 
 def check_button(button, was_up):

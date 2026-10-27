@@ -29,8 +29,10 @@ def open_led():
     if LED_PIN is None:
         return None
     try:
-        led = machine.Pin(LED_PIN, machine.Pin.OUT)
-        led.value(1 if LED_ACTIVE_LOW else 0)  # start dark
+        # A Signal turns "on" into the pin level the LED needs.
+        led = machine.Signal(machine.Pin(LED_PIN, machine.Pin.OUT),
+                             invert=LED_ACTIVE_LOW)
+        led.off()  # start dark
         return led
     except Exception as e:
         print("chirp: no LED on pin", LED_PIN, "--", e)
@@ -42,7 +44,7 @@ def drive_led(led, on):
     if led is None:
         return
     try:
-        led.value((0 if on else 1) if LED_ACTIVE_LOW else (1 if on else 0))
+        led.value(on)
     except Exception:
         pass
 
