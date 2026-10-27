@@ -17,6 +17,9 @@
 
 static const char *TAG = "warblet";
 
+/* This demo's catalogue id, sent in the USB announce. */
+#define DEMO_SLUG "demo-firebeetle-c5"
+
 /* Two bytes: round(temp_c * 10) as a signed big-endian int16. Keep
  * ../decoder.star consistent with this format. */
 #define TEMPERATURE_PAYLOAD_SIZE 2
@@ -117,7 +120,7 @@ void app_main(void)
              config.has_key ? "yes" : "no");
 
     /* Always listening, provisioned or not. */
-    ESP_ERROR_CHECK(chirp_prov_start(&config));
+    ESP_ERROR_CHECK(chirp_prov_start(&config, DEMO_SLUG));
 
     if (config.ap_count == 0) {
         ESP_LOGI(TAG, "no networks stored, waiting to be provisioned");

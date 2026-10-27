@@ -20,6 +20,7 @@ static const char *TAG = "chirp_prov";
 #define PUSH_PREFIX   "CHIRP+ "
 
 static chirp_config_t s_config;
+static const char    *s_slug;
 
 static void emit(const char *line)
 {
@@ -230,8 +231,8 @@ static void handle_line(char *line)
     if (strncmp(line, PROBE_PREFIX, strlen(PROBE_PREFIX)) == 0) {
         /* Announce Wi-Fi and signing support, plus this demo's slug. */
         char reply[128];
-        snprintf(reply, sizeof(reply), "CHIRP! v=1 hw=%s radios=wifi sig=1 t=demo-wrover-cam-mqtts",
-                 chirp_store_hwid(&s_config));
+        snprintf(reply, sizeof(reply), "CHIRP! v=1 hw=%s radios=wifi sig=1 t=%s",
+                 chirp_store_hwid(&s_config), s_slug);
         emit(reply);
     } else if (strncmp(line, PUSH_PREFIX, strlen(PUSH_PREFIX)) == 0) {
         handle_push(line + strlen(PUSH_PREFIX));
@@ -261,12 +262,13 @@ static void prov_task(void *arg)
     }
 }
 
-esp_err_t chirp_prov_start(const chirp_config_t *config)
+esp_err_t chirp_prov_start(const chirp_config_t *config, const char *slug)
 {
-    if (config == NULL) {
+    if (config == NULL || slug == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
     s_config = *config;
+    s_slug   = slug;
 
     if (xTaskCreate(prov_task, "chirp_prov", 6144, NULL, 5, NULL) != pdPASS) {
         return ESP_ERR_NO_MEM;

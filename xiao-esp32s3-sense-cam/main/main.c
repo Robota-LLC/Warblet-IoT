@@ -23,6 +23,9 @@
 
 static const char *TAG = "warblet";
 
+/* This demo's catalogue id, sent in the USB announce. */
+#define DEMO_SLUG "demo-xiao-s3-cam"
+
 /* ---------------------------------------------------------------------------
  * the button
  * ------------------------------------------------------------------------ */
@@ -195,7 +198,7 @@ void app_main(void)
              config.has_key ? "yes" : "no");
 
     /* Always listening, provisioned or not. */
-    ESP_ERROR_CHECK(chirp_prov_start(&config));
+    ESP_ERROR_CHECK(chirp_prov_start(&config, DEMO_SLUG));
 
     /* Camera before network. With no camera there is nothing to send, but a
      * restart loop would also stop the board being set up over USB: so stay

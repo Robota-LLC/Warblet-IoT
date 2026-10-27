@@ -41,7 +41,7 @@ const char *chirp_store_default_hwid(void)
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "esp_read_mac: %s", esp_err_to_name(err));
         }
-        snprintf(hwid, sizeof(hwid), "c5-%02x%02x%02x", mac[3], mac[4], mac[5]);
+        snprintf(hwid, sizeof(hwid), CHIRP_HWID_PREFIX "%02x%02x%02x", mac[3], mac[4], mac[5]);
     }
     return hwid;
 }

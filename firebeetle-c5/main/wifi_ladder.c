@@ -183,7 +183,8 @@ esp_err_t wifi_ladder_start(const chirp_config_t *config)
     ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
                                                         on_ip_event, NULL, NULL));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    /* Band mode is left at auto so the C5 can use 5 GHz APs. */
+    /* Band mode is left at auto: a dual-band chip such as the C5 can use 5 GHz
+     * networks, and a 2.4 GHz-only one has nothing to set. */
     ESP_ERROR_CHECK(esp_wifi_start());
 
     if (xTaskCreate(ladder_task, "wifi_ladder", 4096, NULL, 5, NULL) != pdPASS) {

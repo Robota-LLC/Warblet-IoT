@@ -18,6 +18,7 @@ extern "C" {
 #define CHIRP_KEY_SIZE     32   /* HMAC-SHA256 key; 44 chars of base64 on the wire */
 
 /* Default HTTPS endpoint; a stored host overrides it. */
+#define CHIRP_HWID_PREFIX  "cam-"  /* the default id: this + the MAC's last three bytes */
 #define CHIRP_DEFAULT_HOST "https.warbletiot.com"
 
 /* Identify the stored credential as a claim or token. */
@@ -55,7 +56,7 @@ esp_err_t chirp_store_load(chirp_config_t *out);
 /* Replaces the stored provisioning state with *config. */
 esp_err_t chirp_store_save(const chirp_config_t *config);
 
-/* "cam-" + last three bytes of the station MAC, lowercase hex. */
+/* CHIRP_HWID_PREFIX + last three bytes of the station MAC, lowercase hex. */
 const char *chirp_store_default_hwid(void);
 
 /* Provisioned hwid if there is one, otherwise the default identity. */

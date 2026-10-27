@@ -22,6 +22,9 @@
 
 static const char *TAG = "warblet";
 
+/* This demo's catalogue id, sent in the USB announce. */
+#define DEMO_SLUG "demo-wrover-cam-mqtts"
+
 /* ---------------------------------------------------------------------------
  * the camera
  * ------------------------------------------------------------------------ */
@@ -196,7 +199,7 @@ void app_main(void)
              config.has_key ? "yes" : "no");
 
     /* Always listening, provisioned or not. */
-    ESP_ERROR_CHECK(chirp_prov_start(&config));
+    ESP_ERROR_CHECK(chirp_prov_start(&config, DEMO_SLUG));
 
     if (config.ap_count == 0) {
         ESP_LOGI(TAG, "no networks stored, waiting to be provisioned");
