@@ -172,22 +172,11 @@ def main():
             try:
                 if not chirp_mqtt.connected():
                     # connect() sets the clock before opening TLS.
-                    gc.collect()
-                    heap_before_connect_bytes = gc.mem_free()
-                    connect_started_ms = time.ticks_ms()
                     chirp_mqtt.connect(config,
                                        lambda msg: on_downlink(led, msg))
-                    connect_duration_ms = time.ticks_diff(time.ticks_ms(),
-                                                          connect_started_ms)
                     gc.collect()
-                    # What the TLS session costs in time and heap; a port to a smaller part needs this.
-                    print("chirp: {} session up on port {}, {} -- {} ms, "
-                          "heap {} -> {}".format(
-                              "mqtts" if chirp_mqtt.use_tls(config) else "mqtt",
-                              chirp_mqtt.port_for(config),
-                              chirp_mqtt.topic_up(config["hwid"]),
-                              connect_duration_ms, heap_before_connect_bytes,
-                              gc.mem_free()))
+                    # A port to a smaller part needs the heap left with TLS open.
+                    print("chirp: mqtt session up, free heap", gc.mem_free())
                 celsius = read_temperature_c()
                 tag = PRESS_TAG if on_press else None
                 chirp_mqtt.publish(config, encode_temperature(celsius), tag)
