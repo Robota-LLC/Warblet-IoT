@@ -25,11 +25,16 @@ static const char *TAG = "warblet";
 /* This demo's catalogue id, sent in the USB announce. */
 #define DEMO_SLUG "demo-wrover-cam-mqtts"
 
+/* Health goes out when it changes, and every 5 minutes while the camera is
+ * not ready. A frame that was sent also counts as health. */
+#define HEALTH_PERIOD_MS 300000
+
 /* ---------------------------------------------------------------------------
  * the camera
  * ------------------------------------------------------------------------ */
 
-typedef struct { camera_operation_t operation; const char *tag; } camera_job_t;
+/* snap: the frame answers a Snap command, so a failure is reported as one. */
+typedef struct { camera_operation_t operation; const char *tag; bool snap; } camera_job_t;
 typedef struct {
     camera_job_t job;
     esp_err_t error;
@@ -67,11 +72,12 @@ static void camera_worker(void *arg)
 
 static void request_frame(const char *tag, int64_t now)
 {
+    bool snap = strcmp(tag, CHIRP_TAG_SNAP) == 0;
     if (camera_health_begin_frame(&s_health, now)) {
-        s_pending_snap = strcmp(tag, CHIRP_TAG_SNAP) == 0;
-        camera_job_t job = { CAMERA_FRAME, tag };
+        s_pending_snap = snap;
+        camera_job_t job = { CAMERA_FRAME, tag, snap };
         xQueueSend(s_jobs, &job, 0); /* one outstanding operation, queue is empty */
-    } else if (strcmp(tag, CHIRP_TAG_SNAP) == 0) {
+    } else if (snap) {
         s_health.snap_failed = true;
         s_health_dirty = true;
         ESP_LOGW(TAG, "snap failed: camera %s or busy", camera_health_state(&s_health));
@@ -95,7 +101,7 @@ static chirp_send_result_t report_camera(const char *tag)
         camera_health_timeout(&s_health, ESP_ERR_TIMEOUT, done.completed_ms);
         bool completed = camera_health_complete(&s_health, done.error);
         if (s_health.state != previous_state || s_health.error != previous_error ||
-            (done.job.operation == CAMERA_FRAME && strcmp(done.job.tag, CHIRP_TAG_SNAP) == 0))
+            done.job.snap)
             s_health_dirty = true;
         if (done.job.operation == CAMERA_FRAME) {
             if (completed && done.error == ESP_OK) {
@@ -105,12 +111,12 @@ static chirp_send_result_t report_camera(const char *tag)
                 if (result == CHIRP_SENT) {
                     s_health.snap_failed = false;
                     s_health_dirty = false;
-                    s_next_health = now + 300000;
-                } else if (strcmp(done.job.tag, CHIRP_TAG_SNAP) == 0) {
+                    s_next_health = now + HEALTH_PERIOD_MS;
+                } else if (done.job.snap) {
                     s_health.snap_failed = true;
                     s_health_dirty = true;
                 }
-            } else if (strcmp(done.job.tag, CHIRP_TAG_SNAP) == 0) {
+            } else if (done.job.snap) {
                 s_health.snap_failed = true;
             }
             camera_release();
@@ -127,7 +133,7 @@ static chirp_send_result_t report_camera(const char *tag)
         ESP_LOGE(TAG, "camera operation timed out; driver quarantined until restart");
     }
     if (camera_health_begin_init(&s_health, now)) {
-        camera_job_t job = { CAMERA_INIT, NULL };
+        camera_job_t job = { CAMERA_INIT, NULL, false };
         xQueueSend(s_jobs, &job, 0);
         s_health_dirty = true;
     }
@@ -146,7 +152,7 @@ static chirp_send_result_t report_camera(const char *tag)
             (const uint8_t *)payload, (size_t)length, CHIRP_TAG_HEALTH);
         if (health_result == CHIRP_SENT) {
             s_health_dirty = false;
-            s_next_health = now + 300000;
+            s_next_health = now + HEALTH_PERIOD_MS;
         }
         if (health_result == CHIRP_CONNECTION_FAILED) result = health_result;
     }
