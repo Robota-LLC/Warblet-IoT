@@ -27,15 +27,6 @@ static int      s_armed;
 
 /* ------------------------------------------------------------------ helpers */
 
-static void put_uint(unsigned v)
-{
-  char b[12];
-  int i = 0;
-  if (v == 0u) { uart_putc('0'); return; }
-  while (v && i < 12) { b[i++] = (char)('0' + (v % 10u)); v /= 10u; }
-  while (i--) { uart_putc(b[i]); }
-}
-
 static int b64_val(char c)
 {
   if (c >= 'A' && c <= 'Z') { return c - 'A'; }
@@ -143,11 +134,11 @@ static void print_http_request(void)
   body[1] = (unsigned char)(t & 0xFFu);
 
   uart_puts("CHIRP. uplink L");
-  put_uint(lv);
+  uart_put_uint(lv);
   uart_puts(" temp_c=");
-  put_uint(t / 10u);
+  uart_put_uint(t / 10u);
   uart_putc('.');
-  put_uint(t % 10u);
+  uart_put_uint(t % 10u);
   uart_line("");
 
   uart_puts("CHIRP^ POST /ingest/");
@@ -158,7 +149,9 @@ static void print_http_request(void)
   uart_line(s_host);
 
   uart_line("CHIRP^ Content-Type: application/octet-stream");
-  uart_line("CHIRP^ Content-Length: 2");
+  uart_puts("CHIRP^ Content-Length: ");
+  uart_put_uint((unsigned)sizeof body);
+  uart_line("");
 
   if (s_have_cred) {
     uart_puts(s_cred_is_claim ? "CHIRP^ X-Chirp-Claim: " : "CHIRP^ X-Chirp-Token: ");
@@ -188,14 +181,8 @@ static void print_http_request(void)
   }
 
   uart_puts("CHIRP^ body ");
-  {
-    static const char H[] = "0123456789abcdef";
-    char hex[5];
-    hex[0] = H[body[0] >> 4]; hex[1] = H[body[0] & 0xFu];
-    hex[2] = H[body[1] >> 4]; hex[3] = H[body[1] & 0xFu];
-    hex[4] = '\0';
-    uart_line(hex);
-  }
+  for (unsigned i = 0u; i < sizeof body; i++) { uart_put_hex(body[i], 2); }
+  uart_line("");
 }
 
 /* ------------------------------------------------------------------ api */
@@ -207,7 +194,7 @@ void chirp_send_init(void)
   uart_puts("CHIRP. uplink ");
   uart_puts(s_host);
   uart_puts(" level=L");
-  put_uint(level());
+  uart_put_uint(level());
   uart_line(" (cap L2: no TLS stack on this board)");
 }
 

@@ -57,6 +57,21 @@ void uart_line(const char *s)
   uart_putc('\n');
 }
 
+void uart_put_uint(unsigned v)
+{
+  char b[12];
+  int i = 0;
+  if (v == 0u) { uart_putc('0'); return; }
+  while (v && i < 12) { b[i++] = (char)('0' + (v % 10u)); v /= 10u; }
+  while (i--) { uart_putc(b[i]); }
+}
+
+void uart_put_hex(unsigned v, int digits)
+{
+  static const char H[] = "0123456789abcdef";
+  for (int i = digits - 1; i >= 0; i--) { uart_putc(H[(v >> (i * 4)) & 0xFu]); }
+}
+
 int uart_getc(void)
 {
   uint32_t isr = VCP_UART->ISR;

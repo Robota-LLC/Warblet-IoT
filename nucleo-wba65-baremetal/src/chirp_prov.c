@@ -22,21 +22,6 @@ static int s_starts(const char *s, const char *pfx)
   return 1;
 }
 
-static void put_hex(unsigned v, int digits)
-{
-  static const char H[] = "0123456789abcdef";
-  for (int i = digits - 1; i >= 0; i--) { uart_putc(H[(v >> (i * 4)) & 0xFu]); }
-}
-
-static void put_uint(unsigned v)
-{
-  char b[12];
-  int i = 0;
-  if (v == 0u) { uart_putc('0'); return; }
-  while (v && i < 12) { b[i++] = (char)('0' + (v % 10u)); v /= 10u; }
-  while (i--) { uart_putc(b[i]); }
-}
-
 /* ------------------------------------------------------------------ hardware id */
 
 /* The pushed `hwid` if there is one, else the low 24 bits of UID word 0
@@ -113,7 +98,7 @@ static void summarize(const char *json, unsigned len)
   if (js_obj_get(json, len, "thread", &t) == 1 && t.t == JS_OBJ) {
     if (js_obj_get(t.p, t.n, "dataset", &v) == 1 && v.t == JS_STR) {
       uart_puts(" thread=dataset(");
-      put_uint(v.n / 2u);
+      uart_put_uint(v.n / 2u);
       uart_puts("B) fp=");
       put_key_fp(v.p, v.n);
     } else {
@@ -127,7 +112,7 @@ static void summarize(const char *json, unsigned len)
       }
       if (js_obj_get(t.p, t.n, "channel", &v) == 1 && v.t == JS_NUM) {
         long ch = 0;
-        if (js_num_int(&v, &ch) == 0) { uart_puts(" ch="); put_uint((unsigned)ch); }
+        if (js_num_int(&v, &ch) == 0) { uart_puts(" ch="); uart_put_uint((unsigned)ch); }
       }
       if (js_obj_get(t.p, t.n, "panid", &v) == 1 && v.t == JS_STR) {
         uart_puts(" panid=");
@@ -235,7 +220,7 @@ void chirp_prov_init(void)
   uart_puts("CHIRP. chirpwba-demo boot hw=");
   put_hwid();
   uart_puts(" cfgpage=0x");
-  put_hex(cfg_page_addr(), 8);
+  uart_put_hex(cfg_page_addr(), 8);
   uart_line("");
 
   if (cfg_load() == 0) {
