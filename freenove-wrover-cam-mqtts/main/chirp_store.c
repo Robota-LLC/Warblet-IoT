@@ -16,7 +16,9 @@ static const char *TAG = "chirp_store";
 #define KEY_AP_COUNT  "ap_count"
 #define KEY_HOST      "host"
 #define KEY_IDENT     "ident"
-/* The separate entries an older image kept the identity in. */
+/* The separate entries an older image keeps the identity in. This store reads
+ * them only while there is no record, and never writes or erases them, so an
+ * older image flashed back still finds who the board was before. */
 #define KEY_HWID      "hwid"
 #define KEY_CRED      "cred"
 #define KEY_CRED_KIND "cred_kind"
@@ -223,17 +225,6 @@ esp_err_t chirp_store_save(const chirp_config_t *config)
     }
     if (err == ESP_OK) {
         err = nvs_set_blob(h, KEY_IDENT, &id, sizeof(id));
-    }
-    if (err == ESP_OK) {
-        err = nvs_commit(h);
-    }
-
-    /* Only once the record is saved: the older entries go, so nothing is
-     * ever read from two places. */
-    const char *legacy[] = { KEY_HWID, KEY_CRED, KEY_CRED_KIND, KEY_SIGNKEY };
-    for (size_t i = 0; err == ESP_OK && i < sizeof(legacy) / sizeof(legacy[0]); i++) {
-        esp_err_t eerr = nvs_erase_key(h, legacy[i]);
-        err = (eerr == ESP_ERR_NVS_NOT_FOUND) ? ESP_OK : eerr;
     }
     if (err == ESP_OK) {
         err = nvs_commit(h);
