@@ -4,7 +4,12 @@
 
 # Set this to the device whose press count should appear in the email.
 BUTTON_HW_ID = "your-button-hw-id"
-COOLDOWN_MS = 120000
+
+# The account sends at most 10 alert emails an hour, and the doorbell, the
+# quiet alerts and the limit emails share them. One email per 15 minutes,
+# 4 an hour at most, leaves them room even with a stuck button. Photos inside
+# the cooldown still reach the device page.
+COOLDOWN_MS = 900000
 
 def routine(event, state, mem):
     if event["tag"] != "snap":
