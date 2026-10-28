@@ -232,6 +232,14 @@ def report(config, tag=None, body=None):
 answered_at = 0      # when Warblet last answered at all (ticks_ms)
 
 
+def ms_since(tick):
+    """Milliseconds since a time.ticks_ms() reading. The ticks wrap, and
+    ticks_diff() says a reading more than about six days old is in the
+    future; a reading that old counts as older than any wait here."""
+    age = time.ticks_diff(time.ticks_ms(), tick)
+    return age if age >= 0 else 1 << 30
+
+
 def heard():
     """Any HTTP answer, a refusal or a 500 too, shows the connection works."""
     global answered_at
@@ -246,7 +254,7 @@ def restart_if_stuck():
     lost; the disk lines come back with the routine's answer to hello."""
     if not network.WLAN(network.STA_IF).isconnected():
         return                              # no Wi-Fi: an outage, which ends by itself
-    if time.ticks_diff(time.ticks_ms(), answered_at) > STUCK_S * 1000:
+    if ms_since(answered_at) > STUCK_S * 1000:
         print("chirp: nothing has answered for", STUCK_S // 60, "minutes -- restarting")
         time.sleep_ms(200)
         machine.reset()
@@ -342,7 +350,7 @@ def check_in(config, said_hello):
     """Report when it is time, take the messages, send a waiting "seen".
     Returns the HTTP status of the message check, and whether hello was said."""
     global last_report
-    if last_report is None or time.ticks_diff(time.ticks_ms(), last_report) >= REPORT_EVERY_S * 1000:
+    if last_report is None or ms_since(last_report) >= REPORT_EVERY_S * 1000:
         code = report(config, None if said_hello else HELLO_TAG)
         said_hello = said_hello or 200 <= code < 300
         last_report = time.ticks_ms()
