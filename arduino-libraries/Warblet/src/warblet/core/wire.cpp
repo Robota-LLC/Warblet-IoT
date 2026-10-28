@@ -86,6 +86,27 @@ bool isClaimCode(const char* credential) {
   return credential != nullptr && strncmp(credential, "CHIRP-", 6) == 0;
 }
 
+const char* hostFor(const char* stored, const char* builtIn, char out[kHostTextMax + 1]) {
+  if (stored == nullptr || stored[0] == '\0') return builtIn;
+  const char* dot = strchr(stored, '.');
+  size_t label = dot ? (size_t)(dot - stored) : strlen(stored);
+  const char* builtInDot = strchr(builtIn, '.');
+  size_t mine = builtInDot ? (size_t)(builtInDot - builtIn) : strlen(builtIn);
+  static const char* const kTransports[] = {"https", "http", "mqtt", "tcp", "udp"};
+  for (const char* t : kTransports) {
+    if (!equalsNoCase(stored, label, t) || equalsNoCase(builtIn, mine, t)) continue;
+    // Another transport's name: this transport's name, the same domain. A
+    // name too long for out stays as it is (the wrong transport, but never
+    // Warblet's host); a stored host of 128 characters always fits.
+    size_t rest = strlen(stored + label);
+    if (mine + rest > kHostTextMax) return stored;
+    memcpy(out, builtIn, mine);
+    memcpy(out + mine, stored + label, rest + 1);
+    return out;
+  }
+  return stored;
+}
+
 size_t topicUp(const char* hwId, const char* tag, char* out, size_t cap) {
   Out o(out, cap);
   o.add("chirp/").add(hwId).add("/up");
@@ -323,8 +344,9 @@ unsigned long Backoff::after(int status, unsigned long retryAfterS) {
   bool wasFailing = failing_;
   if (ok) {
     wait_ = base_;
-  } else if (status == 401 || status == 403 || status == 404) {
-    // A credential or an id the platform refuses: it will not fix itself soon.
+  } else if (status >= 400 && status < 500 && status != 429) {
+    // A refusal (a credential or an id, a request it cannot take, a locked
+    // account): it will not fix itself soon.
     unsigned long minute = 60000UL;
     wait_ = (!wasFailing || wait_ < minute) ? minute : wait_ * 2;
   } else {

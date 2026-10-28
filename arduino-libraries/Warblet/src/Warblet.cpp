@@ -18,7 +18,6 @@ using namespace warblet;
 
 namespace {
 
-const char* const kDefaultHost = "https.warbletiot.com";  // contract §Hosts
 const uint16_t kPort = 443;
 const unsigned long kCommandCheckMs = 10000UL;  // how often to ask for commands
 const unsigned long kCommandCheckMinMs = 5000UL;  // the fastest a sketch may ask for
@@ -43,6 +42,7 @@ const int kTakeAtOnce = 10;       // commands taken one after another before the
 // Static, not on the stack: small boards have small stacks.
 char storeText[kStoreMax];
 uint8_t commandBody[kCommandMax + 1];
+char hostText[kHostTextMax + 1];  // host(): a stored host under HTTPS's name
 
 // Copy a typed-in value into a settings field; false when it does not fit or
 // holds a control character.
@@ -52,6 +52,19 @@ bool copyField(char* field, size_t cap, const char* value) {
   if (n + 1 > cap || hasControlChar(value)) return false;
   memcpy(field, value, n + 1);
   return true;
+}
+
+// A stored host for another transport is used under this transport's name
+// (contract §Hosts); say which host that is.
+void sayIfHostRenamed(const Settings& s, const char* builtIn) {
+  char used[kHostTextMax + 1];
+  const char* host = hostFor(s.host, builtIn, used);
+  if (s.host[0] == '\0' || host == s.host) return;
+  Serial.print("warblet: the stored host ");
+  Serial.print(s.host);
+  Serial.print(" is for another transport, so ");
+  Serial.print(host);
+  Serial.println(" is used");
 }
 
 }  // namespace
@@ -67,7 +80,7 @@ void Warblet::say(const char* text) {
   Serial.println(text);
 }
 
-const char* Warblet::host() const { return settings_.host[0] ? settings_.host : kDefaultHost; }
+const char* Warblet::host() const { return hostFor(settings_.host, kHttpsHost, hostText); }
 
 // For a while after answering the setup page's probe, the board does nothing
 // but listen on USB, so the push that follows is read as it arrives.
@@ -88,6 +101,7 @@ void Warblet::begin() {
   if (board::loadSettings(storeText, sizeof storeText, len) &&
       applyPush(storeText, len, scratch_, settings_) == ProvResult::Ok) {
     say("settings loaded from this board");
+    sayIfHostRenamed(settings_, mqtt_ != nullptr ? kMqttHost : kHttpsHost);
   } else {
     settings_.clear();
   }
@@ -173,7 +187,15 @@ void Warblet::begin(const char* wifiName, const char* wifiPassword, const char* 
   board::serialBegin(115200);
   started_ = true;
   typed_ = true;
+  // What the board has stored: a key that arrived over the air is kept there,
+  // with the settings it came for (deliverCommand).
+  size_t len = 0;
   settings_.clear();
+  scratch_.clear();
+  if (board::loadSettings(storeText, sizeof storeText, len) &&
+      applyPush(storeText, len, settings_, scratch_) != ProvResult::Ok) {
+    scratch_.clear();
+  }
   bool ok = copyField(settings_.ssid, sizeof settings_.ssid, wifiName) &&
             copyField(settings_.pass, sizeof settings_.pass, wifiPassword) &&
             copyField(settings_.hwId, sizeof settings_.hwId, deviceId) &&
@@ -196,6 +218,13 @@ void Warblet::begin(const char* wifiName, const char* wifiPassword, const char* 
       say("the signing key should be the 44-character key from the device page");
       settings_.clear();
     }
+  } else if (scratch_.key[0] && strcmp(scratch_.hwId, settings_.hwId) == 0) {
+    // No key typed: the one stored for this device id is used from then on.
+    // Another id, letter case included, is another device, and the key was
+    // not its (the key rule).
+    memcpy(settings_.key, scratch_.key, sizeof settings_.key);
+    hasKey_ = decodeKey(settings_.key, strlen(settings_.key), key_);
+    if (hasKey_) say("using the signing key stored on this board for this device id");
   }
   state_ = settings_.ready() ? JOINING_WIFI : NOT_SET_UP;
   lastAnswerMs_ = millis();
@@ -324,6 +353,7 @@ bool Warblet::serviceSetup() {
           board::restart();
         }
         say("settings saved; connecting with them");
+        sayIfHostRenamed(settings_, mqtt_ != nullptr ? kMqttHost : kHttpsHost);
       }
     }
   }
@@ -501,7 +531,8 @@ bool Warblet::post(const uint8_t* bytes, size_t length, const char* tag) {
   // A refusal or no answer will not change on the next pass of loop(): reports
   // wait, longer while it lasts (as command checks do), so a sketch that says
   // hello until it is stored does not flood Warblet. Said once, not each time.
-  bool hold = status < 0 || status == 401 || status == 403 || status == 404 || status == 429 || status >= 500;
+  // Every answer but a 2xx: a 400 or a 423 holds them as a 401 does.
+  bool hold = status < 200 || status >= 300;
   if (hold) {
     reports_.after(status, response_.retryAfter());
     holdSince_ = millis();

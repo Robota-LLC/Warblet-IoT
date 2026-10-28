@@ -27,6 +27,24 @@ bool isClaimCode(const char* credential);
 // a host or a token would end up inside a request header.
 bool hasControlChar(const char* s);
 
+// Warblet's own hosts, one per transport (contract §Hosts).
+static const char* const kHttpsHost = "https.warbletiot.com";
+static const char* const kMqttHost = "mqtt.warbletiot.com";
+
+// The longest host the board connects to: a stored host of 128 characters
+// whose 3-letter transport name (tcp, udp) becomes https.
+static const size_t kHostTextMax = 130;
+
+// The host to connect to: builtIn when none is stored, else the stored one
+// (an override for a self-hosted core). A device endpoint is named for its
+// transport (<transport>.<domain>), so a stored host whose first label names
+// another transport (https, http, mqtt, tcp, udp) was stored for that one, by
+// an earlier demo or sketch: it keeps its domain and takes this transport's
+// name, builtIn's first label (https.example.com becomes mqtt.example.com), so
+// it never becomes Warblet's own host on someone else's behalf. Returns
+// builtIn, stored, or out with the new name in it.
+const char* hostFor(const char* stored, const char* builtIn, char out[kHostTextMax + 1]);
+
 // ---- MQTT -------------------------------------------------------------------
 
 // "chirp/{hwId}/up", or "chirp/{hwId}/up/{tag}" for a tagged message: exactly
@@ -139,7 +157,7 @@ bool answerIsUnclaimed(const uint8_t* body, size_t len);
 // ---- asking again -----------------------------------------------------------
 
 // How long to wait before the next request after an answer. A success goes
-// back to the normal pace. A refusal (401, 403, 404) waits a minute and
+// back to the normal pace. A refusal (any 4xx but 429) waits a minute and
 // doubles, and a 429 doubles from the normal pace, up to maxMs: a refusal does
 // not fix itself soon. No answer, or a server error, doubles from the normal
 // pace up to unansweredMaxMs, so a board is back soon after an outage.

@@ -16,10 +16,10 @@ using namespace warblet;
 
 namespace {
 
-const char* const kMqttHost = "mqtt.warbletiot.com";  // MQTT over TLS on 8883
 const uint16_t kMqttPort = 8883;
 const unsigned long kMqttWaitMs = 15000UL;  // for a session before a first report
 const unsigned long kMqttAckMs = 10000UL;   // for the broker's acknowledgement
+char mqttHostText[kHostTextMax + 1];        // mqttHost(): a stored host under MQTT's name
 
 }  // namespace
 
@@ -30,8 +30,10 @@ Warblet::Warblet(Transport transport) : Warblet() {
   if (transport == MQTT) mqtt_ = &kMqttHooks;
 }
 
-// The pushed host is an override for a self-hosted core, for either transport.
-const char* Warblet::mqttHost() const { return settings_.host[0] ? settings_.host : kMqttHost; }
+// A pushed host is an override for a self-hosted core; one stored for another
+// transport (an earlier demo's https. host, say) keeps its domain and takes
+// MQTT's name (contract §Hosts).
+const char* Warblet::mqttHost() const { return hostFor(settings_.host, kMqttHost, mqttHostText); }
 
 // New settings start a new session at once, even in the middle of a back-off.
 void Warblet::restartMqtt() {
@@ -45,6 +47,9 @@ void Warblet::restartMqtt() {
 // the commands that arrived (also while a refused session backs off: the
 // broker counted them delivered).
 void Warblet::serviceMqtt() {
+  // An open session is the broker answering (its keepalive): for
+  // restartWhenStuck(), the time counts from when it was last up.
+  if (board::mqttConnected()) lastAnswerMs_ = millis();
   bool backingOff = !mqttStarted_ && mqttRetryAt_ != 0 && (long)(millis() - mqttRetryAt_) < 0;
   if (!mqttStarted_ && !backingOff) {
     char down[160];
