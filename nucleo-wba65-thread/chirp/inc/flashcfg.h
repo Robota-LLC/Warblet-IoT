@@ -6,7 +6,8 @@
 
 #define CFG_MAX_PAYLOAD 1008u     /* JSON bytes; header(16) + payload <= 1024     */
 
-/* 0 = a valid record was loaded, -1 = nothing stored / corrupt. */
+/* 0 = a valid record was loaded, -1 = nothing stored / corrupt,
+ * -2 = the page could not be read (a flash ECC error): no config either. */
 int cfg_load(char *buf, unsigned bufsz, unsigned *len);
 
 /* 0 = stored and verified, -1 = flash refused (caller answers err store-failed). */

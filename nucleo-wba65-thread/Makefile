@@ -142,6 +142,11 @@ ASFLAGS  := $(CPU) $(OPT) -ffunction-sections -fdata-sections
 # Wrap UART input to dispatch complete lines without editing ST sources.
 WRAPS    := -Wl,--wrap=otPlatUartReceived -Wl,--wrap=otCliInit
 
+# chirp/src/flashcfg.c's NMI_Handler catches a flash ECC error in the config
+# page and passes every other NMI to ST's, which is built under another name.
+# (The startup file defines NMI_Handler too, so a --wrap would not reach it.)
+$(BUILD)/$(APP)/Core/Src/stm32wbaxx_it.o: CFLAGS += -DNMI_Handler=st_NMI_Handler
+
 LDFLAGS  := $(CPU) -T$(LDSCRIPT) --specs=nano.specs --specs=nosys.specs \
             -Wl,--gc-sections -Wl,-Map=$(BUILD)/$(TARGET).map,--cref \
             -Wl,--print-memory-usage $(WRAPS)

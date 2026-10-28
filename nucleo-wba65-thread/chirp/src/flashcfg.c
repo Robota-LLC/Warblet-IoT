@@ -87,23 +87,69 @@ static unsigned crc32(const unsigned char *d, unsigned n)
   return ~c;
 }
 
+/* Power lost while the page was being written can leave a quadword whose
+ * ECC cannot correct it. Reading it sets ECCD in FLASH_ECCR and raises the
+ * NMI; ST's HAL says the handler belongs there on STM32WBA
+ * (HAL_FLASHEx_ECCD_IRQHandler: check ECCD, then clear it by writing 1).
+ * One raised while this file reads the page, in the page's own bank, marks
+ * the read unreadable and the read goes on. Every other NMI goes to ST's
+ * handler: the Makefile builds stm32wbaxx_it.c with its NMI_Handler named
+ * st_NMI_Handler, so this one is in the vector table. */
+static volatile int s_reading, s_unreadable;
+
+void st_NMI_Handler(void);
+
+void NMI_Handler(void)
+{
+  unsigned eccr = FLASH->ECCR;
+
+  if (s_reading && (eccr & FLASH_ECCR_ECCD) != 0u && (eccr & FLASH_ECCR_SYSF_ECC) == 0u &&
+      ((eccr & FLASH_ECCR_BK_ECC) != 0u) == (cfg_bank() == 1u)) {
+    s_unreadable = 1;
+    FLASH->ECCR |= FLASH_ECCR_ECCD;
+    return;
+  }
+  st_NMI_Handler();
+}
+
+/* Open and close the window the NMI handler checks. The barriers keep the
+ * page's reads inside it and let any NMI they raised be taken first. */
+static void read_begin(void)
+{
+  s_unreadable = 0;
+  s_reading    = 1;
+  __DSB();
+}
+
+static int read_end(void)
+{
+  __DSB();
+  __ISB();
+  s_reading = 0;
+  return s_unreadable;
+}
+
 int cfg_load(char *buf, unsigned bufsz, unsigned *len)
 {
   const cfg_hdr_t *h = (const cfg_hdr_t *)cfg_page_addr();
-
-  if (h->magic != CFG_MAGIC || h->ver != CFG_VER) { return -1; }
-
-  /* Written under a different bank geometry: not our record. Report none; do not erase. */
-  if (h->slot != cfg_slot_tag()) { return -1; }
-
-  if (h->len == 0u || h->len > CFG_MAX_PAYLOAD || h->len >= bufsz) { return -1; }
-
   const unsigned char *p = (const unsigned char *)(cfg_page_addr() + sizeof(cfg_hdr_t));
-  if (crc32(p, h->len) != h->crc) { return -1; }
+  cfg_hdr_t hdr;
+  int       ok;
 
-  for (unsigned i = 0; i < h->len; i++) { buf[i] = (char)p[i]; }
-  buf[h->len] = '\0';
-  *len = h->len;
+  read_begin();
+  hdr = *h;
+  /* Written under a different bank geometry: not our record. Report none; do not erase. */
+  ok = hdr.magic == CFG_MAGIC && hdr.ver == CFG_VER && hdr.slot == cfg_slot_tag() &&
+       hdr.len != 0u && hdr.len <= CFG_MAX_PAYLOAD && hdr.len < bufsz;
+  for (unsigned i = 0; ok && i < hdr.len; i++) { buf[i] = (char)p[i]; }
+
+  /* A damaged page is no config: the board waits for USB setup, and the
+   * next push erases and rewrites the page. */
+  if (read_end()) { return -2; }
+  if (!ok || crc32((const unsigned char *)buf, hdr.len) != hdr.crc) { return -1; }
+
+  buf[hdr.len] = '\0';
+  *len = hdr.len;
   return 0;
 }
 
@@ -238,11 +284,18 @@ int cfg_store(const char *json, unsigned len)
 
   flash_lock();
 
+  /* The instruction cache also serves data reads of flash, and it is not
+   * told the page changed: it can still hold the page as it was before the
+   * erase. Invalidate it, as ST's ICACHE driver provides, before reading the
+   * page back. */
+  (void)HAL_ICACHE_Invalidate();
+
   /* Read back: a store that cannot be re-read is a failed store. */
   const cfg_hdr_t *v = (const cfg_hdr_t *)base;
-  if (v->magic != CFG_MAGIC || v->len != h.len || v->crc != h.crc || v->slot != h.slot) {
-    return -1;
-  }
-  if (crc32((const unsigned char *)(base + sizeof(cfg_hdr_t)), len) != h.crc) { return -1; }
+  int bad;
+  read_begin();
+  bad = v->magic != CFG_MAGIC || v->len != h.len || v->crc != h.crc || v->slot != h.slot ||
+        crc32((const unsigned char *)(base + sizeof(cfg_hdr_t)), len) != h.crc;
+  if (read_end() || bad) { return -1; }
   return 0;
 }

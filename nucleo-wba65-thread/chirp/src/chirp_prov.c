@@ -448,14 +448,19 @@ static void chirp_banner(void)
 {
   /* The id first, so the boot line and any probe that follows say the
    * provisioned one, not the die's. */
+  int loaded;
+
   chirp_hwid_setup(hardware_id());
-  s_cfg_present = (cfg_load(s_cfg, sizeof s_cfg, &s_cfg_len) == 0);
+  loaded = cfg_load(s_cfg, sizeof s_cfg, &s_cfg_len);
+  s_cfg_present = (loaded == 0);
   if (s_cfg_present) { chirp_hwid_config(s_cfg, s_cfg_len); }
 
   board_serial_print("\r\nCHIRP. thread_chirp boot hw=%s cfgpage=0x%08x\r\n",
                      chirp_hwid(), cfg_page_addr());
 
-  if (!s_cfg_present) {
+  if (loaded == -2) {
+    board_serial_print("CHIRP. cfg page unreadable (flash ECC error); waiting for USB setup\r\n");
+  } else if (!s_cfg_present) {
     board_serial_print("CHIRP. cfg none - stock ot-cli, no auto-join\r\n");
   } else {
     summarize(s_cfg, s_cfg_len);
