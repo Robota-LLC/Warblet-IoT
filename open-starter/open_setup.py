@@ -60,13 +60,27 @@ def wifi():
         return
     for name, password in networks():
         print("open: joining", name)
-        wlan.connect(name, password)
+        try:
+            wlan.connect(name, password)
+        except OSError as e:        # a join cut short by a restart (Ctrl-D)
+            print("open: connect failed:", e)
+            drop(wlan)              # leaves the radio "connecting": end it
+            continue
         for _ in range(48):
             if wlan.isconnected():
                 return
             wait(0.25)
-        wlan.disconnect()           # start the next try clean
+        drop(wlan)                  # start the next try clean
     raise OSError("no Wi-Fi network joined")
+
+
+def drop(wlan):
+    """End a Wi-Fi attempt. The radio can refuse even that; the next try
+    goes ahead anyway."""
+    try:
+        wlan.disconnect()
+    except OSError:
+        pass
 
 
 def wait(seconds):
