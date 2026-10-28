@@ -272,7 +272,7 @@ static void prov_task(void *arg)
         vTaskDelete(NULL);
     }
 
-    ESP_LOGI(TAG, "listening for CHIRP-PROV v1.6 on the console");
+    ESP_LOGI(TAG, "listening for CHIRP-PROV v1.7 on the console");
     for (;;) {
         if (fgets(line, CHIRP_LINE_MAX, stdin) == NULL) {
             clearerr(stdin);
