@@ -61,41 +61,27 @@ static esp_err_t load_str(nvs_handle_t h, const char *key, char *dst, size_t siz
     return err;
 }
 
-esp_err_t chirp_store_load(chirp_config_t *out)
+static void set_defaults(chirp_config_t *out)
 {
-    if (out == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
     memset(out, 0, sizeof(*out));
     strlcpy(out->host, CHIRP_DEFAULT_HOST, sizeof(out->host));
+}
 
-    nvs_handle_t h;
-    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
+static esp_err_t load_all(nvs_handle_t h, chirp_config_t *out)
+{
+    /* The network list is one value, and its length says how many networks
+     * it holds, so no power cut can leave a count that does not match it. */
+    size_t blob_len = sizeof(out->aps);
+    esp_err_t err = nvs_get_blob(h, KEY_APS, out->aps, &blob_len);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
-        return ESP_OK;  /* never provisioned */
-    }
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    uint8_t count = 0;
-    err = nvs_get_u8(h, KEY_AP_COUNT, &count);
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
-        count = 0;
+        blob_len = 0;
         err = ESP_OK;
     }
-    if (err == ESP_OK && count > 0) {
-        if (count > CHIRP_MAX_APS) {
-            count = CHIRP_MAX_APS;
-        }
-        size_t blob_len = (size_t)count * sizeof(chirp_ap_t);
-        err = nvs_get_blob(h, KEY_APS, out->aps, &blob_len);
-        if (err == ESP_OK && blob_len == (size_t)count * sizeof(chirp_ap_t)) {
-            out->ap_count = count;
-        } else if (err == ESP_OK) {
-            ESP_LOGW(TAG, "stored ap list truncated, ignoring");
-        }
+    if (err == ESP_OK && blob_len % sizeof(chirp_ap_t) != 0) {
+        err = ESP_ERR_NVS_INVALID_LENGTH;
+    }
+    if (err == ESP_OK) {
+        out->ap_count = (uint8_t)(blob_len / sizeof(chirp_ap_t));
     }
 
     if (err == ESP_OK) {
@@ -125,9 +111,34 @@ esp_err_t chirp_store_load(chirp_config_t *out)
             err = kerr;
         }
     }
-
-    nvs_close(h);
     return err;
+}
+
+esp_err_t chirp_store_load(chirp_config_t *out)
+{
+    if (out == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    set_defaults(out);
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        return ESP_OK;  /* never provisioned */
+    }
+    if (err == ESP_OK) {
+        err = load_all(h, out);
+        nvs_close(h);
+    }
+
+    /* Settings that cannot be read count as never set up, so the board
+     * still starts and USB setup can write them again. */
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "stored settings unreadable (%s), starting as never set up",
+                 esp_err_to_name(err));
+        set_defaults(out);
+    }
+    return ESP_OK;
 }
 
 /* Writes a string key, erasing it when the value is empty. */
@@ -152,10 +163,11 @@ esp_err_t chirp_store_save(const chirp_config_t *config)
         return err;
     }
 
-    err = nvs_set_u8(h, KEY_AP_COUNT, config->ap_count);
+    /* The push carries the whole network list, so the blob is rewritten whole.
+     * The count after it is only for an older image, which reads it. */
+    err = nvs_set_blob(h, KEY_APS, config->aps, (size_t)config->ap_count * sizeof(chirp_ap_t));
     if (err == ESP_OK) {
-        /* The push carries the whole network list, so the blob is rewritten whole. */
-        err = nvs_set_blob(h, KEY_APS, config->aps, (size_t)config->ap_count * sizeof(chirp_ap_t));
+        err = nvs_set_u8(h, KEY_AP_COUNT, config->ap_count);
     }
     if (err == ESP_OK) {
         err = save_str(h, KEY_HOST, config->host);

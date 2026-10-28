@@ -49,7 +49,9 @@ typedef struct {
 /* Brings up NVS (formatting it if the partition is stale). */
 esp_err_t chirp_store_init(void);
 
-/* Always fills *out: defaults when nothing has been provisioned yet. */
+/* Always fills *out: defaults when nothing has been provisioned yet, or when
+ * what is stored cannot be read (it says so in the log), so USB setup always
+ * starts. ESP_OK unless out is NULL. */
 esp_err_t chirp_store_load(chirp_config_t *out);
 
 /* Replaces the stored provisioning state with *config. */
