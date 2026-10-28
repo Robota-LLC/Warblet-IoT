@@ -18,3 +18,10 @@ CONFIG_SPIRAM_SPEED_40M=y
 
 # The WebSocket transport is unused.
 CONFIG_MQTT_TRANSPORT_WEBSOCKET=n
+
+# The release this image belongs to. The app reports this version, whatever git
+# says, and two builds of the same source give the same bytes: no build date,
+# time or folder goes into the app or the bootloader.
+CONFIG_APP_PROJECT_VER_FROM_CONFIG=y
+CONFIG_APP_PROJECT_VER="v1.6.0"
+CONFIG_APP_REPRODUCIBLE_BUILD=y
