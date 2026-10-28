@@ -41,11 +41,16 @@ _Static_assert(CHIRP_TASK_REPORT_ID >= (unsigned)CFG_TASK_NBR,
 
 static otInstance *s_inst;
 
-/* From the config record. The credential slot holds `token` or `claim`
- * (chirpval enforces at most one). */
-static char s_host[CHIRP_HOST_MAX + 1u] = CHIRP_REPORT_DEFAULT_HOST;
-static char s_token[CHIRP_CRED_MAX + 1u];
-static int  s_configured;
+/* From the config record. A token goes in the token field as it is; a claim
+ * code goes as "claim:<code>", which is how Warblet knows to redeem it.
+ * chirpval enforces at most one of the two. s_cred holds the field, and
+ * s_bare skips the "claim:" when the frame is signed: a redeemed code is the
+ * device's token, and a signed field is "<token>:<signature>". */
+#define CLAIM_PREFIX "claim:"
+static char        s_host[CHIRP_HOST_MAX + 1u] = CHIRP_REPORT_DEFAULT_HOST;
+static char        s_cred[sizeof CLAIM_PREFIX - 1u + CHIRP_CRED_MAX + 1u];
+static const char *s_bare = s_cred;
+static int         s_configured;
 
 /* Base64 signing key from the config. An empty string disables signing. */
 static char s_key_b64[64];
@@ -133,7 +138,8 @@ static void send_frame(const otIp6Address *addr)
     sigp = sig;
   }
 
-  n = chirp_frame_build(buf, sizeof buf, chirp_hwid(), s_token, sigp, payload, pn);
+  n = chirp_frame_build(buf, sizeof buf, chirp_hwid(), sigp ? s_bare : s_cred, sigp,
+                        payload, pn);
   if (n == 0u) { say_err("frame too long", "hwid/token oversized"); return; }
 
   if (!s_sock_open) {
@@ -254,9 +260,18 @@ void chirp_report_config(const char *json, unsigned len)
   for (i = 0u; (s_host[i] = def[i]) != '\0'; i++) { }
 
   copy_str(json, len, "host", s_host, sizeof s_host);
-  copy_str(json, len, "token", s_token, sizeof s_token);
-  copy_str(json, len, "claim", s_token, sizeof s_token);
   chirp_hwid_config(json, len);           /* the id the announce uses too */
+
+  /* The credential: "claim:" first, then the code after it, or the token. */
+  for (i = 0u; (s_cred[i] = CLAIM_PREFIX[i]) != '\0'; i++) { }
+  s_bare = s_cred + i;
+  s_cred[i] = '\0';
+  copy_str(json, len, "claim", s_cred + i, sizeof s_cred - i);
+  if (s_cred[i] == '\0') {
+    s_bare = s_cred;                      /* no claim: the token, or nothing */
+    s_cred[0] = '\0';
+    copy_str(json, len, "token", s_cred, CHIRP_CRED_MAX + 1u);
+  }
 
   s_key_b64[0] = '\0';
   copy_str(json, len, "key", s_key_b64, sizeof s_key_b64);
