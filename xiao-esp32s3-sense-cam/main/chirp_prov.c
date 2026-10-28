@@ -60,6 +60,28 @@ static bool hwid_ok(const cJSON *obj)
     return true;
 }
 
+/* A pushed host is a name or an address: letters, digits, dots and dashes.
+ * Anything else would not come back out of the URL the transport builds as
+ * the same host, or not at all. Empty keeps the stored host. */
+static bool host_ok(const cJSON *obj)
+{
+    const cJSON *item = cJSON_GetObjectItemCaseSensitive(obj, "host");
+    if (item == NULL) {
+        return true;
+    }
+    if (!cJSON_IsString(item) || item->valuestring == NULL) {
+        return false;
+    }
+    for (const char *c = item->valuestring; *c != '\0'; c++) {
+        bool ok = (*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') ||
+                  (*c >= '0' && *c <= '9') || *c == '.' || *c == '-';
+        if (!ok) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /* Every field rule, asked of the push alone before anything is merged, so a
  * push is applied whole or refused whole. */
 static const char *validate_push(const cJSON *root)
@@ -71,7 +93,7 @@ static const char *validate_push(const cJSON *root)
     if (!string_ok(root, "ssid", CHIRP_SSID_SIZE) || !string_ok(root, "pass", CHIRP_PASS_SIZE) ||
         !string_ok(root, "host", CHIRP_HOST_SIZE) || !string_ok(root, "hwid", CHIRP_HWID_SIZE) ||
         !string_ok(root, "claim", CHIRP_CRED_SIZE) || !string_ok(root, "token", CHIRP_CRED_SIZE) ||
-        !hwid_ok(root)) {
+        !hwid_ok(root) || !host_ok(root)) {
         return "bad-json";
     }
 

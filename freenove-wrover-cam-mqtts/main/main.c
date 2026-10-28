@@ -230,5 +230,11 @@ void app_main(void)
     if (config.cred_kind == CHIRP_CRED_NONE) {
         ESP_LOGI(TAG, "no claim code or token stored, reporting as open (L0)");
     }
-    ESP_ERROR_CHECK(chirp_mqtt_start(&config, report_camera, handle_command));
+    /* A stored host esp-mqtt cannot use stops MQTT, not the board: USB setup
+     * keeps listening, so a new push can put it right. */
+    esp_err_t err = chirp_mqtt_start(&config, report_camera, handle_command);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "MQTT not started (%s); push a working host over USB setup",
+                 esp_err_to_name(err));
+    }
 }

@@ -97,6 +97,19 @@ int main(void)
            "\"token\":\"t\"}", "bad-json", "nine networks");
     expect("{\"ssid\":\"s\",\"aps\":\"s\",\"token\":\"t\"}", "bad-json", "aps not a list");
     expect("{\"ssid\":\"s\",\"token\":\"t\",\"host\":5}", "bad-json", "numeric host");
+    expect("{\"ssid\":\"s\",\"token\":\"t\",\"host\":\"two words.example\"}", "bad-json",
+           "host with a space");
+    expect("{\"ssid\":\"s\",\"token\":\"t\",\"host\":\"mqtt.example.com/x\"}", "bad-json",
+           "host with a path");
+    expect("{\"ssid\":\"s\",\"token\":\"t\",\"host\":\"mqtt.example.com:1883\"}", "bad-json",
+           "host with a port (the port is the firmware's)");
+    expect("{\"ssid\":\"s\",\"token\":\"t\",\"host\":\"me@mqtt.example.com\"}", "bad-json",
+           "host with a user part");
+    expect("{\"ssid\":\"s\",\"token\":\"t\",\"host\":\"mqtts://mqtt.example.com\"}", "bad-json",
+           "host given as a URL");
+    expect("{\"ssid\":\"s\",\"token\":\"t\",\"host\":\"192.168.1.20\"}", NULL, "host as an address");
+    expect("{\"ssid\":\"s\",\"token\":\"t\",\"host\":\"my-core.example-host.com\"}", NULL,
+           "host with dashes");
     expect("{\"ssid\":\"s\",\"token\":\"t\",\"hwid\":true}", "bad-json", "boolean hwid");
     expect("{\"ssid\":\"s\",\"token\":\"t\",\"hwid\":\"two words\"}", "bad-json", "hwid with a space");
     expect("{\"ssid\":\"s\",\"token\":\"t\",\"hwid\":\"id\\r\\nCHIRP! v=1 hw=other\"}", "bad-json",

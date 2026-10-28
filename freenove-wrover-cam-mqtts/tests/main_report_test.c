@@ -43,10 +43,12 @@ void camera_release(void) { released++; }
 esp_err_t chirp_store_init(void) { return ESP_OK; }
 esp_err_t chirp_store_load(chirp_config_t *out) { *out = (chirp_config_t){ .ap_count = 1 }; return ESP_OK; }
 const char *chirp_store_hwid(const chirp_config_t *cfg) { return "test-camera"; }
-esp_err_t chirp_prov_start(const chirp_config_t *cfg, const char *slug) { return ESP_OK; }
+static unsigned setup_started;
+static bool mqtt_fails; /* esp-mqtt refused the broker address (a bad stored host) */
+esp_err_t chirp_prov_start(const chirp_config_t *cfg, const char *slug) { setup_started++; return ESP_OK; }
 esp_err_t wifi_ladder_start(const chirp_config_t *cfg) { wifi_started++; return ESP_OK; }
 esp_err_t chirp_mqtt_start(const chirp_config_t *cfg, chirp_report_fn report, chirp_command_fn command) {
-    assert(wifi_started && camera_calls == 0); mqtt_started++; return ESP_OK;
+    assert(wifi_started && camera_calls == 0); mqtt_started++; return mqtt_fails ? ESP_FAIL : ESP_OK;
 }
 chirp_send_result_t chirp_mqtt_send_bytes(const uint8_t *bytes, size_t length, const char *tag) {
     if (!strcmp(tag, "health")) { assert(length < sizeof(last_health)); memcpy(last_health, bytes, length); last_health[length] = 0; health_sent++; }
@@ -164,5 +166,12 @@ int main(void) {
     assert(mqtt_started == 1 && strstr(last_health, "stalled"));
     publish_result = CHIRP_CONNECTION_FAILED;
     assert(report_camera(NULL) == CHIRP_CONNECTION_FAILED);
-    puts("PASS: actual startup/report code: network first, failed/hung init, explicit snap failure, periodic health, JPEG recovery, a failed frame skipped, quarantine, allocation failure, publish failure");
+
+    /* A stored host esp-mqtt cannot use stops MQTT, not the board: app_main
+     * returns, USB setup keeps listening, and a push can put it right. */
+    fail_worker = false; mqtt_fails = true; setup_started = 0;
+    fresh();
+    assert(setup_started == 1 && mqtt_started == 1);
+    mqtt_fails = false;
+    puts("PASS: actual startup/report code: network first, failed/hung init, explicit snap failure, periodic health, JPEG recovery, a failed frame skipped, quarantine, allocation failure, publish failure, a broker address esp-mqtt refuses");
 }
