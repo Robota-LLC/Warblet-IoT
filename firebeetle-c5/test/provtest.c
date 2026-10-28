@@ -171,8 +171,13 @@ int main(void)
                 "a token alone keeps the key");
     expect_true(parse_push("{\"token\":\"t2\",\"hwid\":\"old-id\"}", &out) == NULL && out.has_key,
                 "a token with the same id keeps the key");
-    expect_true(parse_push("{\"token\":\"t2\",\"hwid\":\"OLD-ID\"}", &out) == NULL && out.has_key,
-                "the same id in other letter case keeps the key");
+    /* Ids are exact in Warblet: `sensor` and `SENSOR` are two devices. */
+    strcpy(s_config.hwid, "sensor");
+    expect_true(parse_push("{\"token\":\"t2\",\"hwid\":\"SENSOR\"}", &out) == NULL && !out.has_key,
+                "another device whose id differs only in letter case: the key goes");
+    expect_true(parse_push("{\"token\":\"t2\",\"hwid\":\"sensor\"}", &out) == NULL && out.has_key,
+                "the same id, byte for byte, keeps the key");
+    strcpy(s_config.hwid, "old-id");
     expect_true(parse_push("{\"ssid\":\"cafe\",\"pass\":\"p\"}", &out) == NULL && out.has_key,
                 "networks alone keep the key");
     expect_true(parse_push("{\"ssid\":\"cafe\",\"hwid\":\"old-id\"}", &out) == NULL && out.has_key,

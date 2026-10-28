@@ -1,4 +1,3 @@
-#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -158,26 +157,16 @@ static void append_ap(chirp_config_t *config, const cJSON *entry)
     }
 }
 
-/* Two ids are the same id whatever the letter case: the setup page finds a
- * board's device that way and pushes the device's own spelling. */
-static bool same_id(const char *a, const char *b)
-{
-    while (*a != '\0' && tolower((unsigned char)*a) == tolower((unsigned char)*b)) {
-        a++;
-        b++;
-    }
-    return *a == *b;
-}
-
 /* A claim code, or an id other than the one this board answers to, means the
- * page is setting the board up as a new device. */
+ * page is setting the board up as a new device. Ids are compared byte for
+ * byte, as Warblet tells devices apart: `sensor` and `SENSOR` are two. */
 static bool starts_new_device(const cJSON *root)
 {
     const cJSON *claim = cJSON_GetObjectItemCaseSensitive(root, "claim");
     const cJSON *hwid  = cJSON_GetObjectItemCaseSensitive(root, "hwid");
     return (cJSON_IsString(claim) && claim->valuestring[0] != '\0') ||
            (cJSON_IsString(hwid) && hwid->valuestring[0] != '\0' &&
-            !same_id(hwid->valuestring, chirp_store_hwid(&s_config)));
+            strcmp(hwid->valuestring, chirp_store_hwid(&s_config)) != 0);
 }
 
 /* Merge a validated push onto the saved config. */

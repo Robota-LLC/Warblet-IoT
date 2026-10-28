@@ -238,11 +238,10 @@ def _merged(body, config):
 
 def _new_device(push, config):
     """True when a push sets the board up as a new device: it carries a claim
-    code, or an id other than the stored one. Letter case aside: the setup
-    page finds a board's device that way and pushes the device's spelling."""
+    code, or an id other than the stored one. Ids are compared exactly, as
+    Warblet tells devices apart: "sensor" and "SENSOR" are two."""
     hwid = push.get("hwid")
-    return bool(push.get("claim")) or bool(
-        hwid and hwid.lower() != config.get("hwid", "").lower())
+    return bool(push.get("claim")) or bool(hwid and hwid != config.get("hwid", ""))
 
 
 def apply_config_push(body, config):

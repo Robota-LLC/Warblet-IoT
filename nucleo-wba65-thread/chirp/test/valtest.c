@@ -230,10 +230,15 @@ static void test_merge(void)
            "{\"token\":\"t2\",\"key\":\"" KEY44 "\",\"hwid\":\"curious-otter-1a2b\","
            "\"thread\":{\"dataset\":\"0e08aabb\"}}",
            "a token alone keeps the key");
-    mcheck(signed_cfg, "{\"token\":\"t2\",\"hwid\":\"Curious-Otter-1A2B\"}",
-           "{\"token\":\"t2\",\"hwid\":\"Curious-Otter-1A2B\",\"key\":\"" KEY44 "\","
-           "\"thread\":{\"dataset\":\"0e08aabb\"}}",
-           "the same id in other letter case keeps the key");
+    /* Ids are exact in Warblet: `sensor` and `SENSOR` are two devices. */
+    mcheck("{\"token\":\"tok-old\",\"key\":\"" KEY44 "\",\"hwid\":\"sensor\",\"ssid\":\"s\"}",
+           "{\"token\":\"t2\",\"hwid\":\"SENSOR\"}",
+           "{\"token\":\"t2\",\"hwid\":\"SENSOR\",\"ssid\":\"s\"}",
+           "another device whose id differs only in letter case: the key goes");
+    mcheck("{\"token\":\"tok-old\",\"key\":\"" KEY44 "\",\"hwid\":\"sensor\",\"ssid\":\"s\"}",
+           "{\"token\":\"t2\",\"hwid\":\"sensor\"}",
+           "{\"token\":\"t2\",\"hwid\":\"sensor\",\"key\":\"" KEY44 "\",\"ssid\":\"s\"}",
+           "the same id, byte for byte, keeps the key");
     mcheck(signed_cfg, "{\"thread\":{\"dataset\":\"0e08ccdd\"}}",
            "{\"thread\":{\"dataset\":\"0e08ccdd\"},\"token\":\"tok-old\",\"key\":\"" KEY44 "\","
            "\"hwid\":\"curious-otter-1a2b\"}",

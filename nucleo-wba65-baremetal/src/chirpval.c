@@ -161,10 +161,10 @@ static int src_has(jsrc s, const char *name)
 }
 
 /* True when the push sets the board up as a new device: it carries a claim
- * code, or an id other than the one the board answers to. Letter case aside:
- * the setup page finds a board's device that way and pushes the device's own
- * spelling. A pushed id is plain characters (is_hwid), so its source text is
- * its value. */
+ * code, or an id other than the one the board answers to. Ids are compared
+ * byte for byte, as Warblet tells devices apart: `sensor` and `SENSOR` are
+ * two. A pushed id is plain characters (is_hwid), so its source text is its
+ * value. */
 static int starts_new_device(jsrc push, const char *cur_id)
 {
   js_val   v;
@@ -173,10 +173,7 @@ static int starts_new_device(jsrc push, const char *cur_id)
   if (js_obj_get(push.p, push.n, "claim", &v) == 1 && v.t == JS_STR && v.n > 0u) { return 1; }
   if (js_obj_get(push.p, push.n, "hwid", &v) != 1 || v.t != JS_STR || v.n == 0u) { return 0; }
   for (i = 0u; i < v.n; i++) {
-    char a = v.p[i], b = cur_id[i];
-    if (a >= 'A' && a <= 'Z') { a = (char)(a - 'A' + 'a'); }
-    if (b >= 'A' && b <= 'Z') { b = (char)(b - 'A' + 'a'); }
-    if (b == '\0' || a != b) { return 1; }
+    if (cur_id[i] == '\0' || v.p[i] != cur_id[i]) { return 1; }
   }
   return cur_id[i] != '\0';
 }

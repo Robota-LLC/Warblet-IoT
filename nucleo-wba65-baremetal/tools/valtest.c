@@ -482,8 +482,13 @@ int main(void)
                 "\"BBECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\"}", "key", new_k,
                 "a claim that brings its own key: that key is kept");
     check_merge(signed_cfg, "{\"token\":\"T2\"}", "key", old_k, "a token alone keeps the key");
-    check_merge(signed_cfg, "{\"token\":\"T2\",\"hwid\":\"OLD-ID\"}", "key", old_k,
-                "the same id in other letter case keeps the key");
+    /* Ids are exact in Warblet: `sensor` and `SENSOR` are two devices. */
+    const char *sensor_cfg = "{\"token\":\"T\",\"hwid\":\"sensor\",\"ssid\":\"s\","
+                             "\"key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\"}";
+    check_merge(sensor_cfg, "{\"token\":\"T2\",\"hwid\":\"SENSOR\"}", "key", NULL,
+                "another device whose id differs only in letter case: the key goes");
+    check_merge(sensor_cfg, "{\"token\":\"T2\",\"hwid\":\"sensor\"}", "key", old_k,
+                "the same id, byte for byte, keeps the key");
     check_merge(signed_cfg, "{\"ssid\":\"cafe\",\"pass\":\"p\"}", "key", old_k,
                 "networks alone keep the key");
     check_merge("{\"token\":\"T\",\"ssid\":\"s\",\"key\":"
