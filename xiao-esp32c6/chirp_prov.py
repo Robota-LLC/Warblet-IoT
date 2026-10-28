@@ -24,6 +24,9 @@ MAX_LINE = 4096
 
 WIFI_TIMEOUT_S = 12  # per-attempt association wait
 PROV_PASS_S = 0.5    # USB setup time before each association attempt
+SETTINGS_S = 10      # after an announce, keep reading this long for the push
+LINE_IDLE_MS = 500   # a setup line still arriving may finish past the deadline,
+                     # unless its bytes stop for this long
 
 _poller = select.poll()
 _poller.register(sys.stdin, select.POLLIN)
@@ -129,23 +132,50 @@ def service(config, seconds=0):
     A successful config push saves settings and reboots.
     Probes are answered once the waiting input has been read, once for all of
     them: a board that was busy finds a probe for every quarter second it was
-    away, and answering each would keep it printing while the push arrives."""
-    global _probed
+    away, and answering each would keep it printing while the push arrives.
+    The setup page sends its push as soon as it reads the answer, so the pass
+    then goes on for SETTINGS_S: the board's next network request reads
+    nothing, and a UART console holds only a few hundred bytes. A setup line
+    still arriving when the pass ends is read to its end."""
+    global _probed, _buf
     deadline = time.ticks_add(time.ticks_ms(), int(seconds * 1000))
+    late = 0  # bytes read past the deadline to finish a line
     while True:
         remaining = time.ticks_diff(deadline, time.ticks_ms())
-        # Owing an answer, only look for more input; do not wait for it.
-        if _poller.poll(remaining if remaining > 0 and not _probed else 0):
+        if _probed:
+            wait = 0  # owing an answer: only look for more input
+        elif remaining > 0:
+            wait = remaining
+        elif _line_started(late):
+            wait = LINE_IDLE_MS  # a setup line is arriving: let it end
+        else:
+            wait = 0
+        if _poller.poll(wait):
             byte = _console.read(1)
             if byte:
+                if remaining <= 0:
+                    late += 1
                 _feed(byte, config)
                 continue  # drain the rest of the line without waiting again
         if _probed:
             _probed = False
             print("CHIRP! v=1 hw={} radios=wifi sig=1 t={}".format(
                 config.get("hwid", ""), SLUG))
-        if time.ticks_diff(deadline, time.ticks_ms()) <= 0:
-            return
+            window = time.ticks_add(time.ticks_ms(), SETTINGS_S * 1000)
+            if time.ticks_diff(window, deadline) > 0:
+                deadline = window  # the push follows: keep reading for it
+        if time.ticks_diff(deadline, time.ticks_ms()) > 0:
+            continue
+        if remaining > 0 and _line_started(late):
+            continue  # the pass ended in the middle of a line: read the rest
+        if remaining <= 0 and wait:
+            _buf = bytearray()  # the line stopped coming: it will not end now
+        return
+
+
+def _line_started(late):
+    """True when a setup line has begun and is still short enough to finish."""
+    return late < MAX_LINE and bytes(_buf).find(b"CHIRP") >= 0
 
 
 def _feed(byte, config):
