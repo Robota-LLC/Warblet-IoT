@@ -53,21 +53,62 @@ const char *cfg_json(unsigned *len)
   return s_json;
 }
 
+/* The bank the config page is in: bank 2 on the 2 Mbyte dual-bank parts. */
+static unsigned cfg_bank(void)
+{
+  return (flash_size_bytes() > 0x100000u) ? 1u : 0u;
+}
+
+/* Power lost while the page was being written can leave a quadword whose
+ * ECC cannot correct it. Reading it sets ECCD in FLASH_ECCR and raises the
+ * NMI, which ST's HAL handles there (HAL_FLASHEx_ECCD_IRQHandler: check
+ * ECCD, then clear it by writing 1). One raised while cfg_load() copies the
+ * page, in the page's own bank, marks the copy unreadable and the load goes
+ * on; any other NMI stops the board, as before. */
+static volatile int s_reading, s_unreadable;
+
+void NMI_Handler(void)
+{
+  unsigned eccr = FLASH->ECCR;
+
+  if (s_reading && (eccr & FLASH_ECCR_ECCD) != 0u && (eccr & FLASH_ECCR_SYSF_ECC) == 0u &&
+      ((eccr & FLASH_ECCR_BK_ECC) != 0u) == (cfg_bank() == 1u)) {
+    s_unreadable = 1;
+    FLASH->ECCR |= FLASH_ECCR_ECCD;
+    return;
+  }
+  for (;;) { __WFI(); }                  /* a debugger can inspect it here */
+}
+
 int cfg_load(void)
 {
   const cfg_hdr_t *h = (const cfg_hdr_t *)cfg_page_addr();
+  const unsigned char *p = (const unsigned char *)(cfg_page_addr() + sizeof(cfg_hdr_t));
+  cfg_hdr_t hdr;
+  int       ok;
 
   s_len = 0u;
 
-  if (h->magic != CFG_MAGIC || h->ver != CFG_VER) { return -1; }
-  if (h->len == 0u || h->len > CFG_MAX_PAYLOAD) { return -1; }
+  /* Copy the record inside the window the NMI handler checks. The barriers
+   * keep the copy inside it and let any NMI it raised be taken first. */
+  s_unreadable = 0;
+  s_reading    = 1;
+  __DSB();
+  hdr = *h;
+  ok = hdr.magic == CFG_MAGIC && hdr.ver == CFG_VER &&
+       hdr.len != 0u && hdr.len <= CFG_MAX_PAYLOAD;
+  for (unsigned i = 0; ok && i < hdr.len; i++) { s_json[i] = (char)p[i]; }
+  __DSB();
+  __ISB();
+  s_reading = 0;
 
-  const unsigned char *p = (const unsigned char *)(cfg_page_addr() + sizeof(cfg_hdr_t));
-  if (crc32(p, h->len) != h->crc) { return -1; }
+  /* A damaged page is no config: the board waits for USB setup, and the
+   * next push erases and rewrites the page. */
+  if (s_unreadable) { return -2; }
+  if (!ok || crc32((const unsigned char *)s_json, hdr.len) != hdr.crc) { return -1; }
 
-  for (unsigned i = 0; i < h->len; i++) { s_json[i] = (char)p[i]; }
-  s_json[h->len] = '\0';
-  s_len = h->len;
+  s_json[hdr.len] = '\0';
+  s_len = hdr.len;
   return 0;
 }
 
@@ -193,11 +234,10 @@ int cfg_store(const char *json, unsigned len)
   flash_lock();
   __set_PRIMASK(primask);
 
-  /* Read back: a store that cannot be re-read is a failed store. */
-  const cfg_hdr_t *v = (const cfg_hdr_t *)base;
-  if (v->magic != CFG_MAGIC || v->len != h.len || v->crc != h.crc) { return -1; }
-  if (crc32((const unsigned char *)(base + sizeof(cfg_hdr_t)), len) != h.crc) { return -1; }
-
-  /* Reload from flash so the RAM copy matches what the next power cycle reads. */
-  return cfg_load();
+  /* Read back through cfg_load(): a store that cannot be re-read as what was
+   * pushed is a failed store, and the RAM copy is then what the next power
+   * cycle reads. */
+  if (cfg_load() != 0 || s_len != len) { return -1; }
+  for (unsigned i = 0; i < len; i++) { if (s_json[i] != json[i]) { return -1; } }
+  return 0;
 }

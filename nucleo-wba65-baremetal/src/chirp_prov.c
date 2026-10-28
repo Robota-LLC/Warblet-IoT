@@ -225,9 +225,12 @@ void chirp_prov_init(void)
   uart_put_hex(cfg_page_addr(), 8);
   uart_line("");
 
-  if (cfg_load() == 0) {
+  int loaded = cfg_load();
+  if (loaded == 0) {
     const char *json = cfg_json(&len);
     summarize(json, len);
+  } else if (loaded == -2) {
+    uart_line("CHIRP. cfg page unreadable (flash ECC error); waiting for USB setup");
   } else {
     uart_line("CHIRP. cfg none");
   }

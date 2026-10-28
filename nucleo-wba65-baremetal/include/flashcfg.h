@@ -6,7 +6,8 @@
 #define CFG_MAX_PAYLOAD 1008u     /* JSON bytes; header(16) + payload <= 1024     */
 
 /* Read the stored record into this module's RAM copy.
- * 0 = a valid record is now held, -1 = nothing stored / corrupt. */
+ * 0 = a valid record is now held, -1 = nothing stored / corrupt,
+ * -2 = the page could not be read (a flash ECC error): no config either. */
 int cfg_load(void);
 
 /* The RAM copy: the pushed JSON verbatim, NUL-terminated, or 0 when nothing is held. */
