@@ -29,7 +29,9 @@ def routine(event, state, mem):
     # deleted devices do not fill mem up.
     now = event["ts_ms"] // 60000
     for key in list(mem.keys()):
-        if now - abs(mem[key]) > WEEK or (mem[key] < 0 and now + mem[key] >= HOUR):
+        seen = mem[key]
+        back_an_hour = seen < 0 and now + seen >= HOUR
+        if now - abs(seen) > WEEK or back_an_hour:
             mem.pop(key)
     value = event["fields"].get(FIELD)
     if type(value) not in NUMBERS:         # no reading, or not a number
