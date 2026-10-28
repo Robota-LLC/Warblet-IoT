@@ -349,7 +349,7 @@ static void handle_config(char *json, unsigned len)
   mlen = chirp_merge(s_merged, sizeof s_merged,
                      s_cfg_present ? s_cfg : empty,
                      s_cfg_present ? s_cfg_len : (unsigned)(sizeof empty - 1u),
-                     json, len);
+                     json, len, chirp_hwid());
   if (mlen == 0u || mlen > CFG_MAX_PAYLOAD) {
     board_serial_print("CHIRP= err store-failed\r\n");
     return;

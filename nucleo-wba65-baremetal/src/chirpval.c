@@ -160,6 +160,27 @@ static int src_has(jsrc s, const char *name)
   return s.p != 0 && js_obj_get(s.p, s.n, name, &v) == 1;
 }
 
+/* True when the push sets the board up as a new device: it carries a claim
+ * code, or an id other than the one the board answers to. Letter case aside:
+ * the setup page finds a board's device that way and pushes the device's own
+ * spelling. A pushed id is plain characters (is_hwid), so its source text is
+ * its value. */
+static int starts_new_device(jsrc push, const char *cur_id)
+{
+  js_val   v;
+  unsigned i;
+
+  if (js_obj_get(push.p, push.n, "claim", &v) == 1 && v.t == JS_STR && v.n > 0u) { return 1; }
+  if (js_obj_get(push.p, push.n, "hwid", &v) != 1 || v.t != JS_STR || v.n == 0u) { return 0; }
+  for (i = 0u; i < v.n; i++) {
+    char a = v.p[i], b = cur_id[i];
+    if (a >= 'A' && a <= 'Z') { a = (char)(a - 'A' + 'a'); }
+    if (b >= 'A' && b <= 'Z') { b = (char)(b - 'A' + 'a'); }
+    if (b == '\0' || a != b) { return 1; }
+  }
+  return cur_id[i] != '\0';
+}
+
 /* Push wins when it carries the field at all; otherwise inherit. */
 static jsrc pick(jsrc push, jsrc stored, const char *name)
 {
@@ -208,7 +229,7 @@ static void put_field(emitter *e, const char *name, jsrc src)
 
 int chirp_merge(const char *stored, unsigned slen,
                 const char *push, unsigned plen,
-                char *out, unsigned outsz)
+                char *out, unsigned outsz, const char *cur_id)
 {
   emitter e;
   jsrc    P, S, cred, wifi;
@@ -240,10 +261,12 @@ int chirp_merge(const char *stored, unsigned slen,
   /* The rest are independent fields, and the push wins on each one it carries. */
   put_field(&e, "thread", pick(P, S, "thread"));
   /* A key an older image stored in the URL-safe alphabet goes on in the
-   * standard one, the only one a push may use: the same 32 bytes. */
+   * standard one, the only one a push may use: the same 32 bytes. A new
+   * device does not sign with the old device's key: the stored key goes,
+   * unless the push brings one. A token, networks or a key alone keep it. */
   {
     unsigned at = e.len;
-    put_field(&e, "key", pick(P, S, "key"));
+    put_field(&e, "key", starts_new_device(P, cur_id) ? P : pick(P, S, "key"));
     for (unsigned i = at; !e.bad && i < e.len; i++) {
       if (e.out[i] == '-') { e.out[i] = '+'; }
       else if (e.out[i] == '_') { e.out[i] = '/'; }

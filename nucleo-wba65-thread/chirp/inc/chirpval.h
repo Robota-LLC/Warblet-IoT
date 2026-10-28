@@ -17,9 +17,12 @@ const char *chirp_validate_fields(const char *json, unsigned len);
 const char *chirp_validate(const char *json, unsigned len);
 
 /* Merge push over cur into out, preserving value text. Use {} for an empty config.
- * Validate inputs first. Return the merged length, or 0 if it does not fit. */
+ * cur_id is the id the board answers to now: a push with a claim code or
+ * another id starts a new device, and the stored signing key is dropped unless
+ * the push brings one. Validate inputs first. Return the merged length, or 0
+ * if it does not fit. */
 unsigned chirp_merge(char *out, unsigned outsz,
                      const char *cur, unsigned curlen,
-                     const char *push, unsigned pushlen);
+                     const char *push, unsigned pushlen, const char *cur_id);
 
 #endif /* CHIRPVAL_H */

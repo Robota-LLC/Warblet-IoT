@@ -217,7 +217,21 @@ def _merged(body, config):
     # A top-level ssid without aps replaces the stored network list.
     if "ssid" in push and "aps" not in push:
         candidate.pop("aps", None)
+    # A new device does not sign with the old device's key: the key goes,
+    # unless this same push brings one. A token, networks or a key alone
+    # keep it.
+    if _new_device(push, config) and not push.get("key"):
+        candidate.pop("key", None)
     return candidate
+
+
+def _new_device(push, config):
+    """True when a push sets the board up as a new device: it carries a claim
+    code, or an id other than the stored one. Letter case aside: the setup
+    page finds a board's device that way and pushes the device's spelling."""
+    hwid = push.get("hwid")
+    return bool(push.get("claim")) or bool(
+        hwid and hwid.lower() != config.get("hwid", "").lower())
 
 
 def apply_config_push(body, config):

@@ -157,6 +157,27 @@ static int has(const char *obj, unsigned len, const char *name)
   return js_obj_get(obj, len, name, &v) == 1;
 }
 
+/* True when the push sets the board up as a new device: it carries a claim
+ * code, or an id other than the one the board answers to. Letter case aside:
+ * the setup page finds a board's device that way and pushes the device's own
+ * spelling. A pushed id is plain characters (is_hwid), so its source text is
+ * its value. */
+static int starts_new_device(const char *push, unsigned pushlen, const char *cur_id)
+{
+  js_val   v;
+  unsigned i;
+
+  if (js_obj_get(push, pushlen, "claim", &v) == 1 && v.t == JS_STR && v.n > 0u) { return 1; }
+  if (js_obj_get(push, pushlen, "hwid", &v) != 1 || v.t != JS_STR || v.n == 0u) { return 0; }
+  for (i = 0u; i < v.n; i++) {
+    char a = v.p[i], b = cur_id[i];
+    if (a >= 'A' && a <= 'Z') { a = (char)(a - 'A' + 'a'); }
+    if (b >= 'A' && b <= 'Z') { b = (char)(b - 'A' + 'a'); }
+    if (b == '\0' || a != b) { return 1; }
+  }
+  return cur_id[i] != '\0';
+}
+
 /* Append `"<key>":<value>`, with a leading comma when this is not the first
  * member. Both halves are copied as their original source text — which is what
  * makes this a splicer rather than a JSON writer: no value is re-escaped,
@@ -184,7 +205,7 @@ static int emit(char *out, unsigned outsz, unsigned *o, int *first,
 
 unsigned chirp_merge(char *out, unsigned outsz,
                      const char *cur, unsigned curlen,
-                     const char *push, unsigned pushlen)
+                     const char *push, unsigned pushlen, const char *cur_id)
 {
   unsigned o = 0u, pos;
   int      first = 1;
@@ -195,6 +216,9 @@ unsigned chirp_merge(char *out, unsigned outsz,
    * a single ssid without aps replaces the stored network list. */
   int push_cred = has(push, pushlen, "claim") || has(push, pushlen, "token");
   int drop_aps  = has(push, pushlen, "ssid") && !has(push, pushlen, "aps");
+  /* A new device does not sign with the old device's key: the stored key
+   * goes, unless the push brings one. A token, networks or a key alone keep it. */
+  int drop_key  = starts_new_device(push, pushlen, cur_id);
 
   if (outsz < 2u) { return 0u; }
   out[o++] = '{';
@@ -220,6 +244,7 @@ unsigned chirp_merge(char *out, unsigned outsz,
 
     if (push_cred && (key_is(&k, "claim") || key_is(&k, "token"))) { continue; }
     if (drop_aps  && key_is(&k, "aps"))                            { continue; }
+    if (drop_key  && key_is(&k, "key"))                            { continue; }
 
     /* A stored host or credential longer than the board holds, or not text,
      * came from an older image with no such rule; the board never used it, so

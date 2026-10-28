@@ -1,3 +1,4 @@
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -135,6 +136,28 @@ static void append_ap(chirp_config_t *config, const cJSON *entry)
     }
 }
 
+/* Two ids are the same id whatever the letter case: the setup page finds a
+ * board's device that way and pushes the device's own spelling. */
+static bool same_id(const char *a, const char *b)
+{
+    while (*a != '\0' && tolower((unsigned char)*a) == tolower((unsigned char)*b)) {
+        a++;
+        b++;
+    }
+    return *a == *b;
+}
+
+/* A claim code, or an id other than the one this board answers to, means the
+ * page is setting the board up as a new device. */
+static bool starts_new_device(const cJSON *root)
+{
+    const cJSON *claim = cJSON_GetObjectItemCaseSensitive(root, "claim");
+    const cJSON *hwid  = cJSON_GetObjectItemCaseSensitive(root, "hwid");
+    return (cJSON_IsString(claim) && claim->valuestring[0] != '\0') ||
+           (cJSON_IsString(hwid) && hwid->valuestring[0] != '\0' &&
+            !same_id(hwid->valuestring, chirp_store_hwid(&s_config)));
+}
+
 /* Merge a validated push onto the saved config. */
 static const char *parse_push(const char *json, chirp_config_t *config)
 {
@@ -165,6 +188,14 @@ static const char *parse_push(const char *json, chirp_config_t *config)
         if (config->ap_count == 0) {
             append_ap(config, root);  /* top-level ssid/pass = one-entry list */
         }
+    }
+
+    /* A new device does not sign with the old device's key: the key goes,
+     * unless this same push brings one. A token, networks or a key alone
+     * keep it (CHIRP-PROV v1.3's merge). */
+    if (starts_new_device(root)) {
+        memset(config->key, 0, sizeof(config->key));
+        config->has_key = false;
     }
 
     take_string(root, "host", config->host, sizeof(config->host));

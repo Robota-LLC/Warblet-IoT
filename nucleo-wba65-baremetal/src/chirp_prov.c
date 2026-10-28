@@ -143,6 +143,7 @@ static void handle_config(char *json, unsigned len)
   const char *stored;
   unsigned    slen = 0u;
   int         mlen;
+  char        id[CHIRP_HWID_SIZE];
 
   /* Field rules are judged on the push alone. */
   const char *err = chirp_validate_fields(json, len);
@@ -153,7 +154,8 @@ static void handle_config(char *json, unsigned len)
   }
 
   stored = cfg_json(&slen);
-  mlen = chirp_merge(stored, slen, json, len, s_merged, sizeof s_merged);
+  (void)chirp_hwid(id, sizeof id);      /* the id the board answers to now */
+  mlen = chirp_merge(stored, slen, json, len, s_merged, sizeof s_merged, id);
   if (mlen < 0) {                       /* our page holds 1008 JSON bytes */
     uart_line("CHIRP= err store-failed");
     return;

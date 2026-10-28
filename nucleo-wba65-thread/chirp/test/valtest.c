@@ -57,11 +57,24 @@ static void check_summary(const char *json)
 
 static char g_merged[1024];
 
+/* The id the board answers to: the stored hwid, else its die id. */
+static const char *board_id(const char *cur, char *buf, unsigned bufsz)
+{
+  js_val v;
+
+  if (js_obj_get(cur, (unsigned)strlen(cur), "hwid", &v) == 1 && v.t == JS_STR &&
+      js_str_copy(&v, buf, bufsz) > 0) {
+    return buf;
+  }
+  return "wba65-thread-abcdef";
+}
+
 static const char *mrg(const char *cur, const char *push)
 {
+  char     id[64];
   unsigned n = chirp_merge(g_merged, sizeof g_merged,
                            cur, (unsigned)strlen(cur),
-                           push, (unsigned)strlen(push));
+                           push, (unsigned)strlen(push), board_id(cur, id, sizeof id));
   if (n == 0u) { return "<refused>"; }
   g_merged[n] = '\0';
   return g_merged;
@@ -160,7 +173,7 @@ static void test_merge(void)
 
   /* (7) A merge that will not fit is refused whole. */
   if (chirp_merge(g_merged, 16u, provisioned, (unsigned)strlen(provisioned),
-                  "{\"hwid\":\"h\"}", 14u) == 0u) {
+                  "{\"hwid\":\"h\"}", 14u, "curious-otter-1a2b") == 0u) {
     printf("ok    merge: refuses to overflow rather than truncating a config\n");
   } else {
     printf("FAIL  merge: overflowed\n");
@@ -191,6 +204,46 @@ static void test_merge(void)
          "a stored over-long token is not carried: the board holds no usable one");
   mcheck("{\"claim\":\"C\",\"host\":\"h01234567890123456789012345678901234567890123456789012345678901.example\"}", "{\"hwid\":\"wba-2\"}",
          "{\"hwid\":\"wba-2\",\"claim\":\"C\"}", "  ... and it is not carried");
+
+  /* A new device starts without the old device's signing key: a claim code,
+   * or an id other than the one the board answers to, drops the stored key
+   * unless the push brings one. A token, networks or a key alone keep it. */
+  {
+    static const char signed_cfg[] =
+      "{\"token\":\"tok-old\",\"key\":\"" KEY44 "\",\"hwid\":\"curious-otter-1a2b\","
+      "\"thread\":{\"dataset\":\"0e08aabb\"}}";
+
+    mcheck(signed_cfg, "{\"claim\":\"CHIRP-NEW\",\"hwid\":\"sunny-otter-7c2f\"}",
+           "{\"claim\":\"CHIRP-NEW\",\"hwid\":\"sunny-otter-7c2f\",\"thread\":{\"dataset\":\"0e08aabb\"}}",
+           "a claim and a new id: the old key goes");
+    mcheck(signed_cfg, "{\"claim\":\"CHIRP-NEW\"}",
+           "{\"claim\":\"CHIRP-NEW\",\"hwid\":\"curious-otter-1a2b\",\"thread\":{\"dataset\":\"0e08aabb\"}}",
+           "a claim alone: the old key goes");
+    mcheck(signed_cfg, "{\"token\":\"t2\",\"hwid\":\"sunny-otter-7c2f\"}",
+           "{\"token\":\"t2\",\"hwid\":\"sunny-otter-7c2f\",\"thread\":{\"dataset\":\"0e08aabb\"}}",
+           "a token with a different id: the old key goes");
+    mcheck(signed_cfg, "{\"claim\":\"CHIRP-NEW\",\"key\":\"BBECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\"}",
+           "{\"claim\":\"CHIRP-NEW\",\"key\":\"BBECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\","
+           "\"hwid\":\"curious-otter-1a2b\",\"thread\":{\"dataset\":\"0e08aabb\"}}",
+           "a claim that brings its own key: that key is kept");
+    mcheck(signed_cfg, "{\"token\":\"t2\"}",
+           "{\"token\":\"t2\",\"key\":\"" KEY44 "\",\"hwid\":\"curious-otter-1a2b\","
+           "\"thread\":{\"dataset\":\"0e08aabb\"}}",
+           "a token alone keeps the key");
+    mcheck(signed_cfg, "{\"token\":\"t2\",\"hwid\":\"Curious-Otter-1A2B\"}",
+           "{\"token\":\"t2\",\"hwid\":\"Curious-Otter-1A2B\",\"key\":\"" KEY44 "\","
+           "\"thread\":{\"dataset\":\"0e08aabb\"}}",
+           "the same id in other letter case keeps the key");
+    mcheck(signed_cfg, "{\"thread\":{\"dataset\":\"0e08ccdd\"}}",
+           "{\"thread\":{\"dataset\":\"0e08ccdd\"},\"token\":\"tok-old\",\"key\":\"" KEY44 "\","
+           "\"hwid\":\"curious-otter-1a2b\"}",
+           "a network alone keeps the key");
+    /* No stored id: the board answers to its die id, which counts as stored. */
+    mcheck("{\"token\":\"tok-old\",\"key\":\"" KEY44 "\",\"ssid\":\"s\"}",
+           "{\"token\":\"t2\",\"hwid\":\"wba65-thread-abcdef\"}",
+           "{\"token\":\"t2\",\"hwid\":\"wba65-thread-abcdef\",\"key\":\"" KEY44 "\",\"ssid\":\"s\"}",
+           "the die id it already answers to keeps the key");
+  }
 }
 
 /* ---------------------------------------------------------------- chirp_ds.c */

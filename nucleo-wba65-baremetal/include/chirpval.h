@@ -11,9 +11,12 @@ const char *chirp_validate_fields(const char *json, unsigned len);
 const char *chirp_validate(const char *json, unsigned len);
 
 /* Merge push over stored into out, preserving each value's source text.
- * A NULL stored pointer means no config. Return length, or -1 on invalid input or overflow. */
+ * A NULL stored pointer means no config. cur_id is the id the board answers
+ * to now: a push with a claim code or another id starts a new device, and
+ * the stored signing key is dropped unless the push brings one.
+ * Return length, or -1 on invalid input or overflow. */
 int chirp_merge(const char *stored, unsigned slen,
                 const char *push, unsigned plen,
-                char *out, unsigned outsz);
+                char *out, unsigned outsz, const char *cur_id);
 
 #endif /* CHIRPVAL_H */

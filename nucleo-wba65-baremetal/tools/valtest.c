@@ -70,12 +70,26 @@ static void check_signed(const unsigned char *key, unsigned klen,
 
 /* Config merge checks. */
 
+/* The id the board answers to: the stored hwid, else its die id. */
+static const char *board_id(const char *stored, char *buf, unsigned bufsz)
+{
+  js_val v;
+
+  if (stored && js_obj_get(stored, (unsigned)strlen(stored), "hwid", &v) == 1 &&
+      v.t == JS_STR && js_str_copy(&v, buf, bufsz) > 0) {
+    return buf;
+  }
+  return "wba65-demo-abcdef";
+}
+
 /* Merge and hand back the result, failing loudly if the merge itself refused. */
 static int merged(const char *stored, const char *push, char *out, unsigned outsz,
                   const char *why)
 {
-  int n = chirp_merge(stored, stored ? (unsigned)strlen(stored) : 0u,
-                      push, (unsigned)strlen(push), out, outsz);
+  char id[64];
+  int  n = chirp_merge(stored, stored ? (unsigned)strlen(stored) : 0u,
+                       push, (unsigned)strlen(push), out, outsz,
+                       board_id(stored, id, sizeof id));
   if (n < 0) {
     printf("FAIL  %s: chirp_merge refused the merge\n", why);
     fails++;
@@ -449,6 +463,33 @@ int main(void)
                    "a stored host that is not text is not carried, and the push is taken");
     check_merge("{\"token\":\"T\",\"host\":\"core.example.com\"}", "{\"hwid\":\"wba-2\"}",
                 "host", "core.example.com", "a stored host that fits is carried");
+
+    /* A new device starts without the old device's signing key: a claim
+     * code, or an id other than the one the board answers to, drops the
+     * stored key unless the push brings one. A token, networks or a key
+     * alone keep it. */
+    const char *signed_cfg = "{\"token\":\"T\",\"hwid\":\"old-id\",\"ssid\":\"s\","
+                             "\"key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\"}";
+    const char *old_k = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
+    const char *new_k = "BBECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
+    check_merge(signed_cfg, "{\"claim\":\"CHIRP-NEW\",\"hwid\":\"new-id\"}", "key", NULL,
+                "a claim and a new id: the old key goes");
+    check_merge(signed_cfg, "{\"claim\":\"CHIRP-NEW\"}", "key", NULL,
+                "a claim alone: the old key goes");
+    check_merge(signed_cfg, "{\"token\":\"T2\",\"hwid\":\"new-id\"}", "key", NULL,
+                "a token with a different id: the old key goes");
+    check_merge(signed_cfg, "{\"claim\":\"CHIRP-NEW\",\"key\":"
+                "\"BBECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\"}", "key", new_k,
+                "a claim that brings its own key: that key is kept");
+    check_merge(signed_cfg, "{\"token\":\"T2\"}", "key", old_k, "a token alone keeps the key");
+    check_merge(signed_cfg, "{\"token\":\"T2\",\"hwid\":\"OLD-ID\"}", "key", old_k,
+                "the same id in other letter case keeps the key");
+    check_merge(signed_cfg, "{\"ssid\":\"cafe\",\"pass\":\"p\"}", "key", old_k,
+                "networks alone keep the key");
+    check_merge("{\"token\":\"T\",\"ssid\":\"s\",\"key\":"
+                "\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\"}",
+                "{\"token\":\"T2\",\"hwid\":\"wba65-demo-abcdef\"}", "key", old_k,
+                "the die id it already answers to keeps the key");
   }
 
   puts("\n--- sha256 (FIPS 180-4 examples) ---");

@@ -134,7 +134,46 @@ int main(void)
                 out.cred_kind == CHIRP_CRED_TOKEN && out.has_key,
                 "a key-only push keeps the stored network and token");
 
+    puts("\n--- a new device starts without the old signing key ---");
+    /* A board that was signing as "old-id" with a stored key. */
+    memset(&s_config, 0, sizeof(s_config));
+    strcpy(s_config.aps[0].ssid, "home");
+    s_config.ap_count  = 1;
+    strcpy(s_config.hwid, "old-id");
+    strcpy(s_config.cred, "tok");
+    s_config.cred_kind = CHIRP_CRED_TOKEN;
+    memset(s_config.key, 0xaa, sizeof(s_config.key));
+    s_config.has_key   = true;
+    expect_true(parse_push("{\"claim\":\"CHIRP-NEW\",\"hwid\":\"new-id\"}", &out) == NULL &&
+                !out.has_key && out.cred_kind == CHIRP_CRED_CLAIM,
+                "a claim and a new id: the old key goes");
+    expect_true(parse_push("{\"claim\":\"CHIRP-NEW\"}", &out) == NULL && !out.has_key,
+                "a claim alone: the old key goes");
+    expect_true(parse_push("{\"token\":\"t2\",\"hwid\":\"new-id\"}", &out) == NULL && !out.has_key,
+                "a token with a different id: the old key goes");
+    expect_true(parse_push("{\"claim\":\"CHIRP-NEW\",\"hwid\":\"new-id\",\"key\":\"" KEY_B64 "\"}",
+                           &out) == NULL && out.has_key && out.key[31] == 0x1f,
+                "a claim that brings its own key: that key is kept");
+    expect_true(parse_push("{\"token\":\"t2\"}", &out) == NULL && out.has_key && out.key[0] == 0xaa,
+                "a token alone keeps the key");
+    expect_true(parse_push("{\"token\":\"t2\",\"hwid\":\"old-id\"}", &out) == NULL && out.has_key,
+                "a token with the same id keeps the key");
+    expect_true(parse_push("{\"token\":\"t2\",\"hwid\":\"OLD-ID\"}", &out) == NULL && out.has_key,
+                "the same id in other letter case keeps the key");
+    expect_true(parse_push("{\"ssid\":\"cafe\",\"pass\":\"p\"}", &out) == NULL && out.has_key,
+                "networks alone keep the key");
+    expect_true(parse_push("{\"ssid\":\"cafe\",\"hwid\":\"old-id\"}", &out) == NULL && out.has_key,
+                "networks with the same id keep the key");
+    expect_true(parse_push("{\"ssid\":\"cafe\",\"hwid\":\"\"}", &out) == NULL && out.has_key,
+                "an empty id changes nothing, so the key stays");
+
     puts("\n--- a refused push changes nothing ---");
+    memset(&s_config, 0, sizeof(s_config));
+    strcpy(s_config.aps[0].ssid, "home");
+    s_config.ap_count  = 1;
+    strcpy(s_config.cred, "tok");
+    s_config.cred_kind = CHIRP_CRED_TOKEN;
+    stored = s_config;
     saves = restarts = 0;
     handle_push("{\"aps\":[{\"ssid\":\"new\"},{\"ssid\":7}],\"token\":\"other\",\"key\":12345}");
     expect_true(saves == 0 && restarts == 0, "nothing saved, no restart");
