@@ -33,6 +33,7 @@ _poller.register(sys.stdin, select.POLLIN)
 # back to the text stream.
 _console = getattr(sys.stdin, "buffer", sys.stdin)
 _buf = bytearray()  # the console line so far, as bytes
+_probed = False     # a CHIRP? read and not yet answered
 
 
 def set_slug(slug):
@@ -74,8 +75,8 @@ def networks(config):
 def connect_wifi(config):
     """Try the stored networks in order. True once we have an address.
     Called before every reading, so the ladder reruns by itself when the link
-    drops. USB setup is answered before each attempt, so a board that cannot
-    join is still set up."""
+    drops. USB setup is answered before and during each attempt, so a board
+    that cannot join is still set up."""
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
     if wlan.isconnected():
@@ -83,15 +84,17 @@ def connect_wifi(config):
 
     for ssid, password in networks(config):
         service(config, PROV_PASS_S)
-        if _join(wlan, ssid, password):
+        if _join(wlan, ssid, password, config):
             return True
 
     print("chirp: no stored network joined -- will retry")
     return False
 
 
-def _join(wlan, ssid, password):
-    """One attempt at one network. True once we have an address."""
+def _join(wlan, ssid, password, config):
+    """One attempt at one network. True once we have an address. The console
+    is read while we wait: a UART console holds only a few hundred bytes, and
+    a setup push that waited out a 12 s join would lose the rest."""
     print("chirp: joining", ssid)
     try:
         wlan.connect(ssid, password)
@@ -105,7 +108,7 @@ def _join(wlan, ssid, password):
         if wlan.isconnected():
             print("chirp: wifi up", wlan.ifconfig()[0])
             return True
-        time.sleep_ms(250)
+        service(config, 0.25)
 
     _drop(wlan)  # the half-open attempt, so the next try starts clean
     print("chirp: no join to", ssid, "within", WIFI_TIMEOUT_S, "s")
@@ -123,15 +126,24 @@ def _drop(wlan):
 
 def service(config, seconds=0):
     """Service USB setup for the requested duration; zero drains pending input.
-    A successful config push saves settings and reboots."""
+    A successful config push saves settings and reboots.
+    Probes are answered once the waiting input has been read, once for all of
+    them: a board that was busy finds a probe for every quarter second it was
+    away, and answering each would keep it printing while the push arrives."""
+    global _probed
     deadline = time.ticks_add(time.ticks_ms(), int(seconds * 1000))
     while True:
         remaining = time.ticks_diff(deadline, time.ticks_ms())
-        if _poller.poll(remaining if remaining > 0 else 0):
+        # Owing an answer, only look for more input; do not wait for it.
+        if _poller.poll(remaining if remaining > 0 and not _probed else 0):
             byte = _console.read(1)
             if byte:
                 _feed(byte, config)
                 continue  # drain the rest of the line without waiting again
+        if _probed:
+            _probed = False
+            print("CHIRP! v=1 hw={} radios=wifi sig=1 t={}".format(
+                config.get("hwid", ""), SLUG))
         if time.ticks_diff(deadline, time.ticks_ms()) <= 0:
             return
 
@@ -139,7 +151,7 @@ def service(config, seconds=0):
 def _feed(byte, config):
     """One byte off the console into the line buffer. A line counts from its
     first "CHIRP", so stray bytes in front of a command do not spoil it."""
-    global _buf
+    global _buf, _probed
     if isinstance(byte, str):  # the text-stream fallback hands us characters
         byte = byte.encode()
     if byte not in (b"\r", b"\n"):  # the portal sends CRLF; a bare LF is tolerated
@@ -157,8 +169,7 @@ def _feed(byte, config):
     except UnicodeError:
         return  # not text, so not a setup line
     if line == "CHIRP?":
-        print("CHIRP! v=1 hw={} radios=wifi sig=1 t={}".format(
-            config.get("hwid", ""), SLUG))
+        _probed = True  # answered by service() once the input is read
     elif line.startswith("CHIRP+"):
         apply_config_push(line[6:].strip(), config)
 
