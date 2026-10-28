@@ -15,10 +15,24 @@ static const char *TAG = "chirp_store";
 #define KEY_APS       "aps"
 #define KEY_AP_COUNT  "ap_count"
 #define KEY_HOST      "host"
+#define KEY_IDENT     "ident"
+/* The separate entries an older image kept the identity in. */
 #define KEY_HWID      "hwid"
 #define KEY_CRED      "cred"
 #define KEY_CRED_KIND "cred_kind"
 #define KEY_SIGNKEY   "signkey"
+
+/* Who the board is and how it signs, saved as ONE value: a power cut leaves
+ * the old set or the new one, never one device's id with another's key. */
+#define IDENT_VERSION 1
+typedef struct {
+    uint8_t version;              /* IDENT_VERSION */
+    uint8_t cred_kind;
+    uint8_t has_key;
+    char    hwid[CHIRP_HWID_SIZE];
+    char    cred[CHIRP_CRED_SIZE];
+    uint8_t key[CHIRP_KEY_SIZE];
+} ident_t;
 
 esp_err_t chirp_store_init(void)
 {
@@ -87,9 +101,34 @@ static esp_err_t load_all(nvs_handle_t h, chirp_config_t *out)
     if (err == ESP_OK) {
         err = load_str(h, KEY_HOST, out->host, sizeof(out->host));
     }
-    if (err == ESP_OK) {
-        err = load_str(h, KEY_HWID, out->hwid, sizeof(out->hwid));
+    if (err != ESP_OK) {
+        return err;
     }
+
+    /* The identity record, when there is one. Anything but this version and
+     * size is unreadable, and unreadable settings count as never set up. */
+    ident_t id;
+    size_t id_len = sizeof(id);
+    err = nvs_get_blob(h, KEY_IDENT, &id, &id_len);
+    if (err == ESP_OK) {
+        if (id_len != sizeof(id) || id.version != IDENT_VERSION) {
+            return ESP_ERR_NVS_INVALID_LENGTH;
+        }
+        strlcpy(out->hwid, id.hwid, sizeof(out->hwid));
+        strlcpy(out->cred, id.cred, sizeof(out->cred));
+        out->cred_kind = (chirp_cred_kind_t)id.cred_kind;
+        out->has_key   = id.has_key != 0;
+        if (out->has_key) {
+            memcpy(out->key, id.key, sizeof(out->key));
+        }
+        return ESP_OK;
+    }
+    if (err != ESP_ERR_NVS_NOT_FOUND) {
+        return err;
+    }
+
+    /* None yet: the separate entries an older image saved. */
+    err = load_str(h, KEY_HWID, out->hwid, sizeof(out->hwid));
     if (err == ESP_OK) {
         err = load_str(h, KEY_CRED, out->cred, sizeof(out->cred));
     }
@@ -172,22 +211,29 @@ esp_err_t chirp_store_save(const chirp_config_t *config)
     if (err == ESP_OK) {
         err = save_str(h, KEY_HOST, config->host);
     }
-    if (err == ESP_OK) {
-        err = save_str(h, KEY_HWID, config->hwid);
+
+    /* The id, the credential and the key go in one write, so they change
+     * together or not at all. */
+    ident_t id = { .version = IDENT_VERSION, .cred_kind = (uint8_t)config->cred_kind,
+                   .has_key = config->has_key ? 1 : 0 };
+    strlcpy(id.hwid, config->hwid, sizeof(id.hwid));
+    strlcpy(id.cred, config->cred, sizeof(id.cred));
+    if (config->has_key) {
+        memcpy(id.key, config->key, sizeof(id.key));
     }
     if (err == ESP_OK) {
-        err = save_str(h, KEY_CRED, config->cred);
+        err = nvs_set_blob(h, KEY_IDENT, &id, sizeof(id));
     }
     if (err == ESP_OK) {
-        err = nvs_set_u8(h, KEY_CRED_KIND, (uint8_t)config->cred_kind);
+        err = nvs_commit(h);
     }
-    if (err == ESP_OK) {
-        if (config->has_key) {
-            err = nvs_set_blob(h, KEY_SIGNKEY, config->key, sizeof(config->key));
-        } else {
-            esp_err_t eerr = nvs_erase_key(h, KEY_SIGNKEY);
-            err = (eerr == ESP_ERR_NVS_NOT_FOUND) ? ESP_OK : eerr;
-        }
+
+    /* Only once the record is saved: the older entries go, so nothing is
+     * ever read from two places. */
+    const char *legacy[] = { KEY_HWID, KEY_CRED, KEY_CRED_KIND, KEY_SIGNKEY };
+    for (size_t i = 0; err == ESP_OK && i < sizeof(legacy) / sizeof(legacy[0]); i++) {
+        esp_err_t eerr = nvs_erase_key(h, legacy[i]);
+        err = (eerr == ESP_ERR_NVS_NOT_FOUND) ? ESP_OK : eerr;
     }
     if (err == ESP_OK) {
         err = nvs_commit(h);
