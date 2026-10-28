@@ -1,6 +1,11 @@
 /* Exercise the production report/startup code with fake queues and a clock. */
 #include "../main/main.c"
 #include <assert.h>
+#include <setjmp.h>
+
+/* camera_worker() waits for ever; the test runs it until it waits again. */
+static jmp_buf worker_waits;
+static bool in_worker;
 
 struct fake_queue { unsigned size; bool full; unsigned char data[256]; };
 static int64_t clock_ms;
@@ -17,7 +22,9 @@ QueueHandle_t xQueueCreate(unsigned count, unsigned size) {
     QueueHandle_t q = calloc(1, sizeof(*q)); q->size = size; return q;
 }
 int xQueueReceive(QueueHandle_t q, void *item, unsigned ticks) {
-    assert(q); if (!q->full) return 0; memcpy(item, q->data, q->size); q->full = false; return 1;
+    assert(q);
+    if (!q->full) { if (in_worker && ticks == portMAX_DELAY) longjmp(worker_waits, 1); return 0; }
+    memcpy(item, q->data, q->size); q->full = false; return 1;
 }
 int xQueueSend(QueueHandle_t q, const void *item, unsigned ticks) {
     assert(q && !q->full); memcpy(q->data, item, q->size); q->full = true; return 1;
@@ -33,7 +40,6 @@ void uart_vfs_dev_use_driver(int port) {}
 esp_err_t camera_init(void) { camera_calls++; return ESP_FAIL; }
 esp_err_t camera_capture(const uint8_t **p, size_t *len) { camera_calls++; return ESP_FAIL; }
 void camera_release(void) { released++; }
-void camera_deinit(void) {}
 esp_err_t chirp_store_init(void) { return ESP_OK; }
 esp_err_t chirp_store_load(chirp_config_t *out) { *out = (chirp_config_t){ .ap_count = 1 }; return ESP_OK; }
 const char *chirp_store_hwid(const chirp_config_t *cfg) { return "test-camera"; }
@@ -134,9 +140,29 @@ int main(void) {
     clock_ms += 12000; finish(job, ESP_OK, jpeg, sizeof(jpeg)); report_camera("health");
     assert(s_health.state == CAMERA_READY); /* 12s capture, not false 27s timeout */
 
+    /* A capture that fails skips its frame: the worker leaves the camera
+     * on, health says ready with the error, and the next request captures,
+     * as the HTTPS camera does. */
+    fresh(); report_camera(NULL); job = pop_job();
+    finish(job, ESP_OK, NULL, 0); report_camera("health"); job = pop_job();
+    assert(job.operation == CAMERA_FRAME);
+    xQueueSend(s_jobs, &job, 0);
+    in_worker = true;
+    if (!setjmp(worker_waits)) camera_worker(NULL); /* camera_capture() fails here */
+    in_worker = false;
+    camera_calls = 0;                               /* the next fresh() checks start-up */
+    report_camera("health");
+    assert(s_health.state == CAMERA_READY && strstr(last_health, "\"camera\":\"ready\"") &&
+           strstr(last_health, "\"error\":-1"));
+    unsigned images = images_sent;
+    report_camera("snap"); job = pop_job();
+    assert(job.operation == CAMERA_FRAME && job.snap);
+    finish(job, ESP_OK, jpeg, sizeof(jpeg)); report_camera("health");
+    assert(images_sent == images + 1 && s_health.state == CAMERA_READY && s_health.error == 0);
+
     fail_worker = true; fresh(); report_camera(NULL);
     assert(mqtt_started == 1 && strstr(last_health, "stalled"));
     publish_result = CHIRP_CONNECTION_FAILED;
     assert(report_camera(NULL) == CHIRP_CONNECTION_FAILED);
-    puts("PASS: actual startup/report code: network first, failed/hung init, explicit snap failure, periodic health, JPEG recovery, quarantine, allocation failure, publish failure");
+    puts("PASS: actual startup/report code: network first, failed/hung init, explicit snap failure, periodic health, JPEG recovery, a failed frame skipped, quarantine, allocation failure, publish failure");
 }

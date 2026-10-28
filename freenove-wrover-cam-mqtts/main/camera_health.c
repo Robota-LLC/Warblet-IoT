@@ -30,9 +30,12 @@ bool camera_health_complete(camera_health_t *h, int error)
 {
     /* Never reuse a timed-out driver, even if a late completion arrives. */
     if (h->state == CAMERA_STALLED || h->operation == CAMERA_IDLE) return false;
+    /* A frame that fails is skipped and the camera stays ready for the next
+     * one; only a failed start leaves it unavailable. */
+    bool frame = h->operation == CAMERA_FRAME;
     h->operation = CAMERA_IDLE;
     h->error = error;
-    h->state = error == 0 ? CAMERA_READY : CAMERA_UNAVAILABLE;
+    h->state = (error == 0 || frame) ? CAMERA_READY : CAMERA_UNAVAILABLE;
     return true;
 }
 

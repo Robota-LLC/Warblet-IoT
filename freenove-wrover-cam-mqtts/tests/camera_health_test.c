@@ -14,7 +14,8 @@ int main(void)
     assert(!camera_health_begin_init(&h, 60099));
     assert(!camera_health_begin_init(&h, 999999999));
 
-    /* Restart resets the budget; a functioning sensor can capture again. */
+    /* A started camera stays ready when one frame fails: that frame is
+     * skipped and the next one is taken, as the HTTPS camera does. */
     camera_health_reset(&h);
     assert(camera_health_begin_init(&h, 0));
     assert(camera_health_complete(&h, 0));
@@ -22,8 +23,11 @@ int main(void)
     assert(camera_health_begin_frame(&h, 100));
     assert(!camera_health_begin_frame(&h, 101));
     assert(camera_health_complete(&h, -1));
-    assert(!camera_health_begin_init(&h, 999999999));
-    assert(h.attempts == 1 && h.state == CAMERA_UNAVAILABLE);
+    assert(h.state == CAMERA_READY && h.error == -1 && h.attempts == 1);
+    assert(!camera_health_begin_init(&h, 200)); /* it never stopped: no second start */
+    assert(camera_health_begin_frame(&h, 200));
+    assert(camera_health_complete(&h, 0));
+    assert(h.state == CAMERA_READY && h.error == 0);
 
     camera_health_reset(&h);
     assert(camera_health_begin_init(&h, 100));
@@ -42,5 +46,5 @@ int main(void)
     assert(camera_health_timeout(&h, 263, 20200));
     assert(!camera_health_complete(&h, 0));
     assert(h.state == CAMERA_STALLED);
-    puts("PASS: failure/recovery, retry budget, no overlap, init/capture timeout quarantine");
+    puts("PASS: failure/recovery, retry budget, a failed frame skipped, no overlap, init/capture timeout quarantine");
 }

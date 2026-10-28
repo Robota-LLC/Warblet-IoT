@@ -62,8 +62,8 @@ static void camera_worker(void *arg)
         if (job.operation == CAMERA_INIT) {
             done.error = camera_init();
         } else {
+            /* A failed capture skips this frame; the camera stays on. */
             done.error = camera_capture(&done.frame, &done.length);
-            if (done.error != ESP_OK) camera_deinit();
         }
         done.completed_ms = esp_timer_get_time() / 1000;
         xQueueSend(s_done, &done, portMAX_DELAY);

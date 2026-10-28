@@ -48,7 +48,6 @@ static bool         s_soft_jpeg;  /* this sensor has no JPEG encoder */
 
 esp_err_t camera_init(void)
 {
-    s_soft_jpeg = false;
     camera_config_t cfg = {
         .pin_pwdn     = CAM_PIN_PWDN,
         .pin_reset    = CAM_PIN_RESET,
@@ -191,11 +190,4 @@ void camera_release(void)
         esp_camera_fb_return(s_fb);
         s_fb = NULL;
     }
-}
-
-void camera_deinit(void)
-{
-    camera_release();
-    esp_camera_deinit();
-    s_soft_jpeg = false;
 }
