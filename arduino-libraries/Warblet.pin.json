@@ -2,7 +2,7 @@
   "_": "arduino-libraries/Warblet is the Warblet Arduino library, vendored byte for byte at this commit of its repository, the one its release tag names: the files listed, and nothing else. Change it only by copying a release of the library and writing this file again.",
   "library": "Warblet",
   "repository": "https://github.com/Robota-LLC/Warblet-Arduino",
-  "commit": "05cc110c9d64902061be1c1a93f376091aeb2087",
+  "commit": "97de60fad8a3f082b7c11040178c420d7aaae041",
   "release": "v0.1.1",
   "paths": [
     "library.properties",
