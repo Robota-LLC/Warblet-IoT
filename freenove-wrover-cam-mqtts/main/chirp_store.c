@@ -22,6 +22,7 @@ static const char *TAG = "chirp_store";
 #define KEY_CRED_KIND "cred_kind"
 #define KEY_HWID      "hwid"
 #define KEY_HOST      "host"
+#define KEY_LEVEL     "level"     /* an older image's level, never read now */
 #define KEY_AP_COUNT  "ap_count"
 
 /* Who the board is, how it signs and where it reports, saved as ONE value:
@@ -215,7 +216,7 @@ esp_err_t chirp_store_save(const chirp_config_t *config)
      * Its network count goes before the list below changes, so it never
      * disagrees with the list. */
     static const char *const older[] = {
-        KEY_CRED, KEY_SIGNKEY, KEY_CRED_KIND, KEY_HWID, KEY_HOST, KEY_AP_COUNT,
+        KEY_CRED, KEY_SIGNKEY, KEY_CRED_KIND, KEY_HWID, KEY_HOST, KEY_LEVEL, KEY_AP_COUNT,
     };
     for (size_t i = 0; err == ESP_OK && i < sizeof(older) / sizeof(older[0]); i++) {
         esp_err_t eerr = nvs_erase_key(h, older[i]);
