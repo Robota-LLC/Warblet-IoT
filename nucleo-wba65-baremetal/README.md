@@ -69,7 +69,7 @@ CHIRP+ {"hwid":"YOUR_DEVICE_ID","token":"YOUR_DEVICE_TOKEN"}
 
 `CHIRP= ok` means the settings were saved. An optional `key` is a 32-byte signing key in standard base64: 44 characters ending in `=`. Use `claim` or `token`, not both. Later pushes merge with stored settings, so a key-only push works after the device has a credential.
 
-A push with `claim` or a changed `hwid` (including letter case) starts a new device. It clears the stored signing key unless the same push supplies `key`. Token-only or network-only updates keep the key; a key-only update replaces it.
+A push with `claim` or a changed `hwid` (including letter case) starts a new device. It drops the stored signing key unless the same push supplies `key`. Token-only updates keep the key; a key-only update replaces it.
 
 ## Run the computer relay
 

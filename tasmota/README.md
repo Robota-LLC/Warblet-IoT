@@ -42,7 +42,7 @@ For Voltage, Current and Energy today, see the longer line and its tradeoffs in 
 
 Setup adds **Tasmota: email when the power passes a limit**, switched on. It emails once above 1000 W, then waits until power returns to 900 W or lower before emailing on another rise. If a reading returns above the limit after a week without it, it can email again.
 
-The routine emails at most once an hour per device; quiet and doorbell alerts share the account’s ten hourly alert emails.
+This routine emails at most once an hour per device. All alert emails, including this routine’s, share the account’s limit of ten per hour.
 
 ## Go back
 

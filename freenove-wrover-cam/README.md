@@ -62,7 +62,7 @@ esptool --chip esp32 --port <PORT> write_flash 0x10000 build/freenove-wrover-cam
 
 You can also select the image in https://warbletiot.com/flash. Use `build/freenove-wrover-cam-full.bin` at `0x0` for an initial install, or `build/freenove-wrover-cam-update.bin` at `0x10000` for an app update. A merged-image write can erase stored credentials.
 
-An app-only update to v1.6.0 keeps Wi-Fi, server and device settings. After you send settings under v1.6.0, older firmware needs USB setup if installed again. Returning to v1.6.0 with an app-only write uses its last saved setup.
+An app-only update to v1.6.0 keeps Wi-Fi, server and device settings. After you send settings under v1.6.0, older firmware needs USB setup if installed again. Returning to v1.6.0 with an app-only write restores its last saved identity and server, with Wi-Fi networks from whichever firmware saved them last.
 
 ## Set up the connection
 
@@ -79,7 +79,7 @@ CHIRP+ {"ssid":"YOUR_WIFI","pass":"YOUR_WIFI_PASSWORD","hwid":"YOUR_DEVICE_ID","
 
 The board saves settings in NVS flash and restarts. Later pushes can contain only changed fields. The optional `key` is a base64-encoded 32-byte signing key; use either `claim` or `token`, not both. Invalid settings are refused without saving.
 
-A push with `claim` or a changed `hwid` (including letter case) starts a new device. It clears the stored signing key unless the same push supplies `key`. Token-only or network-only updates keep the key; a key-only update replaces it.
+A push with `claim` or a changed `hwid` (including letter case) starts a new device. It drops the stored signing key unless the same push supplies `key`. Token-only or network-only updates keep the key; a key-only update replaces it.
 
 An `aps` list can hold up to eight networks. The demo tries visible networks from strongest to weakest signal, then any remaining networks in saved order. Sending `ssid` without `aps` replaces the list with one network. A stored `host` overrides the default `https.warbletiot.com`.
 

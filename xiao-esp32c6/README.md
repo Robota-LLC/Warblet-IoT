@@ -67,7 +67,7 @@ CHIRP+ {"ssid":"YOUR_WIFI","pass":"YOUR_WIFI_PASSWORD","hwid":"YOUR_DEVICE_ID","
 
 The board saves `chirp_cfg.json` and restarts. Keep settings and keys private. A later push can contain only changed fields. An optional `key` holds a base64-encoded 32-byte signing key. Use either `claim` or `token`, not both.
 
-A push with `claim` or a changed `hwid` (including letter case) starts a new device. It clears the stored signing key unless the same push supplies `key`. Token-only or network-only updates keep the key; a key-only update replaces it.
+A push with `claim` or a changed `hwid` (including letter case) starts a new device. It drops the stored signing key unless the same push supplies `key`. Token-only or network-only updates keep the key; a key-only update replaces it.
 
 An `aps` list can hold up to eight networks, tried in order. Sending `ssid` without `aps` replaces the list with one network. A stored `host` overrides the default `mqtt.warbletiot.com`.
 
