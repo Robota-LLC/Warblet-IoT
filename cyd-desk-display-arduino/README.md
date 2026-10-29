@@ -114,7 +114,7 @@ Change the line, upload again, and the board keeps its setup.
 
 ## Where it differs from the MicroPython desk display
 
-- **A refusal shows its code.** Warblet turning a message or a check away with 403 or 404 shows **Warblet refused** and the code; the MicroPython display says **Warblet: no answer** for those. A fault on Warblet's side (a 5xx) is **Warblet: no answer** on both.
+- **A refusal shows its code.** Warblet turning a message or a check away with 400, 403, 404 or 423 shows **Warblet refused** and the code; the MicroPython display says **Warblet: no answer** for those. A fault on Warblet's side (a 5xx) is **Warblet: no answer** on both.
 - **New Wi-Fi keeps the message.** A setup push of Wi-Fi alone is used at once; the MicroPython display restarts after every push. A push with a new id or token restarts both.
 - **No Stopped screen.** There is no prompt to stop the sketch at, so it never shows **Stopped**.
 - **Longer messages.** A message up to 8,192 bytes is shown; the MicroPython display does not show one over 1,024.

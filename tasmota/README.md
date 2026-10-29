@@ -4,7 +4,7 @@
 
 Your Tasmota plug sends its power to [Warblet](https://warbletiot.com) once a minute. Warblet shows the readings and their history, and emails you when the power passes a limit. This demo is one way: there is no switch on the dashboard.
 
-Paste one line into Tasmota's console; there is nothing to flash. Your own MQTT server and Home Assistant keep hearing the plug, with reports now sent every minute. Tasmota keeps its web page, timers and button.
+Paste one line into Tasmota's console; there is nothing to flash. The setup leaves your MQTT configuration unchanged and sets `TelePeriod` to 60: both Warblet posts and MQTT sensor telemetry run once a minute. Tasmota keeps its web page, timers and button.
 
 ## What you need
 
@@ -42,6 +42,8 @@ For Voltage, Current and Energy today, see the longer line and its tradeoffs in 
 
 Setup adds **Tasmota: email when the power passes a limit**, switched on. It emails once above 1000 W, then waits until power returns to 900 W or lower before emailing on another rise. If a reading returns above the limit after a week without it, it can email again.
 
+The routine emails at most once an hour per device; quiet and doorbell alerts share the account’s ten hourly alert emails.
+
 ## Go back
 
 Paste this into Tasmota's console, then delete the device in Warblet:
@@ -66,4 +68,4 @@ This disables and clears the demo's rule and restores Tasmota's five-minute repo
 
 ## Make it real
 
-In Warblet's **Routines**, edit the installed routine's `FIELD`, `LIMIT`, `BELOW` and `MARGIN`; [power-limit.star](power-limit.star) explains them. For a washer, `LIMIT = 5` and `BELOW = True` email on the first idle reading, then after each run that reached `LIMIT + MARGIN`. Editing the file here does not change the routine in your account.
+In Warblet's **Routines**, edit the installed routine's `FIELD`, `LIMIT`, `BELOW` and `MARGIN`; [power-limit.star](power-limit.star) explains them. For a washer, `LIMIT = 5` and `BELOW = True` email on the first idle reading, then after a run that reached `LIMIT + MARGIN`, subject to the same hourly email limit. Editing the file here does not change the routine in your account.

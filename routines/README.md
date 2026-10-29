@@ -59,7 +59,7 @@ The [XIAO ESP32-S3 Sense guide](../xiao-esp32s3-sense-cam/README.md#email-a-phot
 4. Use dry runs to inspect the proposed actions, then enable both routines.
 5. Press BUT1. Look for a camera image tagged `snap` and an email action in the routine’s run log.
 
-The button script acts on decoded `on_press`; the email script acts on the camera’s `snap` tag. Scheduled `heartbeat` pictures do not request email. `COOLDOWN_MS = 120000` limits email requests to one every two minutes; account alert limits also apply.
+The button script acts on decoded `on_press`; the email script acts on the camera’s `snap` tag. Scheduled `heartbeat` pictures do not request email. `COOLDOWN_MS = 900000` limits photo emails to one every 15 minutes, at most four an hour; account alert limits also apply.
 
 ## Make it real
 

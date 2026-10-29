@@ -169,6 +169,8 @@ For terminal setup at 115200 baud, follow the [ESP32 connection guide](../esp32-
 
 A later push can contain only changed fields. Sending blank settings does not erase the setup.
 
+A push with `claim` or a changed `hwid` (including letter case) starts a new device. It clears the stored signing key unless the same push supplies `key`. Token-only or network-only updates keep the key; a key-only update replaces it.
+
 </details>
 
 ## Data and commands

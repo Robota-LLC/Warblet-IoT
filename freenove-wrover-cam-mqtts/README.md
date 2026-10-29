@@ -64,6 +64,8 @@ esptool --chip esp32 --port <PORT> write_flash 0x10000 build/freenove-wrover-cam
 
 You can also select the image in https://warbletiot.com/flash. Use `build/freenove-wrover-cam-mqtts-full.bin` at `0x0` for an initial install, or `build/freenove-wrover-cam-mqtts-update.bin` at `0x10000` for an app update. A merged-image write can erase stored credentials.
 
+An app-only update to v1.6.0 keeps Wi-Fi, server and device settings. After you send settings under v1.6.0, older firmware needs USB setup if installed again. Returning to v1.6.0 with an app-only write uses its last saved setup.
+
 ## Set up the connection
 
 1. Open https://warbletiot.com/flash in Chrome or Edge and connect the board’s serial port.
@@ -79,7 +81,11 @@ CHIRP+ {"ssid":"YOUR_WIFI","pass":"YOUR_WIFI_PASSWORD","hwid":"YOUR_DEVICE_ID","
 
 The board saves settings in NVS flash and restarts. Later pushes can contain only changed fields. The optional `key` is a base64-encoded 32-byte signing key; use either `claim` or `token`, not both. Invalid settings are refused without saving.
 
+A push with `claim` or a changed `hwid` (including letter case) starts a new device. It clears the stored signing key unless the same push supplies `key`. Token-only or network-only updates keep the key; a key-only update replaces it.
+
 An `aps` list can hold up to eight networks. The demo tries visible networks from strongest to weakest signal, then any remaining networks in saved order. Sending `ssid` without `aps` replaces the list with one network. A stored `host` overrides the default `mqtt.warbletiot.com`.
+
+For `host`, use only letters, digits, dots and hyphens: a hostname or IPv4 address, without a scheme or `:port`. Other characters return `err bad-json`; the port is fixed in the firmware.
 
 ## Data and commands
 
@@ -100,7 +106,7 @@ Health JSON uses the same envelope and signs the `health` tag. For example:
 {"warbletCameraHealth":1,"camera":"unavailable","error":-1,"attempts":1,"uptime_s":125,"snap":"failed"}
 ```
 
-`snap` is `none` until a requested capture fails, and clears after any successful image publish. A received JPEG likewise clears that earlier failure. `ready` means the camera initialized or captured a frame; it does not confirm broker delivery. Each health report is under 192 bytes. A healthy board sends 288 scheduled images per day; a failed camera sends 288 health reports instead, plus health after transitions, connections and requested captures. Regular fault health uses under 56 KiB per day and 288 messages from the account's default 500,000-message daily budget.
+`snap` is `none` until a requested capture fails, and clears after any successful image publish. A received JPEG likewise clears that earlier failure. `ready` means the camera is available for another capture; it does not confirm broker delivery. After a failed capture, `error` gives the failure; a good frame resets it to 0. Each health report is under 192 bytes. A healthy board sends 288 scheduled images per day; a failed camera sends 288 health reports instead, plus health after transitions, connections and requested captures. Regular fault health uses under 56 KiB per day and 288 messages from the account's default 500,000-message daily budget.
 
 These messages have no nonce and no replay protection. They use QoS 0, which has no delivery acknowledgement. Confirm receipt on the device page. The 256 KiB message limit includes the 32 signature bytes when present.
 
@@ -118,7 +124,7 @@ Replace `camera_init()`, `camera_capture()`, and `camera_release()` in `main/cam
 
 Keep the interface in `main/camera.h`: capture returns a byte pointer and length, valid until release. `report_camera()` publishes completed captures before releasing them. For non-image data, replace the JPEG check and update `decoder.star`. Set the image interval with `REPORT_PERIOD_MS` in `main/chirp_mqtt.c` and the health interval with `HEALTH_PERIOD_MS` at the top of `main/main.c`.
 
-The camera worker makes one initialization attempt per boot, including the software-JPEG fallback when supported. After a returned setup or capture failure, it reports `unavailable` and waits for restart before another setup attempt. Reinitializing an already-failed sensor proved unsafe on the tested board, so the firmware does not retry automatically. A camera operation that exceeds 20 seconds is quarantined: the firmware reports `stalled` and makes no overlapping driver calls until restart. PWDN and RESET are unconnected, so firmware cannot power-cycle the camera module. Power off to inspect or reseat the camera before restarting; a software restart alone does not reset the sensor's power.
+The camera worker makes one initialization attempt per boot, including the software-JPEG fallback when supported. A failed capture skips that frame and retries on the next capture. Only a failed initialization reports `unavailable` and waits for a restart. A camera operation that exceeds 20 seconds is quarantined: the firmware reports `stalled` and makes no overlapping driver calls until restart. PWDN and RESET are unconnected, so firmware cannot power-cycle the camera module. Power off to inspect or reseat the camera before restarting; a software restart alone does not reset the sensor's power.
 
 ## Security notes
 
@@ -132,7 +138,8 @@ NVS stores Wi-Fi passwords, the device token and signing key unencrypted. USB ac
 |---|---|
 | No networks stored | Send Wi-Fi settings and a device credential. |
 | JPEG format unsupported at startup | The driver tries RGB565 and software JPEG; check whether the next camera initialization succeeds. |
-| Camera probe or capture fails | Check the reported camera status. Power off, check ribbon seating and power, then restart. Check PSRAM settings too. |
+| Capture fails | The next capture retries automatically. For repeated failures, check ribbon seating, power and PSRAM settings. |
+| Camera probe fails | Power off, check ribbon seating, power and PSRAM settings, then restart. |
 | Camera stalled | Networking continues, but the timed-out driver is isolated until restart. Power off and check the camera connection before restarting. |
 | Picture is mirrored | Check `CAM_HMIRROR` for software-encoded frames. |
 | Frame-age message | Capture is discarding an old queued frame. Repeated stale results can mean the sensor is delivering slowly. |
