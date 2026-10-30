@@ -88,9 +88,9 @@ A tap anywhere sends one "seen" with the first 60 letters of the message; tappin
 
 **Not on an account** (amber) means Warblet does not know the board: its device was deleted, or it was never added to an account. The screen clears and says **Set me up at warbletiot.com/flash**. Nothing the board sends would reach an account, so it stops: no reports, no checks for messages, and it leaves its Wi-Fi network (the radio stays on), across restarts too, until a new setup over USB at warbletiot.com/flash.
 
-If Wi-Fi is up but nothing has answered for 10 minutes, the board restarts itself; any answer from Warblet, a refusal too, counts. A network that blocks network time (NTP) counts as no answer too: the board cannot send without the date, so the strip says **Warblet: no answer** and the same restart applies. A restart clears the message; the routine sends the disk line again after the board's first report, if it is less than 10 minutes old.
+If Wi-Fi is up but Warblet gives no answer, the board keeps retrying and leaves the message on screen. Reports and message checks resume when the connection returns. If the network blocks network time (NTP), the strip says **Warblet: no answer**: the board needs the date before it can send.
 
-A new setup over USB that changes the board's id or its token restarts it as well, so it starts afresh under the new setup, says hello, and shows nothing the old one had. New Wi-Fi alone is used without a restart, and the message stays.
+A new setup over USB that changes the board's id or its token restarts it, so it starts afresh under the new setup, says hello, and shows nothing the old one had. New Wi-Fi alone is used without a restart, and the message stays.
 
 Each message the board sends is said on the Serial Monitor with the memory left, for example `desk: report stored, 172000 bytes free, largest block 110000`.
 

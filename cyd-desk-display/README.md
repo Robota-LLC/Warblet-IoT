@@ -59,7 +59,7 @@ The top strip shows the connection: joining Wi-Fi, reaching Warblet, then **Conn
 
 If Wi-Fi drops, the board retries and keeps the message on screen. A tap made while offline shows **Seen: not sent yet** and waits for a connection. A new message or a restart clears that pending tap.
 
-If Wi-Fi stays connected but Warblet gives no answer for about ten minutes, the board restarts and clears the message. This can happen during an internet outage even with the router on. Send the message again when the connection returns.
+If Wi-Fi stays connected but Warblet gives no answer, the board keeps retrying and leaves the message on screen. Reports and message checks resume when the connection returns.
 
 **Not set up** means the board needs USB setup. **Not on an account** means Warblet no longer recognizes its setup; the board stops communicating and needs USB setup again. Deleting a device from the dashboard does not erase its Wi-Fi settings or keys from the board.
 
