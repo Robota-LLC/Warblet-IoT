@@ -10,8 +10,13 @@ import sys
 import time
 
 SLUG = "demo-open-starter"          # which demo this is, for the setup page
+FW = "v1.6.0"                       # the release these files last changed in
 CFG_PATH = "open_cfg.json"          # where the settings live on the board
 TEXT_FIELDS = ("ssid", "pass", "hwid")
+HOST = "http.warbletiot.com"        # main.py's: a push may name it, never another
+# What this firmware can do, for the setup page: Open only, no key, plain HTTP.
+CAPS = ('{"v":1,"auth":[0],"keyProvisioning":[],"otaKeyRotation":false,'
+        '"otaFirmwareUpdate":false,"transports":["http"]}')
 ID_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:-_."
 MAX_LINE = 4096                     # a setup line is never longer; more is junk
 
@@ -115,7 +120,8 @@ def _handle(raw):
     except UnicodeError:
         return
     if line == "CHIRP?":
-        print("CHIRP! v=1 hw={} radios=wifi t={}".format(config.get("hwid", ""), SLUG))
+        print("CHIRP! v=1 hw={} fw={} key_set=0 radios=wifi t={} caps={}".format(
+            config.get("hwid", ""), FW, SLUG, CAPS))
     elif line.startswith("CHIRP+"):
         answer = _apply(line[6:].strip())
         print("CHIRP= " + answer)
@@ -132,8 +138,15 @@ def _apply(body):
         return "err bad-json"
     if not isinstance(push, dict):
         return "err bad-json"
-    if "claim" in push or "token" in push:
-        return "err unsupported"    # Open: this firmware never sends a credential
+    # Open: no credential, no key, and no host but its own. Any field this
+    # firmware does not use is refused by name (the first in A-Z order).
+    refused = [k for k in push if k not in TEXT_FIELDS + ("aps", "host")
+               or (k == "host" and push[k] != HOST)]
+    if refused:
+        if any(not 0 < len(k) <= 32 or any(c not in ID_CHARS or c == ":" for c in k)
+               for k in refused):
+            return "err bad-json"       # a name that cannot go on the answer line
+        return "err unsupported " + min(refused)
     new = dict(config)
     for name in TEXT_FIELDS:
         if name in push:

@@ -54,14 +54,13 @@
         "offset": "0x0"
       }
     ],
-    "files": ["main.py", "open_setup.py"]
+    "files": ["main.py", "open_setup.py"],
+    "capabilities": {"v": 1, "auth": [0], "keyProvisioning": [], "otaKeyRotation": false, "otaFirmwareUpdate": false, "transports": ["http"]},
+    "fw": "v1.6.0"
   },
   "provision": {
-    "protocol": "chirp-prov/1.6",
+    "protocol": "chirp-prov/1.8",
     "host": "http.warbletiot.com",
-    "commands": [],
-    "knobs": {
-      "level": {"max": 0}
-    }
+    "commands": []
   }
 }

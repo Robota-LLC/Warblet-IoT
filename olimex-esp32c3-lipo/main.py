@@ -4,19 +4,17 @@ import struct
 import time
 
 import machine
-import network
 
-import chirp_prov
-import chirp_send
+import warblet        # USB setup, Wi-Fi and messages to Warblet
 
 INTERVAL_S = 30      # heartbeat gap; a press does not wait for it
-COMMAND_POLL_S = 5   # wait after each command check; a check takes about 1 s
 BUTTON_POLL_INTERVAL_MS = 20   # how often we look at the button
 DEBOUNCE_MS = 40     # a press must still read down this much later
 RESTART_AFTER_ERROR_S = 10  # pause before restarting after an unexpected error
 
-# Demo identifier included in the USB announce.
+# What the setup page sees: this demo, and the release its files last changed in.
 DEMO_SLUG = "demo-olimex-c3"
+DEMO_VERSION = "v1.6.0"
 
 # A message sent because of a press carries this tag, so a routine can
 # react to presses without decoding the payload.
@@ -29,6 +27,7 @@ LED_ACTIVE_LOW = True
 BUTTON_PIN = 9
 BUTTON_ACTIVE_LOW = True
 
+led = None            # the LED, once open_led() has run
 led_is_on = False     # what the last command asked for
 
 
@@ -89,20 +88,9 @@ def on_downlink(led, msg):
     print("chirp: down", cmd.decode(), "-- LED", "ON" if led_is_on else "OFF")
 
 
-def check_for_command(config, led):
-    """Ask Warblet for one waiting command and act on it. Another waiting
-    command comes at the next check."""
-    if not network.WLAN(network.STA_IF).isconnected():
-        return
-    try:
-        code, command = chirp_send.poll(config)
-    except Exception as e:
-        print("chirp: command check failed:", e)
-        return
-    if code == 200 and command is not None:
-        on_downlink(led, command)
-    elif code not in (200, 204):
-        print("chirp: command check replied", code)
+def on_command(command):
+    """Each command from the dashboard, as bytes."""
+    on_downlink(led, command)
 
 
 def open_button():
@@ -151,60 +139,43 @@ def encode_button_report(presses, flags):
     return struct.pack(">HB", presses, flags & 0xFF)
 
 
-def wait_for_press(config, led, button, was_up, seconds):
-    """Between reports: answer USB setup, watch the button, and ask for a
-    command every COMMAND_POLL_S. Return (press_detected, button_is_up)
-    as soon as there is a press, or when the time is up."""
+def wait_for_press(button, was_up, seconds):
+    """Between reports: watch the button while warblet.wait() answers USB
+    setup and asks for commands. Return (press_detected, button_is_up) as
+    soon as there is a press, or when the time is up."""
     deadline = time.ticks_add(time.ticks_ms(), int(seconds * 1000))
-    next_check = time.ticks_ms()
     while time.ticks_diff(deadline, time.ticks_ms()) > 0:
-        chirp_prov.service(config, BUTTON_POLL_INTERVAL_MS / 1000.0)
+        warblet.wait(BUTTON_POLL_INTERVAL_MS / 1000.0)
         new_press, was_up = check_button(button, was_up)
         if new_press:
             return True, was_up
-        if time.ticks_diff(time.ticks_ms(), next_check) >= 0:
-            check_for_command(config, led)
-            next_check = time.ticks_add(time.ticks_ms(), COMMAND_POLL_S * 1000)
     return False, was_up
 
 
 def main():
+    global led
     led = open_led()
     button = open_button()
-    chirp_prov.set_slug(DEMO_SLUG)
-    config = chirp_prov.load()
-
-    # Wait for USB setup. A successful config push restarts the board.
-    if not chirp_prov.ready(config):
-        print("chirp: not provisioned -- waiting on USB, warbletiot.com/flash")
-        while True:
-            chirp_prov.service(config, 1)
-
-    print("chirp: reporting as", config["hwid"],
-          "signed" if config.get("key") else "token only")
+    warblet.demo(DEMO_SLUG, DEMO_VERSION)
+    warblet.on_command(on_command)
+    warblet.begin()       # the first time, waits here for USB setup
 
     presses = 0
     was_up = not pressed(button)
     on_press = False
     while True:
-        if chirp_prov.connect_wifi(config):
+        if warblet.connected():
             flags = 0
             if pressed(button):
                 flags |= FLAG_BUTTON_DOWN
             if on_press:
                 flags |= FLAG_ON_PRESS
             tag = PRESS_TAG if on_press else None
-            try:
-                code = chirp_send.send(config, encode_button_report(presses,
-                                                                 flags), tag)
-                if 200 <= code < 300:
-                    print("chirp: sent presses={} flags=0x{:02x}{}".format(
-                        presses, flags, " tag=" + tag if tag else ""))
-                    blink(led)
-                else:
-                    print("chirp: ingest replied", code)
-            except Exception as e:
-                print("chirp: send failed:", e)
+            code = warblet.send(encode_button_report(presses, flags), tag)
+            if 200 <= code < 300:
+                print("chirp: sent presses={} flags=0x{:02x}{}".format(
+                    presses, flags, " tag=" + tag if tag else ""))
+                blink(led)
 
         if on_press:
             # Your own press clears your own light: the other board's
@@ -213,8 +184,7 @@ def main():
             print("chirp: own press -- LED OFF")
 
         # Check the button, commands and USB setup between reports.
-        on_press, was_up = wait_for_press(config, led, button, was_up,
-                                          INTERVAL_S)
+        on_press, was_up = wait_for_press(button, was_up, INTERVAL_S)
         if on_press:
             presses += 1
 
