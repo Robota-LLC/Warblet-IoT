@@ -13,11 +13,13 @@ import time
 import machine
 import network
 
-import chirp_prov
-import chirp_send
+import warblet         # USB setup, Wi-Fi, the clock and signing
+import warblet_http    # enables reports and messages over plain HTTP; keep this import
 import screen
 
+# What the setup page sees: this demo, and the release its files last changed in.
 DEMO_SLUG = "demo-cyd-desk-display"
+DEMO_VERSION = "v1.6.0"
 REPORT_EVERY_S = 30   # a report with the Wi-Fi signal; it also shows Warblet the board is there
 CHECK_EVERY_S = 5     # how often to ask Warblet for new messages
 MOST_PER_CHECK = 10   # messages taken in one check, so a long queue cannot hold up the loop
@@ -205,7 +207,7 @@ def check_messages(config):
     """Take every message waiting (up to MOST_PER_CHECK) and show each.
     Returns the HTTP status of the last check."""
     for _ in range(MOST_PER_CHECK):
-        code, command = chirp_send.poll(config)
+        code, command = warblet_http.poll()
         if code != 200:
             return code
         if command is not None:
@@ -217,7 +219,7 @@ def report(config, tag=None, body=None):
     """Send one message up. Returns the HTTP status."""
     if body is None:
         body = {"wifi_dbm": network.WLAN(network.STA_IF).status("rssi")}
-    code, answer = chirp_send.send_answer(config, json.dumps(body).encode(), tag)
+    code, answer = warblet_http.send_answer(json.dumps(body).encode(), tag)
     gc.collect()
     print("chirp: sent", tag or "report", "->", code, "free", gc.mem_free())
     if answer == "unclaimed":               # no account has this board
@@ -273,7 +275,7 @@ def no_account(config):
     print("chirp: Warblet does not know this board -- set it up at warbletiot.com/flash")
     network.WLAN(network.STA_IF).active(False)
     while True:
-        chirp_prov.service(config, 1)
+        warblet.service(1)
 
 
 def send_seen(config):
@@ -296,7 +298,7 @@ def wait(config, seconds, online):
     deadline = time.ticks_add(time.ticks_ms(), int(seconds * 1000))
     pressed = False
     while time.ticks_diff(deadline, time.ticks_ms()) > 0:
-        chirp_prov.service(config, 0.05)
+        warblet.service(0.05)
         touch = screen.touched()
         if touch and not pressed and message and seen in ("", "waiting"):
             if online:
@@ -313,7 +315,7 @@ def connect_wifi(config):
     if network.WLAN(network.STA_IF).isconnected():
         return True
     show_status("Joining Wi-Fi", AMBER)
-    if chirp_prov.connect_wifi(config):
+    if warblet.connected():
         show_status("Reaching Warblet", AMBER)   # until the first check is done
         return True
     show_status("No Wi-Fi, retrying", AMBER)
@@ -338,16 +340,14 @@ last_report = None
 
 
 def main():
-    chirp_prov.set_slug(DEMO_SLUG)
+    warblet.demo(DEMO_SLUG, DEMO_VERSION)
     print(screen.start())
     show_guess()
-    config = chirp_prov.load()
-    if not chirp_prov.ready(config):
+    if not warblet.ready(warblet.load()):
         show_status("Not set up", RED)
         show_message("Set me up at warbletiot.com/flash")
-        print("chirp: not provisioned -- waiting on USB, warbletiot.com/flash")
-        while True:
-            chirp_prov.service(config, 1)
+    warblet.begin()       # the first time, waits here for USB setup
+    config = warblet.config
     if refused(config):
         no_account(config)
 

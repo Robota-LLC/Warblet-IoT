@@ -1,40 +1,33 @@
-# HTTPS reports and commands: the part of warblet.py that sends. main.py
-# imports it after warblet, and its last line adds it to warblet:
+# Reports and commands: the part of warblet.py that sends. It comes as two
+# files that differ only in the block marked "this part's own" below:
+# warblet_https.py speaks HTTPS, warblet_http.py plain HTTP. main.py imports
+# one of them after warblet, and its last line adds it to warblet:
 #
 #     import warblet
-#     import warblet_https
+#     import warblet_https    # or warblet_http
 #
 # Its two main settings go on warblet, where main.py changes them after the
 # imports: warblet.HOST and warblet.COMMAND_EVERY_S (below). A setting in
 # capitals here can be changed the same way, for example
 # warblet_https.TIMEOUT_S = 30.
 
-# ---- HTTPS: reports and commands -------------------------------------------
+# ---- reports and commands ---------------------------------------------------
 # send() posts a reading; send_answer() also says whether Warblet knows the
-# board; poll() asks for one waiting command. The server certificate must
-# chain to a root in CA_ROOTS below and match the host name, or the request
-# fails.
-# Certificate dates need a set clock, so nothing is sent without one, and a
-# signed message always carries a timestamp nonce.
+# board; poll() asks for one waiting command. A signed message always carries
+# a timestamp nonce, so nothing signed is sent without a set clock.
 import network
 import socket
 import time
 
 import warblet
 
-# Where to send (a host the setup page stored wins), and how often to ask for
-# a command (a check takes about 1 s).
-warblet.HOST = "https.warbletiot.com"
-warblet.COMMAND_EVERY_S = 5
-
+# ---- this part's own: HTTPS -------------------------------------------------
+# Every request is TLS to port 443. The server certificate must chain to a
+# root in CA_ROOTS below and match the host name, or the request fails.
+# Certificate dates need a set clock, so nothing is sent without one.
+ROUTES = ["https"]
+HOST = "https.warbletiot.com"
 PORT = 443
-TIMEOUT_S = 20
-
-# Dashboard commands are at most 256 bytes; a bigger reply is not a command.
-MAX_COMMAND_BYTES = 1024
-
-
-# ---- TLS: the roots Warblet's certificates chain to ------------------------
 
 # Let's Encrypt roots. X2 and X1 anchor today's chains; YE and YR are their
 # successors. One string each, loaded one at a time: all four in one string
@@ -165,6 +158,28 @@ def tls_context():
     return _tls
 
 
+def _wrap(s, host):
+    # The connection as TLS, checked against the host name. Roots that do not
+    # load: no request, never an unchecked one.
+    ctx = tls_context()
+    try:
+        return ctx.wrap_socket(s, server_hostname=host)
+    except (OSError, ValueError) as e:
+        # MicroPython raises ValueError for a rejected certificate.
+        raise OSError("TLS to {} refused: {}".format(host, e))
+# ---- end of this part's own -------------------------------------------------
+
+# Where to send (a host the setup page stored wins), and how often to ask for
+# a command (a check takes about 1 s).
+warblet.HOST = HOST
+warblet.COMMAND_EVERY_S = 5
+
+TIMEOUT_S = 20
+
+# Dashboard commands are at most 256 bytes; a bigger reply is not a command.
+MAX_COMMAND_BYTES = 1024
+
+
 def _read_exactly(s, count):
     # Exactly `count` bytes from the connection, or OSError if it ends first.
     data = b""
@@ -221,7 +236,7 @@ def _read_reply_body(s):
 
 
 def _request(method, host, path, headers, body=None, want_reply=False):
-    # One HTTPS request with `Connection: close`. Returns (HTTP status code,
+    # One request with `Connection: close`. Returns (HTTP status code,
     # reply body or None). Only a 200 answer to a GET carries a body we use,
     # and a 2xx answer to a POST when the caller wants Warblet's word on it;
     # for anything else the status is enough, so we do not wait for more.
@@ -230,12 +245,7 @@ def _request(method, host, path, headers, body=None, want_reply=False):
     try:
         s.settimeout(TIMEOUT_S)
         s.connect(addr)
-        ctx = tls_context()   # roots that do not load: no request, never an unchecked one
-        try:
-            s = ctx.wrap_socket(s, server_hostname=host)
-        except (OSError, ValueError) as e:
-            # MicroPython raises ValueError for a rejected certificate.
-            raise OSError("TLS to {} refused: {}".format(host, e))
+        s = _wrap(s, host)    # this part's connection: TLS, or as it is
         lines = ["{} {} HTTP/1.1".format(method, path),
                  "Host: {}".format(host),
                  "Connection: close"]
@@ -401,4 +411,4 @@ def upkeep(handler):
 
 
 # This part's routes, its send() and its upkeep(), added to warblet.
-warblet.add_part(["https"], send, upkeep)
+warblet.add_part(ROUTES, send, upkeep)

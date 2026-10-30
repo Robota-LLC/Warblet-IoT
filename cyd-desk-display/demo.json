@@ -41,14 +41,13 @@
         "offset": "0x1000"
       }
     ],
-    "files": ["main.py", "screen.py", "chirp_prov.py", "chirp_send.py", "chirp_sign.py"]
+    "files": ["main.py", "screen.py", "warblet.py", "warblet_http.py"],
+    "capabilities": {"v": 1, "auth": [1, 2], "keyProvisioning": ["usb"], "otaKeyRotation": false, "otaFirmwareUpdate": false, "transports": ["http"]},
+    "fw": "v1.6.0"
   },
   "provision": {
-    "protocol": "chirp-prov/1.6",
-    "host": "https.warbletiot.com",
-    "commands": ["clear", "info:"],
-    "knobs": {
-      "level": {"max": 2}
-    }
+    "protocol": "chirp-prov/1.8",
+    "host": "http.warbletiot.com",
+    "commands": ["clear", "info:"]
   }
 }
