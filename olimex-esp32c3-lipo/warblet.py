@@ -21,10 +21,6 @@
 # example warblet.WIFI_TIMEOUT_S = 30. The part adds its own settings here as
 # it is imported: warblet_https.py adds warblet.HOST and
 # warblet.COMMAND_EVERY_S.
-#
-# Comments here, not docstrings: a board holds every docstring in memory while
-# it compiles a file, and comments cost it nothing. Two files of this size,
-# written this way, compile on a board with little memory to spare.
 import json
 import machine
 import network
@@ -122,20 +118,52 @@ def add_part(transports, send, upkeep, fields=None):
 
 def send(payload, tag=None):
     # Send the payload bytes, with an optional tag saying what the message is
-    # (for example "press"), over the part's route. True when Warblet took
-    # it; False when it did not, and the console says why. The part's next
-    # turn comes at once: an answer may be waiting.
-    global _turn_at
-    _turn_at = time.ticks_ms()
+    # (for example "press"), over the part's route. True when it went; what
+    # "went" means is the part's (its send() says). False when it did not,
+    # and the console says why.
+    turn_now()
     return _send(payload, tag)
 
 
+def turn_now():
+    # Give the part its turn at once, at the next pass of wait(): after a
+    # message, an answer to it may be waiting. A part calls it too.
+    global _turn_at
+    _turn_at = time.ticks_ms()
+
+
+# ---- the store -------------------------------------------------------------
+# The promise: after one failed operation in a save, or a power cut at any
+# point, and any number of later saves, the board still holds a complete copy
+# of its settings, and the answer it gave is what the next start reads. The
+# one exception: when the flash cannot confirm a store (os.sync() fails), the
+# answer is store-failed and the board cannot know which copy the next start
+# reads; another push settles it. Two failures inside one save are not
+# covered.
+#
+# A save writes the new settings whole to NEW_PATH, syncs, and renames it over
+# CFG_PATH. On LittleFS that rename replaces the file in one step; FAT's rename
+# removes the old file first, so a failure there can leave only the new copy,
+# which the next start then reads. settle() runs first, at every start and
+# every save.
+
+ENOENT = 2  # "no such file": the only error that means a file is not there
+
+
 def _read(path):
-    # The settings in this file, or None when it is missing or not whole.
+    # The settings in this file, or None when there is no file or it does not
+    # parse as settings. An error reading a file that is there raises OSError:
+    # that file may be good, so nothing is decided from it.
     try:
         with open(path) as f:
-            stored = json.load(f)
-    except (OSError, ValueError):
+            text = f.read()
+    except OSError as e:
+        if e.args[0] == ENOENT:
+            return None
+        raise
+    try:
+        stored = json.loads(text)
+    except ValueError:
         return None
     return stored if isinstance(stored, dict) else None
 
@@ -157,22 +185,35 @@ def _sync():
 
 def settle():
     # Leave the stored settings under the live name, and return (them, True),
-    # or (them, False) when they could only be read from the new copy. A live
-    # file that reads whole wins: a new copy beside it is a save that did not
-    # finish, and goes. Otherwise a new copy that reads whole is a save that
-    # finished all but its rename, and takes the live name now.
-    stored = _read(CFG_PATH)
-    if stored is not None:
+    # or (them, False) when the new copy must be kept as it is. A live file
+    # that is ready() wins, and a new copy beside it is a save that did not
+    # finish: it goes. Otherwise a new copy that is ready() is a save that
+    # finished all but its rename: it takes the live name, synced before that
+    # name is written again. A live file that cannot be read may be good: the
+    # board runs on the new copy for now, and nothing is replaced or removed.
+    try:
+        live = _read(CFG_PATH)
+    except OSError:
+        try:
+            new = _read(NEW_PATH)
+        except OSError:
+            new = None
+        return (new if new and ready(new) else {}), False
+    if live and ready(live):
         _remove(NEW_PATH)
-        return stored, True
-    stored = _read(NEW_PATH)
-    if stored is None:
-        return {}, True
+        return live, True
+    try:
+        new = _read(NEW_PATH)
+    except OSError:
+        return live or {}, False  # the new copy may be the good one: keep it
+    if not (new and ready(new)):
+        return live or {}, True
     try:
         os.rename(NEW_PATH, CFG_PATH)
+        _sync()
     except OSError:
-        return stored, False  # the board runs on the new copy for now
-    return stored, True
+        return new, False  # the board runs on the new copy for now
+    return new, True
 
 
 def load():
@@ -181,15 +222,13 @@ def load():
 
 
 def save(settings):
-    # Store the settings, or raise OSError (store-failed) when the next start
-    # will read the previous ones. A new copy is written and closed, then
-    # renamed over the live file. On LittleFS that rename replaces the file
-    # in one step. FAT's rename removes the old file first, so a failure can
-    # leave only the new copy: the next start reads it, so that is stored.
+    # Store the settings (ready() ones: apply_config_push() checks), or raise
+    # OSError (store-failed) when the next start will read the previous ones,
+    # or the flash cannot confirm the store.
     if not settle()[1]:
-        # The settings were read from the new copy, which kept its name.
-        # Writing over it would risk the only good copy.
-        raise OSError("the stored settings are only in " + NEW_PATH)
+        # The good copy may be the new one, or the live one cannot be read:
+        # writing now could lose it.
+        raise OSError("the stored settings cannot be replaced safely now")
     try:
         with open(NEW_PATH, "w") as f:
             json.dump(settings, f)
@@ -202,14 +241,14 @@ def save(settings):
     except OSError:
         try:
             os.stat(CFG_PATH)
-        except OSError:
-            return  # the old file is gone: the new copy is what is stored
+        except OSError as e:
+            if e.args[0] != ENOENT:
+                raise  # no telling which copy is there, so both are kept
+            _sync()    # FAT removed the old file: the new copy is the stored one
+            return
         _remove(NEW_PATH)  # the old file stands
         raise
-    try:
-        _sync()
-    except OSError:
-        pass  # renamed: these are the stored settings either way
+    _sync()
 
 
 def ready(settings):
@@ -354,7 +393,8 @@ def valid_hwid(value):
 
 def fits(name, value):
     # True when a pushed text is within the contract's bounds: an ssid of 1 to
-    # 32 bytes, a pass of up to 64, a claim or token of 1 to 63 characters, a
+    # 32 bytes, a pass of up to 64, a claim or token of 1 to 63 printable ASCII
+    # characters, a
     # host of up to 63 letters, digits, . and -, an id in the platform's
     # grammar, and a key that will sign.
     if name == "ssid":
@@ -362,7 +402,7 @@ def fits(name, value):
     if name == "pass":
         return len(value.encode()) <= 64
     if name in ("claim", "token"):
-        return 0 < len(value) <= 63
+        return 0 < len(value) <= 63 and all(" " <= c <= "~" for c in value)
     if name == "host":
         return len(value) <= 63 and all(c in HOST_CHARS for c in value)
     if name == "hwid":
@@ -589,8 +629,8 @@ def require_clock():
     if time.time() + _EPOCH_OFFSET < _CLOCK_SANE:
         sync_clock()
     if time.time() + _EPOCH_OFFSET < _CLOCK_SANE:
-        raise OSError("no clock, so the server certificate cannot be checked "
-                      "-- allow NTP on this network")
+        raise OSError("no clock: a signed message's nonce and a certificate's dates "
+                      "need one -- allow NTP on this network")
     if _ntp_at is None or time.time() - _ntp_at > _ntp_wait:
         sync_clock()  # a failed re-sync keeps the clock it has
 

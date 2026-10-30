@@ -12,7 +12,8 @@
 # ---- HTTPS: reports and commands -------------------------------------------
 # send() posts a reading; send_answer() also says whether Warblet knows the
 # board; poll() asks for one waiting command. The server certificate must
-# chain to a root below and match the host name, or the request fails.
+# chain to a root in CA_ROOTS below and match the host name, or the request
+# fails.
 # Certificate dates need a set clock, so nothing is sent without one, and a
 # signed message always carries a timestamp nonce.
 import network
@@ -34,15 +35,10 @@ MAX_COMMAND_BYTES = 1024
 
 
 # ---- TLS: the roots Warblet's certificates chain to ------------------------
-# The part that sends carries the roots its transport checks against: here
-# HTTPS. In warblet.py they made it too big to compile on the CYD (with its
-# screen loaded) without taking memory from the system heap, which TLS needs.
-# One string per root, not one of all four: a 5 KB string needs 5 KB in one
-# piece while this file compiles, and with warblet already loaded the heap
-# has no piece that big. They are joined once, when the first request needs
-# them.
 
-# Let's Encrypt roots. X2 and X1 anchor today's chains; YE and YR are their successors.
+# Let's Encrypt roots. X2 and X1 anchor today's chains; YE and YR are their
+# successors. One string each, joined when the first request needs them: one
+# string of all four would need 5 KB in one piece while this file compiles.
 # ISRG Root X2: https://letsencrypt.org/certs/isrg-root-x2.pem
 # SHA-256 (DER): 69729B8E15A86EFC177A57AFB7171DFC64ADD28C2FCA8CF1507E34453CCB1470
 # ISRG Root X1: https://letsencrypt.org/certs/isrgrootx1.pem
@@ -145,23 +141,26 @@ sI1ANRYvqSFC2X1VRZfDg+wD6E21BccmifG4yWc=
 """,
 )
 
-_ctx = None
+_tls = None
 
 
 def tls_context():
-    # The context that refuses any chain not ending at CA_ROOTS, built once:
-    # one per request holds its parsed roots until gc runs, and a dozen
-    # back-to-back handshakes exhaust the heap. wrap_socket(server_hostname=...)
-    # adds the host name check. It needs ssl.SSLContext with cadata, which a
-    # recent MicroPython has (these demos pin 1.28.0) and v1.14 has not.
-    global _ctx
-    if _ctx is None:
+    # The TLS context for every request, built once (one per request would
+    # hold its parsed roots until gc runs, and a dozen handshakes exhaust the
+    # heap). It refuses any chain that does not end at CA_ROOTS, and
+    # wrap_socket(..., server_hostname=host) adds the host name check. Roots
+    # that will not load raise OSError: no connection, never an unchecked one.
+    global _tls
+    if _tls is None:
         import ssl
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ctx.verify_mode = ssl.CERT_REQUIRED
-        ctx.load_verify_locations(cadata="".join(CA_ROOTS))
-        _ctx = ctx
-    return _ctx
+        try:
+            ctx.load_verify_locations(cadata="".join(CA_ROOTS))
+        except (OSError, ValueError) as e:
+            raise OSError("the roots in this file do not load ({}), so nothing is sent".format(e))
+        _tls = ctx
+    return _tls
 
 
 def _read_exactly(s, count):
@@ -229,8 +228,9 @@ def _request(method, host, path, headers, body=None, want_reply=False):
     try:
         s.settimeout(TIMEOUT_S)
         s.connect(addr)
+        ctx = tls_context()   # roots that do not load: no request, never an unchecked one
         try:
-            s = tls_context().wrap_socket(s, server_hostname=host)
+            s = ctx.wrap_socket(s, server_hostname=host)
         except (OSError, ValueError) as e:
             # MicroPython raises ValueError for a rejected certificate.
             raise OSError("TLS to {} refused: {}".format(host, e))
@@ -378,9 +378,11 @@ _next_check = 0  # when upkeep() next asks for a command (time.ticks_ms())
 
 def check_now():
     # Make the next upkeep() ask for a command at once (after each report:
-    # an answer to it may be waiting).
+    # an answer to it may be waiting), and have wait() give upkeep() its turn
+    # at once, whichever call sent the report.
     global _next_check
     _next_check = time.ticks_ms()
+    warblet.turn_now()
 
 
 def upkeep(handler):

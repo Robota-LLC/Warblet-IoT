@@ -45,14 +45,37 @@ def start():
     return config["hwid"]
 
 
+# The store's promise: after one failed operation in a save, or a power cut
+# at any point, and any number of later saves, the board still holds a
+# complete copy of its settings, and the answer it gave is what the next start
+# reads. The one exception: when the flash cannot confirm a store (os.sync()
+# fails), the answer is store-failed and the board cannot know which copy the
+# next start reads; another push settles it. Two failures inside one save are
+# not covered.
+ENOENT = 2                          # "no such file": the only error that means a file is not there
+
+
+def ready(settings):
+    """True when the settings can send: a network and an id."""
+    return bool(settings.get("ssid") and settings.get("hwid"))
+
+
 def _read(path):
-    """The settings in this file, or None when it is missing or not whole."""
+    """The settings in this file, or None when there is no file or it does not
+    parse as settings (a file written by hand can hold anything). An error
+    reading a file that is there raises OSError: it may be good."""
     try:
         with open(path) as f:
-            stored = json.load(f)
-    except (OSError, ValueError):
+            text = f.read()
+    except OSError as e:
+        if e.args[0] == ENOENT:
+            return None
+        raise
+    try:
+        stored = json.loads(text)
+    except ValueError:
         return None
-    return stored if isinstance(stored, dict) else None   # a file written by hand can hold anything
+    return stored if isinstance(stored, dict) else None
 
 
 def _remove(path):
@@ -71,30 +94,44 @@ def _sync():
 
 def settle():
     """Leave the stored settings under the live name, and return (them, True),
-    or (them, False) when they could only be read from the new copy. A live
-    file that reads whole wins, and a new copy beside it (a save that did not
-    finish) goes. Otherwise a whole new copy takes the live name now."""
-    stored = _read(CFG_PATH)
-    if stored is not None:
+    or (them, False) when the new copy must be kept as it is. A ready() live
+    file wins, and a new copy beside it (a save that did not finish) goes.
+    Otherwise a ready() new copy takes the live name, synced before that name
+    is written again. A live file that cannot be read may be good: the board
+    runs on the new copy for now, and nothing is replaced or removed."""
+    try:
+        live = _read(CFG_PATH)
+    except OSError:
+        try:
+            new = _read(NEW_PATH)
+        except OSError:
+            new = None
+        return (new if new and ready(new) else {}), False
+    if live and ready(live):
         _remove(NEW_PATH)
-        return stored, True
-    stored = _read(NEW_PATH)
-    if stored is None:
-        return {}, True
+        return live, True
+    try:
+        new = _read(NEW_PATH)
+    except OSError:
+        return live or {}, False    # the new copy may be the good one: keep it
+    if not (new and ready(new)):
+        return live or {}, True
     try:
         os.rename(NEW_PATH, CFG_PATH)
+        _sync()
     except OSError:
-        return stored, False        # the board runs on the new copy for now
-    return stored, True
+        return new, False           # the board runs on the new copy for now
+    return new, True
 
 
 def save(settings):
     """Store the settings, or raise OSError (store-failed) when the next start
-    will read the previous ones. A new copy is written, then renamed over the
-    live file. FAT's rename removes the old file first, so a failure can leave
-    only the new copy: the next start reads it, so that is stored."""
+    will read the previous ones, or the flash cannot confirm the store. A new
+    copy is written and synced, then renamed over the live file. FAT's rename
+    removes the old file first, so a failure can leave only the new copy: the
+    next start reads it, so that is stored."""
     if not settle()[1]:
-        raise OSError("the stored settings are only in " + NEW_PATH)  # never write over it
+        raise OSError("the stored settings cannot be replaced safely now")
     try:
         with open(NEW_PATH, "w") as f:
             json.dump(settings, f)
@@ -107,14 +144,14 @@ def save(settings):
     except OSError:
         try:
             os.stat(CFG_PATH)
-        except OSError:
-            return                  # the old file is gone: the new copy is stored
+        except OSError as e:
+            if e.args[0] != ENOENT:
+                raise               # no telling which copy is there, so both are kept
+            _sync()                 # FAT removed the old file: the new copy is stored
+            return
         _remove(NEW_PATH)           # the old file stands
         raise
-    try:
-        _sync()
-    except OSError:
-        pass                        # renamed: these are the stored settings either way
+    _sync()
 
 
 def fits(name, value):

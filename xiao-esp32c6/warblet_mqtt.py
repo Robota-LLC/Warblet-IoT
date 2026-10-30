@@ -1,17 +1,33 @@
-"""MQTT sender with TLS enabled by default.
-The credential is the CONNECT password. A signing key adds a raw HMAC prefix.
-TLS requires a chain to a pinned root, hostname verification, and a set clock.
-MQTT, SSL, select and time modules are imported only when needed."""
-import chirp_sign
+# MQTT reports and commands: the part of warblet.py that sends, for a board on
+# Warblet's MQTT broker. main.py imports it after warblet, and its last line
+# adds it to warblet:
+#
+#     import warblet
+#     import warblet_mqtt
+#
+# Its main setting goes on warblet, where main.py changes it after the imports:
+# warblet.HOST (a host the setup page stored wins). A setting in capitals here
+# can be changed the same way, for example warblet_mqtt.KEEPALIVE_S = 120.
 
-# Default MQTT hostname; a stored host overrides it.
-HOST = "mqtt.warbletiot.com"
+# ---- MQTT: reports and commands --------------------------------------------
+# The session uses TLS on port 8883, its certificate checked against the roots
+# below, unless the setup page stored "tls": false, which takes
+# plain port 1883 (an enforceTls device is then refused at ingest). The
+# credential is the CONNECT password, and a stored signing key puts a 32-byte
+# HMAC in front of each payload. Commands come on the session as they are sent:
+# upkeep() hands each one over, pings the broker, and drops a session that has
+# gone quiet; the next send() connects again.
+import time
 
-# Use TLS on port 8883 by default; tls=false selects plaintext port 1883.
+import warblet
+
+warblet.HOST = "mqtt.warbletiot.com"
+
 PORT = 8883
 PORT_PLAINTEXT = 1883
 
-# Longer than the report interval, short enough to notice a client killed by a NAT timeout.
+# Longer than the report interval, short enough to notice a client killed by a
+# NAT timeout.
 KEEPALIVE_S = 90
 
 # Each step of connecting (TCP, TLS, the broker's answer) may take this long.
@@ -19,14 +35,19 @@ CONNECT_TIMEOUT_S = 20
 
 # A session can die without a word, for example when the path to the broker
 # goes quiet. So ping the broker this often, and give the session up when it
-# has sent nothing at all for SILENCE_LIMIT_S; the app then reconnects.
+# has sent nothing at all for SILENCE_LIMIT_S; the next send() reconnects.
 PING_S = 30
 SILENCE_LIMIT_S = 75
 
-# Three failed NTP tries mean the network has no NTP, not a busy moment.
-NTP_TRIES = 3
+# How often upkeep() looks at the session for a command, at most.
+CHECK_EVERY_S = 0.2
 
-# Let's Encrypt roots. X2 and X1 anchor today's chains; YE and YR are their successors.
+
+# ---- TLS: the roots Warblet's certificates chain to ------------------------
+
+# Let's Encrypt roots. X2 and X1 anchor today's chains; YE and YR are their
+# successors. One string each, joined when the first request needs them: one
+# string of all four would need 5 KB in one piece while this file compiles.
 # ISRG Root X2: https://letsencrypt.org/certs/isrg-root-x2.pem
 # SHA-256 (DER): 69729B8E15A86EFC177A57AFB7171DFC64ADD28C2FCA8CF1507E34453CCB1470
 # ISRG Root X1: https://letsencrypt.org/certs/isrgrootx1.pem
@@ -35,7 +56,8 @@ NTP_TRIES = 3
 # SHA-256 (DER): E14FFCAD5B0025731006CAA43A121A22D8E9700F4FB9CF852F02A708AA5D5666
 # ISRG Root YR: https://letsencrypt.org/certs/gen-y/root-yr.pem
 # SHA-256 (DER): E57B7E6F150C419102E8D5C055729FF967B9D1A829BF00CEC89CA604EBF4A86F
-CA_ROOTS = """-----BEGIN CERTIFICATE-----
+CA_ROOTS = (
+"""-----BEGIN CERTIFICATE-----
 MIICGzCCAaGgAwIBAgIQQdKd0XLq7qeAwSxs6S+HUjAKBggqhkjOPQQDAzBPMQsw
 CQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFyY2gg
 R3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMjAeFw0yMDA5MDQwMDAwMDBaFw00
@@ -49,7 +71,8 @@ zj0EAwMDaAAwZQIwe3lORlCEwkSHRhtFcP9Ymd70/aTSVaYgLXTWNLxBo1BfASdW
 tL4ndQavEi51mI38AjEAi/V3bNTIZargCyzuFJ0nN6T5U6VR5CmD1/iQMVtCnwr1
 /q4AaOeMSQ+2b1tbFfLn
 -----END CERTIFICATE-----
------BEGIN CERTIFICATE-----
+""",
+"""-----BEGIN CERTIFICATE-----
 MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw
 TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh
 cmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4
@@ -80,7 +103,8 @@ oyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq
 mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d
 emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
 -----END CERTIFICATE-----
------BEGIN CERTIFICATE-----
+""",
+"""-----BEGIN CERTIFICATE-----
 MIIB2TCCAWCgAwIBAgIRAKQCa6LvbHwg1AR+XmWmk4AwCgYIKoZIzj0EAwMwLjEL
 MAkGA1UEBhMCVVMxDTALBgNVBAoTBElTUkcxEDAOBgNVBAMTB1Jvb3QgWUUwHhcN
 MjUwOTAzMDAwMDAwWhcNNDUwOTAyMjM1OTU5WjAuMQswCQYDVQQGEwJVUzENMAsG
@@ -92,7 +116,8 @@ BBYEFKPIJlqOoUzQNWP8myPIOq5W809WMAoGCCqGSM49BAMDA2cAMGQCMHhMr8N9
 LdL1VQKs9BdV81r76eXRB6mtjuNjzk6/lBsPNToWLTDzGYgtQKO1jl63uAIwGV7m
 onyF377c+MM1oqVNs17sgu7F9YKZwgLmVbeOMDbKAXHtKMDLbiGllCcs8f47
 -----END CERTIFICATE-----
------BEGIN CERTIFICATE-----
+""",
+"""-----BEGIN CERTIFICATE-----
 MIIFKTCCAxGgAwIBAgIRAOxGNJNgz0sP+KmC2Tqpyj0wDQYJKoZIhvcNAQELBQAw
 LjELMAkGA1UEBhMCVVMxDTALBgNVBAoTBElTUkcxEDAOBgNVBAMTB1Jvb3QgWVIw
 HhcNMjUwOTAzMDAwMDAwWhcNNDUwOTAyMjM1OTU5WjAuMQswCQYDVQQGEwJVUzEN
@@ -122,158 +147,70 @@ awuw1EawTDrs13VUlJVEsbQ0/O/1aaV73mCdOQ8azqL2KTv1Ewu1xbquE2S+kdQU
 To9TUwat3wUA6cwXh1EfpS/3fJ0aGah5hdpRyoCLDlsSn8tkrjMfFFX0viC+GxHc
 sI1ANRYvqSFC2X1VRZfDg+wD6E21BccmifG4yWc=
 -----END CERTIFICATE-----
-"""
+""",
+)
 
-_client = None
-_clock_ok = False
-_ctx = None
-_ntp_at = None  # time.time() at the last NTP try
-_heard_ms = 0    # ticks_ms when the broker last sent us anything
-_pinged_ms = 0   # ticks_ms when we last pinged it
-_incoming = None  # select.poll watching the session's socket
-
-# An RTC drifts; re-sync a set clock this often before opening TLS.
-NTP_RESYNC_S = 6 * 3600
+_tls = None
 
 
-def topic_up(hwid):
-    return "chirp/{}/up".format(hwid)
-
-
-def topic_down(hwid):
-    return "chirp/{}/down".format(hwid)
-
-
-def use_tls(config):
-    """Return True for TLS unless config sets tls to false."""
-    return config.get("tls", True)
-
-
-def port_for(config):
-    return PORT if use_tls(config) else PORT_PLAINTEXT
-
-
-def connected():
-    """True while a session is believed to be open."""
-    return _client is not None
-
-
-def ensure_time():
-    """Try NTP when the clock is below the configured year threshold, and
-    again every NTP_RESYNC_S on a set clock, since an RTC drifts. The
-    caller attempts TLS either way: with no clock it fails, and says why."""
-    global _clock_ok, _ntp_at
-    import time
-    if _clock_ok or time.localtime()[0] >= 2024:
-        _clock_ok = True
-        if _ntp_at is None or time.time() - _ntp_at > NTP_RESYNC_S:
-            _ntp_at = time.time()
-            try:
-                import ntptime
-                ntptime.settime()
-                _ntp_at = time.time()  # the clock may have jumped
-            except Exception as e:
-                print("chirp: ntp re-sync failed:", e)
-        return
-
-    import ntptime
-    for attempt in range(NTP_TRIES):
-        try:
-            ntptime.settime()
-        except Exception as e:
-            print("chirp: ntp try", attempt + 1, "of", NTP_TRIES, "failed:", e)
-            time.sleep(2)
-            continue
-        if time.localtime()[0] >= 2024:
-            _clock_ok = True
-            _ntp_at = time.time()
-            print("chirp: clock set from ntp --", time.localtime())
-            return
-
-    print("chirp: NO CLOCK. ntp did not answer and the board still thinks the")
-    print("chirp: year is", time.localtime()[0], "-- so TLS will fail, and it")
-    print("chirp: will fail complaining about the certificate, not the date.")
-    print("chirp: Fix ntp on this network, or set \"tls\": false in")
-    print("chirp: chirp_cfg.json to fall back to port", PORT_PLAINTEXT,
-          "in the clear")
-    print("chirp: (an enforceTls device is then refused at ingest, by design).")
-
-
-def ssl_context():
-    """The context requiring a chain to one of the pinned roots, built once:
-    one per connect holds its parsed roots until gc runs. umqtt.simple
-    supplies the server hostname to the TLS wrapper."""
-    global _ctx
-    if _ctx is None:
+def tls_context():
+    # The TLS context for every request, built once (one per request would
+    # hold its parsed roots until gc runs, and a dozen handshakes exhaust the
+    # heap). It refuses any chain that does not end at CA_ROOTS, and
+    # wrap_socket(..., server_hostname=host) adds the host name check. Roots
+    # that will not load raise OSError: no connection, never an unchecked one.
+    global _tls
+    if _tls is None:
         import ssl
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ctx.verify_mode = ssl.CERT_REQUIRED
-        ctx.load_verify_locations(cadata=CA_ROOTS)
-        _ctx = ctx
-    return _ctx
+        try:
+            ctx.load_verify_locations(cadata="".join(CA_ROOTS))
+        except (OSError, ValueError) as e:
+            raise OSError("the roots in this file do not load ({}), so nothing is sent".format(e))
+        _tls = ctx
+    return _tls
+
+_client = None    # the umqtt client while a session is open
+_incoming = None  # select.poll watching the session's socket
+_handler = None   # the command function upkeep() was last given
+_heard_ms = 0     # ticks_ms when the broker last sent us anything
+_pinged_ms = 0    # ticks_ms when we last pinged it
 
 
-def connect(config, on_down=None):
-    """Replace any session, connect, and subscribe if on_down is provided.
-    The stored credential supplies the CONNECT password. Connection errors
-    propagate, and each step gives up after CONNECT_TIMEOUT_S."""
-    global _client, _incoming, _heard_ms, _pinged_ms
-    close()
-    from umqtt.simple import MQTTClient  # lazy -- see the module docstring
-
-    kwargs = {}
-    if use_tls(config):
-        # Set the clock before the socket: mbedtls checks certificate dates at handshake.
-        ensure_time()
-        kwargs["ssl"] = ssl_context()
-
-    client = MQTTClient(config["hwid"], config.get("host") or HOST,
-                        port=port_for(config),
-                        user=config["hwid"], password=config["token"],
-                        keepalive=KEEPALIVE_S, **kwargs)
+def send(payload, tag=None):
+    # Publish the payload bytes, with an optional tag saying what the message is
+    # (for example "press"): it becomes one more topic level, chirp/<id>/up/<tag>,
+    # and is signed with the payload. Connects first when there is no session.
+    # True when the publish was written to the session. MQTT at QoS 0 sends no
+    # answer, so that is all True means: the message left the board, not that
+    # Warblet stored it. False when it could not be written, and the console
+    # says why. main.py calls it as warblet.send().
     try:
-        client.connect(timeout=CONNECT_TIMEOUT_S)
-    except (OSError, ValueError) as e:
-        # MicroPython raises ValueError for a rejected certificate.
-        if use_tls(config):
-            raise OSError("TLS to {} refused: {}".format(
-                config.get("host") or HOST, e))
-        raise
-    if on_down is not None:
-        client.set_callback(lambda topic, msg: on_down(msg))
-        client.subscribe(topic_down(config["hwid"]))
-    import select
-    import time
-    _incoming = select.poll()
-    _incoming.register(client.sock, select.POLLIN)
-    _heard_ms = _pinged_ms = time.ticks_ms()
-    _client = client
+        if _client is None:
+            _connect()
+        topic = "chirp/{}/up".format(warblet.config["hwid"])
+        if tag is not None:
+            topic += "/" + tag
+        key = warblet.signing_key()
+        if key:
+            payload = warblet.sign_raw(key, payload, tag) + payload
+        _client.publish(topic, payload)
+        return True
+    except Exception as e:
+        print("chirp: mqtt failed:", e)
+        _close()
+        return False
 
 
-def publish(config, payload, tag=None):
-    """Publish payload bytes, adding a 32-byte HMAC prefix when a key is stored.
-    A tag (for example "press") says what the message is: it becomes one more
-    topic level, chirp/{hwId}/up/<tag>, and is signed with the payload."""
+def upkeep(handler):
+    # warblet.wait() calls this after every pass: hand over a command that has
+    # arrived, ping the broker every PING_S, and drop a session that has been
+    # silent for SILENCE_LIMIT_S. Returns how soon to call it again, in seconds.
+    global _handler, _heard_ms, _pinged_ms
     if _client is None:
-        raise OSError("no mqtt session")
-    topic = topic_up(config["hwid"])
-    if tag is not None:
-        topic = topic + "/" + tag
-    # The stored key is base64; chirp_sign decodes it.
-    signing_key_base64 = config.get("key")
-    if signing_key_base64:
-        payload = chirp_sign.sign_raw(signing_key_base64, payload, tag) + payload
-    _client.publish(topic, payload)
-
-
-def poll():
-    """Read a waiting downlink message, ping the broker every PING_S, and close
-    a session that failed or has been silent for SILENCE_LIMIT_S, so the app
-    reconnects."""
-    global _heard_ms, _pinged_ms
-    if _client is None:
-        return
-    import time
+        return 3600  # no session, so nothing can arrive; the next send() connects
+    _handler = handler
     now = time.ticks_ms()
     try:
         if _incoming.poll(0):
@@ -283,15 +220,60 @@ def poll():
             _client.ping()
             _pinged_ms = now
         if time.ticks_diff(now, _heard_ms) >= SILENCE_LIMIT_S * 1000:
-            raise OSError("no answer from the broker for {} s".format(
-                SILENCE_LIMIT_S))
+            raise OSError("no answer from the broker for {} s".format(SILENCE_LIMIT_S))
     except Exception as e:
         print("chirp: mqtt link lost:", e)
-        close()
+        _close()
+        return 3600
+    return CHECK_EVERY_S
 
 
-def close():
-    """Drop the session. Safe at any time, including when there isn't one."""
+def _arrived(topic, msg):
+    # A command on chirp/<id>/down, as its bytes.
+    if _handler:
+        _handler(bytes(msg))
+
+
+def _connect():
+    # Open a session: TLS unless "tls" is stored as false, with the clock set
+    # first (certificate dates are checked at the handshake), then subscribe to
+    # this board's commands. Errors propagate; each step gives up after
+    # CONNECT_TIMEOUT_S.
+    global _client, _incoming, _heard_ms, _pinged_ms
+    _close()
+    from umqtt.simple import MQTTClient  # imported when first needed
+    config = warblet.config
+    host = config.get("host") or warblet.HOST
+    tls = config.get("tls") is not False  # plain only when the setup page said so
+    kwargs = {}
+    if tls:
+        warblet.require_clock()
+        kwargs["ssl"] = tls_context()  # roots that do not load: no session
+    client = MQTTClient(config["hwid"], host, port=PORT if tls else PORT_PLAINTEXT,
+                        user=config["hwid"], password=config["token"],
+                        keepalive=KEEPALIVE_S, **kwargs)
+    try:
+        client.connect(timeout=CONNECT_TIMEOUT_S)
+    except (OSError, ValueError) as e:
+        # MicroPython raises ValueError for a rejected certificate.
+        if tls:
+            raise OSError("TLS to {} refused: {}".format(host, e))
+        raise
+    client.set_callback(_arrived)
+    client.subscribe("chirp/{}/down".format(config["hwid"]))
+    import gc
+    import select
+    _incoming = select.poll()
+    _incoming.register(client.sock, select.POLLIN)
+    _heard_ms = _pinged_ms = time.ticks_ms()
+    _client = client
+    gc.collect()
+    # A port to a smaller part needs the heap left with TLS open.
+    print("chirp:", "mqtts" if tls else "mqtt", "session up, free heap", gc.mem_free())
+
+
+def _close():
+    # Drop the session. Safe at any time, including when there is none.
     global _client
     if _client is None:
         return
@@ -300,3 +282,8 @@ def close():
     except Exception:
         pass  # the socket is going away either way
     _client = None
+
+
+# This part's routes, its send() and its upkeep(), and the push field it takes:
+# "tls", true or false, the only setting that picks the plain route.
+warblet.add_part(["mqtt", "mqtts"], send, upkeep, fields={"tls": bool})

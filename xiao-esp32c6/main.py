@@ -1,22 +1,21 @@
 # XIAO ESP32-C6 temperature reports, a button and LED commands over MQTTS.
-# The transport module manages TLS, credentials, and optional signatures.
-import gc
+# The payload is the chip's own temperature in tenths of a degree.
 import struct
 import time
 
 import machine
 
-import chirp_mqtt
-import chirp_prov
+import warblet         # USB setup, Wi-Fi, the clock and signing
+import warblet_mqtt    # enables MQTT reports and dashboard commands; keep this import
 
-INTERVAL_S = 30      # seconds between readings
-COMMAND_POLL_INTERVAL_MS = 200  # gap between command checks; network work can add delay
+INTERVAL_S = 30      # seconds between readings; a press does not wait for it
 BUTTON_POLL_INTERVAL_MS = 20    # how often we look at the button
 DEBOUNCE_MS = 40     # a press must still read down this much later
 RESTART_AFTER_ERROR_S = 10  # pause before restarting after an unexpected error
 
-# Demo identifier included in the USB announce.
+# What the setup page sees: this demo, and the release its files last changed in.
 DEMO_SLUG = "demo-xiao-c6"
+DEMO_VERSION = "v1.6.0"
 
 # A reading sent because of a press carries this tag, so a routine can
 # react to presses without decoding the payload.
@@ -29,6 +28,7 @@ LED_ACTIVE_LOW = True
 BUTTON_PIN = 9
 BUTTON_ACTIVE_LOW = True
 
+led = None            # the LED, once open_led() has run
 led_is_on = False     # what the last command asked for
 
 
@@ -71,9 +71,10 @@ def blink(led):
     drive_led(led, led_is_on)
 
 
-def on_downlink(led, msg):
-    """Match downlink commands as bytes and ignore unrecognized payloads."""
-    cmd = bytes(msg)
+def on_command(command):
+    """Each command from the dashboard, as bytes. Match them as bytes and
+    ignore unrecognized ones."""
+    cmd = bytes(command)
     if cmd == b"led:on":
         set_led(led, True)
     elif cmd == b"led:off":
@@ -127,23 +128,19 @@ def read_temperature_c():
 
 
 def encode_temperature(celsius):
-    """Encode signed tenths of Celsius in two big-endian bytes. Clamp values to
-    the int16 range and keep decoder.star consistent."""
+    """Two bytes: the temperature in tenths of a degree, signed (the decoder
+    has the exact format). It stops at the two-byte range."""
     temperature_tenths_c = max(-32768, min(32767, int(round(celsius * 10.0))))
     return struct.pack(">h", temperature_tenths_c)
 
 
-def wait_and_handle_commands(config, button, was_up, seconds):
-    """Service USB setup, poll MQTT and watch the button during the reporting
-    interval. Return (press_detected, button_is_up) as soon as there is a
-    press, or when the time is up."""
+def wait_for_press(button, was_up, seconds):
+    """Between readings: watch the button while warblet.wait() answers USB
+    setup and takes commands. Return (press_detected, button_is_up) as soon
+    as there is a press, or when the time is up."""
     deadline = time.ticks_add(time.ticks_ms(), int(seconds * 1000))
-    next_check = time.ticks_ms()
     while time.ticks_diff(deadline, time.ticks_ms()) > 0:
-        chirp_prov.service(config, BUTTON_POLL_INTERVAL_MS / 1000.0)
-        if time.ticks_diff(time.ticks_ms(), next_check) >= 0:
-            chirp_mqtt.poll()
-            next_check = time.ticks_add(time.ticks_ms(), COMMAND_POLL_INTERVAL_MS)
+        warblet.wait(BUTTON_POLL_INTERVAL_MS / 1000.0)
         new_press, was_up = check_button(button, was_up)
         if new_press:
             return True, was_up
@@ -151,52 +148,31 @@ def wait_and_handle_commands(config, button, was_up, seconds):
 
 
 def main():
+    global led
     led = open_led()
     button = open_button()
-    chirp_prov.set_slug(DEMO_SLUG)
-    config = chirp_prov.load()
-
-    # Wait for USB setup. A successful config push restarts the board.
-    if not chirp_prov.ready(config):
-        print("chirp: not provisioned -- waiting on USB, warbletiot.com/flash")
-        while True:
-            chirp_prov.service(config, 1)
-
-    print("chirp: reporting as", config["hwid"],
-          "signed" if config.get("key") else "token only")
+    warblet.demo(DEMO_SLUG, DEMO_VERSION)
+    warblet.on_command(on_command)
+    warblet.begin()       # the first time, waits here for USB setup
 
     was_up = not pressed(button)
     on_press = False
     while True:
-        if chirp_prov.connect_wifi(config):
-            try:
-                if not chirp_mqtt.connected():
-                    # connect() sets the clock before opening TLS.
-                    chirp_mqtt.connect(config,
-                                       lambda msg: on_downlink(led, msg))
-                    gc.collect()
-                    # A port to a smaller part needs the heap left with TLS open.
-                    print("chirp:", "mqtts" if chirp_mqtt.use_tls(config) else "mqtt",
-                          "session up, free heap", gc.mem_free())
-                celsius = read_temperature_c()
-                tag = PRESS_TAG if on_press else None
-                chirp_mqtt.publish(config, encode_temperature(celsius), tag)
-                # QoS 0: nothing confirms the platform accepted the publish.
-                print("chirp: publish attempted, {:.1f} C{}".format(
+        if warblet.connected():
+            celsius = read_temperature_c()
+            tag = PRESS_TAG if on_press else None
+            if warblet.send(encode_temperature(celsius), tag):
+                # Sent: MQTT gives no answer, so nothing here says it was stored.
+                print("chirp: published {:.1f} C{}".format(
                     celsius, " tag=" + tag if tag else ""))
-            except Exception as e:
-                # Close so the next pass reconnects.
-                print("chirp: mqtt failed:", e)
-                chirp_mqtt.close()
 
         if on_press:
-            # Your own press clears your own light: the other board's
-            # press turned it on. This runs once the press has been sent.
+            # Pressing this board's button also turns its LED off.
             set_led(led, False)
             print("chirp: own press -- LED OFF")
 
-        on_press, was_up = wait_and_handle_commands(config, button, was_up,
-                                                    INTERVAL_S)
+        # Check the button, commands and USB setup between readings.
+        on_press, was_up = wait_for_press(button, was_up, INTERVAL_S)
 
 
 try:

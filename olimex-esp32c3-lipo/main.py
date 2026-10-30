@@ -6,8 +6,7 @@ import time
 import machine
 
 import warblet         # USB setup, Wi-Fi, the clock and signing
-import warblet_https   # keep this line: nothing below names it, but importing
-                       # it is what sends the reports and fetches the commands
+import warblet_https   # enables HTTPS reports and dashboard commands; keep this import
 
 INTERVAL_S = 30      # heartbeat gap; a press does not wait for it
 warblet.COMMAND_EVERY_S = 5   # how often to ask Warblet for a command; a check takes about 1 s
@@ -129,8 +128,8 @@ FLAG_ON_PRESS = 0x02     # this message exists because of a press, not the timer
 
 
 def encode_button_report(presses, flags):
-    """Encode the press count as a big-endian uint16, followed by the flags
-    byte. Clamp the transmitted count at 65535."""
+    """Two bytes for the press count, followed by one byte of flags (the
+    decoder has the exact format). The count stops at 65535."""
     if presses < 0:
         presses = 0
     elif presses > 0xFFFF:
@@ -176,8 +175,7 @@ def main():
                 blink(led)
 
         if on_press:
-            # Your own press clears your own light: the other board's
-            # press turned it on. This runs once the press has been sent.
+            # Pressing this board's button also turns its LED off.
             set_led(led, False)
             print("chirp: own press -- LED OFF")
 
