@@ -2,7 +2,7 @@
   "_": "arduino-libraries/Warblet is the Warblet Arduino library, vendored byte for byte at this commit of its repository, the one its release tag names: the files listed, and nothing else. Change it only by copying a release of the library and writing this file again.",
   "library": "Warblet",
   "repository": "https://github.com/Robota-LLC/Warblet-Arduino",
-  "commit": "97de60fad8a3f082b7c11040178c420d7aaae041",
+  "commit": "502a8dc5c093edca49b3fdb95b8ebefaf6cb2825",
   "release": "v0.1.1",
   "paths": [
     "library.properties",
@@ -18,7 +18,7 @@
     "examples/Button/decoder.star": "9b39f39cacea4b22e9eb7f0c3b5c6c8d57b1ee15c535dc2d151c517f8eba2585",
     "examples/DeskDisplay/decoder.star": "c20e657d267c3c30c220f4564e766408eda40b3315f53c02680cda4f8a6595b0",
     "examples/DeskDisplay/desk-display-disk.star": "6da2fc7ecf7c0e8684a79930cc240002f9f92f08d0a1e10fa7559ed65dea328f",
-    "examples/DeskDisplay/DeskDisplay.ino": "c89ea26c4d2e358db18765e1684d79193ef54e677040f3aa9e0a6a4475860c5c",
+    "examples/DeskDisplay/DeskDisplay.ino": "36babf187b3fa04027d587fe412814d049acf2b92a6f0090b1e38f9880766265",
     "examples/DeskDisplay/screen.cpp": "d09322f073a7af72e6712730f983a53a39e6f1e37f5b090eda4a1fed6cd9b7ab",
     "examples/DeskDisplay/screen.h": "8d21132aa1f7696ec5d86a9226e6d44afe60f65e5d01a572ef7c59ece2c5d20e",
     "examples/LightByCommand/decoder.star": "9b39f39cacea4b22e9eb7f0c3b5c6c8d57b1ee15c535dc2d151c517f8eba2585",
