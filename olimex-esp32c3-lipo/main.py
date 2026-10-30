@@ -5,9 +5,11 @@ import time
 
 import machine
 
-import warblet_https as warblet   # USB setup, Wi-Fi and messages to Warblet
+import warblet         # USB setup, Wi-Fi, the clock and signing
+import warblet_https   # reports and commands over HTTPS
 
 INTERVAL_S = 30      # heartbeat gap; a press does not wait for it
+COMMAND_POLL_S = 5   # how often to ask Warblet for a command; a check takes about 1 s
 BUTTON_POLL_INTERVAL_MS = 20   # how often we look at the button
 DEBOUNCE_MS = 40     # a press must still read down this much later
 RESTART_AFTER_ERROR_S = 10  # pause before restarting after an unexpected error
@@ -70,9 +72,10 @@ def blink(led):
     drive_led(led, led_is_on)
 
 
-def on_downlink(led, msg):
-    """Match commands as bytes and ignore unrecognized ones."""
-    cmd = bytes(msg)
+def on_command(command):
+    """Each command from the dashboard, as bytes. Match them as bytes and
+    ignore unrecognized ones."""
+    cmd = bytes(command)
     if cmd == b"led:on":
         set_led(led, True)
     elif cmd == b"led:off":
@@ -86,11 +89,6 @@ def on_downlink(led, msg):
         print("chirp: down ignored:", len(cmd), "bytes")
         return
     print("chirp: down", cmd.decode(), "-- LED", "ON" if led_is_on else "OFF")
-
-
-def on_command(command):
-    """Each command from the dashboard, as bytes."""
-    on_downlink(led, command)
 
 
 def open_button():
@@ -158,6 +156,7 @@ def main():
     button = open_button()
     warblet.demo(DEMO_SLUG, DEMO_VERSION)
     warblet.on_command(on_command)
+    warblet.check_commands_every(COMMAND_POLL_S)
     warblet.begin()       # the first time, waits here for USB setup
 
     presses = 0

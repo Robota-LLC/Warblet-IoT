@@ -5,6 +5,7 @@ answering the setup page. It stores no token and no key: this is the Open level.
 import json
 import machine
 import network
+import os
 import select
 import sys
 import time
@@ -12,6 +13,7 @@ import time
 SLUG = "demo-open-starter"          # which demo this is, for the setup page
 FW = "v1.6.0"                       # the release these files last changed in
 CFG_PATH = "open_cfg.json"          # where the settings live on the board
+NEW_PATH = "open_cfg.new"           # a new copy, before it takes the old one's place
 TEXT_FIELDS = ("ssid", "pass", "hwid")
 HOST = "http.warbletiot.com"        # main.py's: a push may name it, never another
 # What this firmware can do, for the setup page: Open only, no key, plain HTTP.
@@ -33,12 +35,15 @@ def start():
     """Load the settings and return the board's id. Until the setup page has
     sent a network and an id, only answer the setup page."""
     global config
-    try:
-        with open(CFG_PATH) as f:
-            config = json.load(f)
-    except (OSError, ValueError):
-        config = {}
-    if not isinstance(config, dict):  # a file written by hand can hold anything
+    config = {}
+    for path in (CFG_PATH, NEW_PATH):   # the new copy, if a save was cut short
+        try:
+            with open(path) as f:
+                config = json.load(f)
+        except (OSError, ValueError):
+            config = {}
+        if isinstance(config, dict) and config:  # a file written by hand can hold anything
+            break
         config = {}
     if not (config.get("ssid") and config.get("hwid")):
         print("open: not set up yet -- connect this board at warbletiot.com/flash")
@@ -169,9 +174,16 @@ def _apply(body):
         return "err bad-json"
     if not (new.get("ssid") and hwid):
         return "err missing-field"
-    try:
-        with open(CFG_PATH, "w") as f:
+    try:                            # a new file first, so a failure keeps the old one
+        with open(NEW_PATH, "w") as f:
             json.dump(new, f)
+        try:
+            os.rename(NEW_PATH, CFG_PATH)
+        except OSError as e:        # EEXIST (17): a file system (FAT) that will
+            if e.args[0] != 17:     # not rename over a file, so remove it first
+                raise
+            os.remove(CFG_PATH)
+            os.rename(NEW_PATH, CFG_PATH)
     except OSError:
         return "err store-failed"
     return "ok"

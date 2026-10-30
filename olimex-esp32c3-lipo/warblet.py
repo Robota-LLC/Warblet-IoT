@@ -1,9 +1,10 @@
-# Warblet for MicroPython: USB setup, Wi-Fi, and messages to your dashboard,
-# in two files. This one sets the board up and keeps it online;
-# warblet_https.py sends reports and takes commands. main.py imports the
-# second, which brings this one's calls with it:
+# Warblet for MicroPython: USB setup, Wi-Fi, and messages to your dashboard.
+# This file sets the board up and keeps it online. A part beside it sends the
+# messages: warblet_https.py, over HTTPS. main.py imports both, and the part
+# adds itself to this file as it is imported:
 #
-#     import warblet_https as warblet
+#     import warblet                             # setup, Wi-Fi, clock, signing
+#     import warblet_https                       # reports and commands over HTTPS
 #     warblet.demo("demo-olimex-c3", "v1.6.0")   # what the setup page sees
 #     warblet.on_command(on_command)             # called with each command's bytes
 #     warblet.begin()                            # waits for USB setup the first time
@@ -16,6 +17,8 @@
 # id, its token and, for signed messages, its key over the USB cable
 # (CHIRP-PROV v1.8). They are kept in chirp_cfg.json. Messages are signed
 # once a key is stored. The calls copy the Warblet Arduino library's names.
+# A setting in capitals below can be changed from main.py, for example
+# warblet.WIFI_TIMEOUT_S = 30.
 #
 # Comments here, not docstrings: a board holds every docstring in memory while
 # it compiles a file, and comments cost it nothing. Two files of this size,
@@ -23,6 +26,7 @@
 import json
 import machine
 import network
+import os
 import select
 import sys
 import time
@@ -37,13 +41,14 @@ except ImportError:  # host CPython, so this file can be tested off the board
 # ---- settings, and USB setup (CHIRP-PROV v1.8) -----------------------------
 
 CFG_PATH = "chirp_cfg.json"
+NEW_PATH = "chirp_cfg.new"   # a new copy, before it takes the old one's place
 
-# The push fields this firmware acts on. Any other is refused by name.
-ACCEPTS = ("ssid", "pass", "aps", "hwid", "host", "claim", "token", "key")
-STRING_FIELDS = ("ssid", "pass", "hwid", "host", "claim", "token", "key")
+# The push fields this firmware acts on, and the type each must have. Any
+# other field is refused by name. A part adds the fields it takes (add_part).
+FIELDS = {"ssid": str, "pass": str, "aps": list, "hwid": str, "host": str,
+          "claim": str, "token": str, "key": str}
 
-# What the setup page learns this firmware can do. The parts below add their
-# routes to TRANSPORTS (the HTTPS part adds "https").
+# The routes the parts send over, which the setup page is told (add_part).
 TRANSPORTS = []
 
 MAX_NETWORKS = 8     # CHIRP-PROV caps the list; a longer one is refused
@@ -59,7 +64,8 @@ config = {}          # the stored settings; begin() fills it
 _slug = ""           # the demo this firmware is (demo())
 _fw = "warblet-micropython"  # its version (demo())
 _handler = None      # on_command()
-_command_check = None  # the part that asks for commands (use_commands())
+_send = None         # the part's send() (add_part)
+_command_check = None  # the part's command check (add_part)
 _next_check = 0
 
 _poller = select.poll()
@@ -73,10 +79,22 @@ _buf = bytearray()   # the console line so far, as bytes
 _probed = False      # a CHIRP? read and not yet answered
 
 
+SLUG_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789-"
+FW_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
+
+
 def demo(slug, fw):
-    # Name the demo and its version for the setup page (t= and fw=).
+    # Name the demo and its version for the setup page (t= and fw=). One that
+    # breaks its grammar is not used, and the console says so.
     global _slug, _fw
-    _slug, _fw = slug, fw
+    if 3 <= len(slug) <= 40 and all(c in SLUG_CHARS for c in slug):
+        _slug = slug
+    else:
+        print("chirp: demo(): not a demo slug (3 to 40 of a-z, 0-9 and -), so the announce leaves it out")
+    if 0 < len(fw) <= 64 and fw[0] not in "._-" and all(c in FW_CHARS for c in fw):
+        _fw = fw
+    else:
+        print("chirp: demo(): not a version (1 to 64 of A-Z a-z 0-9 . _ -), so the board says", _fw)
 
 
 def on_command(handler):
@@ -91,20 +109,52 @@ def check_commands_every(seconds):
     COMMAND_EVERY_S = seconds
 
 
-def use_commands(check):
-    # For the transport part: check(handler) asks for commands.
-    global _command_check
-    _command_check = check
+def add_part(transports, send, check_commands, fields=None):
+    # How a part such as warblet_https.py adds itself as main.py imports it:
+    # the routes it sends over, its send() and its command check, and any push
+    # field it takes, with its type (a TLS switch would be {"tls": bool}).
+    global _send, _command_check
+    TRANSPORTS.extend(transports)
+    FIELDS.update(fields or {})
+    _send, _command_check = send, check_commands
+
+
+def send(payload, tag=None):
+    # Send the payload bytes, with an optional tag saying what the message is
+    # (for example "press"), over the part's route. Returns the HTTP status
+    # code, or 0 when no answer came; a refusal or a failure is said.
+    return _send(payload, tag)
 
 
 def load():
-    # The stored settings, or an empty dict when there are none.
+    # The stored settings, or an empty dict when there are none. If the board
+    # stopped while saving and the live file is missing or unreadable, the new
+    # copy is used when it reads whole.
+    for path in (CFG_PATH, NEW_PATH):
+        try:
+            with open(path) as f:
+                stored = json.load(f)
+            if isinstance(stored, dict):
+                return stored
+        except (OSError, ValueError):
+            pass
+    return {}
+
+
+def save(settings):
+    # Store the settings so that a failure at any step leaves the last good
+    # copy: write and close a new file, then put it in the old one's place.
+    with open(NEW_PATH, "w") as f:
+        json.dump(settings, f)
     try:
-        with open(CFG_PATH) as f:
-            stored = json.load(f)
-        return stored if isinstance(stored, dict) else {}
-    except (OSError, ValueError):
-        return {}
+        os.rename(NEW_PATH, CFG_PATH)
+    except OSError as e:
+        if e.args[0] != 17:  # EEXIST: only a file system that will not rename
+            raise            # over a file (FAT) goes on to the two steps below
+        # Remove the old one first. If the board stops in between, load()
+        # finds the new copy.
+        os.remove(CFG_PATH)
+        os.rename(NEW_PATH, CFG_PATH)
 
 
 def ready(settings):
@@ -273,7 +323,7 @@ def _merged(body, settings):
         return None, "bad-json"
     if not isinstance(push, dict):
         return None, "bad-json"
-    unknown = [name for name in push if name not in ACCEPTS]
+    unknown = [name for name in push if name not in FIELDS]
     if unknown:
         # A name that is not a short plain word cannot go on the answer line.
         if not all(0 < len(n) <= 32 and all(c in NAME_CHARS for c in n) for n in unknown):
@@ -286,7 +336,7 @@ def _merged(body, settings):
 
     candidate = settings.copy()
     for name, value in push.items():
-        if name in STRING_FIELDS and not isinstance(value, str):
+        if not isinstance(value, FIELDS[name]):
             return None, "bad-json"
         # An empty credential or key is refused; a key must be one that signs.
         if name in ("claim", "token", "key") and not value:
@@ -317,7 +367,8 @@ def _new_device(push, settings):
 
 def apply_config_push(body):
     # Check a push and merge it into a copy of the settings, then save it and
-    # restart. A refused push changes nothing.
+    # restart. A refused push, or one that could not be stored, changes
+    # nothing: ok is said only once the new settings are stored.
     candidate, refused = _merged(body, config)
     if refused:
         print("CHIRP= err " + refused)
@@ -326,8 +377,7 @@ def apply_config_push(body):
         print("CHIRP= err missing-field")
         return
     try:
-        with open(CFG_PATH, "w") as f:
-            json.dump(candidate, f)
+        save(candidate)
     except OSError:
         print("CHIRP= err store-failed")
         return

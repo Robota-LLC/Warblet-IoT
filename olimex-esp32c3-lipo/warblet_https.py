@@ -1,9 +1,11 @@
-# HTTPS reports and commands, for warblet.py: in a file of its own so that
-# neither file is too big to compile on a board with little memory. main.py
-# imports this one, which brings warblet.py's calls with it:
+# HTTPS reports and commands: the part of warblet.py that sends. main.py
+# imports it after warblet, and its last line adds it to warblet:
 #
-#     import warblet_https as warblet
-from warblet import *
+#     import warblet
+#     import warblet_https
+#
+# A setting in capitals below can be changed from main.py, for example
+# warblet_https.TIMEOUT_S = 30.
 
 # ---- HTTPS: reports and commands -------------------------------------------
 # send() posts a reading; send_answer() also says whether Warblet knows the
@@ -11,9 +13,10 @@ from warblet import *
 # chain to a root above and match the host name, or the request fails.
 # Certificate dates need a set clock, so nothing is sent without one, and a
 # signed message always carries a timestamp nonce.
+import network
 import socket
 
-TRANSPORTS.append("https")  # what the setup page is told this firmware sends over
+import warblet
 
 HOST = "https.warbletiot.com"  # default; a stored host overrides it
 PORT = 443
@@ -89,7 +92,7 @@ def _request(method, host, path, headers, body=None, want_reply=False):
         s.settimeout(TIMEOUT_S)
         s.connect(addr)
         try:
-            s = tls_context().wrap_socket(s, server_hostname=host)
+            s = warblet.tls_context().wrap_socket(s, server_hostname=host)
         except (OSError, ValueError) as e:
             # MicroPython raises ValueError for a rejected certificate.
             raise OSError("TLS to {} refused: {}".format(host, e))
@@ -124,7 +127,8 @@ def _request(method, host, path, headers, body=None, want_reply=False):
 def send(payload, tag=None):
     # POST the payload bytes, with an optional tag saying what the message is
     # (for example "press"). Returns the HTTP status code, or 0 when no answer
-    # came; a refusal or a failure is said on the console.
+    # came; a refusal or a failure is said on the console. main.py calls it as
+    # warblet.send().
     return _said(payload, tag, False)[0]
 
 
@@ -150,36 +154,36 @@ def _said(payload, tag, want_reply):
         print("chirp: send failed:", e)
         return 0, None
     finally:
-        check_now()
+        warblet.check_now()
     if not 200 <= code < 300:
         print("chirp: ingest replied", code)
     return code, reply
 
 
 def _send(payload, tag, want_reply):
-    require_clock()
+    warblet.require_clock()
     headers = {
         "Content-Type": "application/octet-stream",
-        "X-Chirp-Token": config["token"],
+        "X-Chirp-Token": warblet.config["token"],
     }
     # A claim code rides in both headers until it binds and becomes the token.
-    if config["token"].startswith("CHIRP-"):
-        headers["X-Chirp-Claim"] = config["token"]
+    if warblet.config["token"].startswith("CHIRP-"):
+        headers["X-Chirp-Claim"] = warblet.config["token"]
     if tag is not None:
         headers["X-Chirp-Tag"] = tag
 
     # require_clock() above means there is a nonce.
-    key = signing_key()
+    key = warblet.signing_key()
     if key:
-        nonce = nonce_ms()
+        nonce = warblet.nonce_ms()
         headers["X-Chirp-Nonce"] = str(nonce)
-        headers["X-Chirp-Signature"] = sign(key, nonce, payload, tag)
+        headers["X-Chirp-Signature"] = warblet.sign(key, nonce, payload, tag)
 
-    code, reply = _request("POST", config.get("host") or HOST,
-                           "/ingest/{}".format(config["hwid"]),
+    code, reply = _request("POST", warblet.config.get("host") or HOST,
+                           "/ingest/{}".format(warblet.config["hwid"]),
                            headers, payload, want_reply)
     if code == 401 and key:
-        clock_suspect()
+        warblet.clock_suspect()
     return code, reply
 
 
@@ -187,21 +191,21 @@ def poll():
     # Ask Warblet for the next waiting command (GET .../down).
     # Returns (HTTP status code, command bytes or None).
     # 200 carries one command; 204 means nothing is waiting.
-    require_clock()
-    headers = {"X-Chirp-Token": config["token"]}
+    warblet.require_clock()
+    headers = {"X-Chirp-Token": warblet.config["token"]}
 
     # A signed device proves it holds its key, so a leaked token alone cannot
     # read its commands. require_clock() above means there is a nonce.
-    key = signing_key()
+    key = warblet.signing_key()
     if key:
-        nonce = nonce_ms()
+        nonce = warblet.nonce_ms()
         headers["X-Chirp-Nonce"] = str(nonce)
-        headers["X-Chirp-Signature"] = sign_poll(key, config["hwid"], nonce)
+        headers["X-Chirp-Signature"] = warblet.sign_poll(key, warblet.config["hwid"], nonce)
 
-    code, reply = _request("GET", config.get("host") or HOST,
-                           "/ingest/{}/down".format(config["hwid"]), headers)
+    code, reply = _request("GET", warblet.config.get("host") or HOST,
+                           "/ingest/{}/down".format(warblet.config["hwid"]), headers)
     if code == 401 and key:
-        clock_suspect()
+        warblet.clock_suspect()
     if code != 200:
         return code, None
     if reply.startswith(b"CHIRPKEY1 "):
@@ -214,7 +218,7 @@ def poll():
     return code, reply
 
 
-def _check_commands(handler):
+def check_commands(handler):
     # Ask Warblet for one waiting command and hand it to the handler.
     # Another waiting command comes at the next check.
     if not network.WLAN(network.STA_IF).isconnected():
@@ -230,4 +234,5 @@ def _check_commands(handler):
         print("chirp: command check replied", code)
 
 
-use_commands(_check_commands)
+# This part's routes, its send() and its command check, added to warblet.
+warblet.add_part(["https"], send, check_commands)
