@@ -1,6 +1,9 @@
 # Settings copied off a board hold Wi-Fi passwords, device tokens and signing keys.
 chirp_cfg.json
 open_cfg.json
+# ...and the new copy a save writes before it takes the live file's place.
+chirp_cfg.new
+open_cfg.new
 
 # Build output.
 build/

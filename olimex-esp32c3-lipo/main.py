@@ -6,10 +6,11 @@ import time
 import machine
 
 import warblet         # USB setup, Wi-Fi, the clock and signing
-import warblet_https   # reports and commands over HTTPS
+import warblet_https   # keep this line: nothing below names it, but importing
+                       # it is what sends the reports and fetches the commands
 
 INTERVAL_S = 30      # heartbeat gap; a press does not wait for it
-COMMAND_POLL_S = 5   # how often to ask Warblet for a command; a check takes about 1 s
+warblet.COMMAND_EVERY_S = 5   # how often to ask Warblet for a command; a check takes about 1 s
 BUTTON_POLL_INTERVAL_MS = 20   # how often we look at the button
 DEBOUNCE_MS = 40     # a press must still read down this much later
 RESTART_AFTER_ERROR_S = 10  # pause before restarting after an unexpected error
@@ -156,7 +157,6 @@ def main():
     button = open_button()
     warblet.demo(DEMO_SLUG, DEMO_VERSION)
     warblet.on_command(on_command)
-    warblet.check_commands_every(COMMAND_POLL_S)
     warblet.begin()       # the first time, waits here for USB setup
 
     presses = 0
@@ -170,8 +170,7 @@ def main():
             if on_press:
                 flags |= FLAG_ON_PRESS
             tag = PRESS_TAG if on_press else None
-            code = warblet.send(encode_button_report(presses, flags), tag)
-            if 200 <= code < 300:
+            if warblet.send(encode_button_report(presses, flags), tag):
                 print("chirp: sent presses={} flags=0x{:02x}{}".format(
                     presses, flags, " tag=" + tag if tag else ""))
                 blink(led)

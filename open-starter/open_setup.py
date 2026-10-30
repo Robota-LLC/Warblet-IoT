@@ -20,6 +20,7 @@ HOST = "http.warbletiot.com"        # main.py's: a push may name it, never anoth
 CAPS = ('{"v":1,"auth":[0],"keyProvisioning":[],"otaKeyRotation":false,'
         '"otaFirmwareUpdate":false,"transports":["http"]}')
 ID_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:-_."
+MAX_NETWORKS = 8                    # the setup page sends at most this many
 MAX_LINE = 4096                     # a setup line is never longer; more is junk
 
 config = {}
@@ -35,22 +36,95 @@ def start():
     """Load the settings and return the board's id. Until the setup page has
     sent a network and an id, only answer the setup page."""
     global config
-    config = {}
-    for path in (CFG_PATH, NEW_PATH):   # the new copy, if a save was cut short
-        try:
-            with open(path) as f:
-                config = json.load(f)
-        except (OSError, ValueError):
-            config = {}
-        if isinstance(config, dict) and config:  # a file written by hand can hold anything
-            break
-        config = {}
+    config = settle()[0]
     if not (config.get("ssid") and config.get("hwid")):
         print("open: not set up yet -- connect this board at warbletiot.com/flash")
         while True:
             wait(1)                 # a good push saves and restarts the board
     print("open: sending as", config["hwid"])
     return config["hwid"]
+
+
+def _read(path):
+    """The settings in this file, or None when it is missing or not whole."""
+    try:
+        with open(path) as f:
+            stored = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return stored if isinstance(stored, dict) else None   # a file written by hand can hold anything
+
+
+def _remove(path):
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def _sync():
+    """Write the file system's cache to flash, where the runtime can."""
+    sync = getattr(os, "sync", None)
+    if sync:
+        sync()
+
+
+def settle():
+    """Leave the stored settings under the live name, and return (them, True),
+    or (them, False) when they could only be read from the new copy. A live
+    file that reads whole wins, and a new copy beside it (a save that did not
+    finish) goes. Otherwise a whole new copy takes the live name now."""
+    stored = _read(CFG_PATH)
+    if stored is not None:
+        _remove(NEW_PATH)
+        return stored, True
+    stored = _read(NEW_PATH)
+    if stored is None:
+        return {}, True
+    try:
+        os.rename(NEW_PATH, CFG_PATH)
+    except OSError:
+        return stored, False        # the board runs on the new copy for now
+    return stored, True
+
+
+def save(settings):
+    """Store the settings, or raise OSError (store-failed) when the next start
+    will read the previous ones. A new copy is written, then renamed over the
+    live file. FAT's rename removes the old file first, so a failure can leave
+    only the new copy: the next start reads it, so that is stored."""
+    if not settle()[1]:
+        raise OSError("the stored settings are only in " + NEW_PATH)  # never write over it
+    try:
+        with open(NEW_PATH, "w") as f:
+            json.dump(settings, f)
+        _sync()
+    except OSError:
+        _remove(NEW_PATH)
+        raise
+    try:
+        os.rename(NEW_PATH, CFG_PATH)
+    except OSError:
+        try:
+            os.stat(CFG_PATH)
+        except OSError:
+            return                  # the old file is gone: the new copy is stored
+        _remove(NEW_PATH)           # the old file stands
+        raise
+    try:
+        _sync()
+    except OSError:
+        pass                        # renamed: these are the stored settings either way
+
+
+def fits(name, value):
+    """True when a pushed text is within the contract's bounds: an ssid of 1 to
+    32 bytes, a pass of up to 64, an id of up to 128 of the id characters."""
+    if name == "ssid":
+        return 0 < len(value.encode()) <= 32
+    if name == "pass":
+        return len(value.encode()) <= 64
+    return len(value) <= 128 and all(c in ID_CHARS for c in value)
 
 
 def networks():
@@ -155,35 +229,27 @@ def _apply(body):
     new = dict(config)
     for name in TEXT_FIELDS:
         if name in push:
-            if not isinstance(push[name], str):
+            if not (isinstance(push[name], str) and fits(name, push[name])):
                 return "err bad-json"
             new[name] = push[name]
     if "aps" in push:
+        # The whole list, each entry exactly an ssid and a pass; a top-level
+        # ssid or pass sent with it must be its first entry's.
         aps = push["aps"]
-        if not isinstance(aps, list) or len(aps) > 8:
+        if not (isinstance(aps, list) and 0 < len(aps) <= MAX_NETWORKS) or any(
+                not (isinstance(ap, dict) and sorted(ap) == ["pass", "ssid"]
+                     and isinstance(ap["ssid"], str) and isinstance(ap["pass"], str)
+                     and fits("ssid", ap["ssid"]) and fits("pass", ap["pass"]))
+                for ap in aps) or any(k in push and push[k] != aps[0][k] for k in ("ssid", "pass")):
             return "err bad-json"
-        for ap in aps:
-            if not (isinstance(ap, dict) and isinstance(ap.get("ssid"), str) and ap["ssid"]
-                    and isinstance(ap.get("pass", ""), str)):
-                return "err bad-json"
         new["aps"] = aps
+        new["ssid"], new["pass"] = aps[0]["ssid"], aps[0]["pass"]   # tried first
     elif "ssid" in push:
         new.pop("aps", None)        # one network named means exactly that one
-    hwid = new.get("hwid", "")
-    if len(hwid) > 128 or any(c not in ID_CHARS for c in hwid):
-        return "err bad-json"
-    if not (new.get("ssid") and hwid):
+    if not (new.get("ssid") and new.get("hwid")):
         return "err missing-field"
-    try:                            # a new file first, so a failure keeps the old one
-        with open(NEW_PATH, "w") as f:
-            json.dump(new, f)
-        try:
-            os.rename(NEW_PATH, CFG_PATH)
-        except OSError as e:        # EEXIST (17): a file system (FAT) that will
-            if e.args[0] != 17:     # not rename over a file, so remove it first
-                raise
-            os.remove(CFG_PATH)
-            os.rename(NEW_PATH, CFG_PATH)
+    try:
+        save(new)
     except OSError:
         return "err store-failed"
     return "ok"
