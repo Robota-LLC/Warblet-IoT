@@ -33,7 +33,7 @@
         "offset": "0x0"
       }
     ],
-    "files": ["main.py", "warblet.py"],
+    "files": ["main.py", "warblet.py", "warblet_https.py"],
     "capabilities": {"v": 1, "auth": [1, 2], "keyProvisioning": ["usb"], "otaKeyRotation": false, "otaFirmwareUpdate": false, "transports": ["https"]},
     "fw": "v1.6.0"
   },

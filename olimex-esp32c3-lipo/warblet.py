@@ -1,19 +1,25 @@
-"""Warblet for MicroPython: USB setup, Wi-Fi, and messages to your dashboard.
-
-    import warblet
-    warblet.demo("demo-olimex-c3", "v1.6.0")   # what the setup page sees
-    warblet.on_command(on_command)             # called with each command's bytes
-    warblet.begin()                            # waits for USB setup the first time
-    while True:
-        if warblet.connected():                # joins Wi-Fi when it must
-            warblet.send(report(), tag)        # returns the HTTP status
-        warblet.wait(INTERVAL_S)               # answers USB setup, collects commands
-
-The setup page at warbletiot.com/flash sends the Wi-Fi networks, the board's
-id, its token and, for signed messages, its key over the USB cable
-(CHIRP-PROV v1.8). They are kept in chirp_cfg.json. Messages go to Warblet
-over HTTPS, checked against the roots below, and are signed once a key is
-stored. The calls copy the Warblet Arduino library's names."""
+# Warblet for MicroPython: USB setup, Wi-Fi, and messages to your dashboard,
+# in two files. This one sets the board up and keeps it online;
+# warblet_https.py sends reports and takes commands. main.py imports the
+# second, which brings this one's calls with it:
+#
+#     import warblet_https as warblet
+#     warblet.demo("demo-olimex-c3", "v1.6.0")   # what the setup page sees
+#     warblet.on_command(on_command)             # called with each command's bytes
+#     warblet.begin()                            # waits for USB setup the first time
+#     while True:
+#         if warblet.connected():                # joins Wi-Fi when it must
+#             warblet.send(report(), tag)        # returns the HTTP status
+#         warblet.wait(INTERVAL_S)               # answers USB setup, collects commands
+#
+# The setup page at warbletiot.com/flash sends the Wi-Fi networks, the board's
+# id, its token and, for signed messages, its key over the USB cable
+# (CHIRP-PROV v1.8). They are kept in chirp_cfg.json. Messages are signed
+# once a key is stored. The calls copy the Warblet Arduino library's names.
+#
+# Comments here, not docstrings: a board holds every docstring in memory while
+# it compiles a file, and comments cost it nothing. Two files of this size,
+# written this way, compile on a board with little memory to spare.
 import json
 import machine
 import network
@@ -68,31 +74,31 @@ _probed = False      # a CHIRP? read and not yet answered
 
 
 def demo(slug, fw):
-    """Name the demo and its version for the setup page (t= and fw=)."""
+    # Name the demo and its version for the setup page (t= and fw=).
     global _slug, _fw
     _slug, _fw = slug, fw
 
 
 def on_command(handler):
-    """Call handler(command_bytes) for each command from the dashboard."""
+    # Call handler(command_bytes) for each command from the dashboard.
     global _handler
     _handler = handler
 
 
 def check_commands_every(seconds):
-    """Ask for commands this often (5 s unless set)."""
+    # Ask for commands this often (5 s unless set).
     global COMMAND_EVERY_S
     COMMAND_EVERY_S = seconds
 
 
 def use_commands(check):
-    """For the transport part: check(handler) asks for commands."""
+    # For the transport part: check(handler) asks for commands.
     global _command_check
     _command_check = check
 
 
 def load():
-    """The stored settings, or an empty dict when there are none."""
+    # The stored settings, or an empty dict when there are none.
     try:
         with open(CFG_PATH) as f:
             stored = json.load(f)
@@ -102,14 +108,14 @@ def load():
 
 
 def ready(settings):
-    """True when the settings are complete enough to report with."""
+    # True when the settings are complete enough to report with.
     return bool(settings.get("ssid") and settings.get("token")
                 and settings.get("hwid"))
 
 
 def begin():
-    """Load the settings. Until the setup page has sent them, only answer it:
-    a good push saves them and restarts the board."""
+    # Load the settings. Until the setup page has sent them, only answer it:
+    # a good push saves them and restarts the board.
     config.clear()
     config.update(load())
     if not ready(config):
@@ -121,7 +127,7 @@ def begin():
 
 
 def signing_key():
-    """The stored signing key (base64), or None when there is none that will sign."""
+    # The stored signing key (base64), or None when there is none that will sign.
     key = config.get("key")
     return key if usable_key(key) else None
 
@@ -130,8 +136,8 @@ B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
 
 def usable_key(key):
-    """True for a key that will sign: 44 base64 characters, one = at the end,
-    that decode to 32 bytes."""
+    # True for a key that will sign: 44 base64 characters, one = at the end,
+    # that decode to 32 bytes.
     try:
         return (isinstance(key, str) and len(key) == 44 and key[43] == "="
                 and all(c in B64 for c in key[:43]) and len(a2b_base64(key)) == 32)
@@ -140,30 +146,30 @@ def usable_key(key):
 
 
 def caps():
-    """The capability object the setup page reads, keys in the contract's
-    order: Token, then Signed once a key is stored; the key comes over USB;
-    no over-the-air updates; and the routes the parts below registered."""
+    # The capability object the setup page reads, keys in the contract's
+    # order: Token, then Signed once a key is stored; the key comes over USB;
+    # no over-the-air updates; and the routes the parts below registered.
     return ('{"v":1,"auth":[1,2],"keyProvisioning":["usb"],"otaKeyRotation":false,'
             '"otaFirmwareUpdate":false,"transports":[%s]}'
             % ",".join('"%s"' % t for t in TRANSPORTS))
 
 
 def announce():
-    """The answer to CHIRP?: the board's id, version, key state and capabilities."""
+    # The answer to CHIRP?: the board's id, version, key state and capabilities.
     return "CHIRP! v=1 hw={} fw={} key_set={} radios=wifi t={} caps={}".format(
         config.get("hwid", ""), _fw, 1 if signing_key() else 0, _slug, caps())
 
 
 def service(seconds=0):
-    """Answer USB setup for this long; zero reads what is waiting.
-    A good push saves the settings and restarts the board.
-    Probes are answered once the waiting input has been read, once for all of
-    them: a board that was busy finds a probe for every quarter second it was
-    away, and answering each would keep it printing while the push arrives.
-    The setup page sends its push as soon as it reads the answer, so the pass
-    then goes on for SETTINGS_S: the board's next network request reads
-    nothing, and a UART console holds only a few hundred bytes. A setup line
-    still arriving when the pass ends is read to its end."""
+    # Answer USB setup for this long; zero reads what is waiting.
+    # A good push saves the settings and restarts the board.
+    # Probes are answered once the waiting input has been read, once for all of
+    # them: a board that was busy finds a probe for every quarter second it was
+    # away, and answering each would keep it printing while the push arrives.
+    # The setup page sends its push as soon as it reads the answer, so the pass
+    # then goes on for SETTINGS_S: the board's next network request reads
+    # nothing, and a UART console holds only a few hundred bytes. A setup line
+    # still arriving when the pass ends is read to its end.
     global _probed, _buf
     deadline = time.ticks_add(time.ticks_ms(), int(seconds * 1000))
     late = 0  # bytes read past the deadline to finish a line
@@ -200,13 +206,13 @@ def service(seconds=0):
 
 
 def _line_started(late):
-    """True when a setup line has begun and is still short enough to finish."""
+    # True when a setup line has begun and is still short enough to finish.
     return late < MAX_LINE and bytes(_buf).find(b"CHIRP") >= 0
 
 
 def _feed(byte):
-    """One byte off the console into the line buffer. A line counts from its
-    first "CHIRP", so stray bytes in front of a command do not spoil it."""
+    # One byte off the console into the line buffer. A line counts from its
+    # first "CHIRP", so stray bytes in front of a command do not spoil it.
     global _buf, _probed
     if isinstance(byte, str):  # the text-stream fallback hands us characters
         byte = byte.encode()
@@ -235,14 +241,14 @@ NAME_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-"
 
 
 def valid_hwid(value):
-    """True when a pushed `hwid` is the platform's grammar: letters, digits and
-    : - _ . only, at most 128. Empty means no id."""
+    # True when a pushed `hwid` is the platform's grammar: letters, digits and
+    # : - _ . only, at most 128. Empty means no id.
     return len(value) <= 128 and all(c in HWID_CHARS for c in value)
 
 
 def valid_networks(entries):
-    """True when a pushed `aps` list is storable: at most MAX_NETWORKS objects,
-    each with a non-empty string ssid and an optional string pass."""
+    # True when a pushed `aps` list is storable: at most MAX_NETWORKS objects,
+    # each with a non-empty string ssid and an optional string pass.
     if not isinstance(entries, list) or len(entries) > MAX_NETWORKS:
         return False
     for entry in entries:
@@ -256,11 +262,11 @@ def valid_networks(entries):
 
 
 def _merged(body, settings):
-    """(a copy of the settings with the push merged in, None), or (None, the
-    reason it is refused), in the contract's order: not one JSON object; a
-    field this firmware does not act on (the first by name, so every board
-    names the same one); a bad value; then, in apply_config_push(), an
-    incomplete result. The settings themselves are never changed."""
+    # (a copy of the settings with the push merged in, None), or (None, the
+    # reason it is refused), in the contract's order: not one JSON object; a
+    # field this firmware does not act on (the first by name, so every board
+    # names the same one); a bad value; then, in apply_config_push(), an
+    # incomplete result. The settings themselves are never changed.
     try:
         push = json.loads(body)
     except ValueError:
@@ -302,16 +308,16 @@ def _merged(body, settings):
 
 
 def _new_device(push, settings):
-    """True when a push sets the board up as a new device: it carries a claim
-    code, or an id other than the stored one. Ids are compared exactly, as
-    Warblet tells devices apart: "sensor" and "SENSOR" are two."""
+    # True when a push sets the board up as a new device: it carries a claim
+    # code, or an id other than the stored one. Ids are compared exactly, as
+    # Warblet tells devices apart: "sensor" and "SENSOR" are two.
     hwid = push.get("hwid")
     return bool(push.get("claim")) or bool(hwid and hwid != settings.get("hwid", ""))
 
 
 def apply_config_push(body):
-    """Check a push and merge it into a copy of the settings, then save it and
-    restart. A refused push changes nothing."""
+    # Check a push and merge it into a copy of the settings, then save it and
+    # restart. A refused push changes nothing.
     candidate, refused = _merged(body, config)
     if refused:
         print("CHIRP= err " + refused)
@@ -332,9 +338,9 @@ def apply_config_push(body):
 
 
 def wait(seconds):
-    """Wait this long, answering USB setup and, every COMMAND_EVERY_S, asking
-    for a command once on_command() has a function. A check that is running
-    when the time is up finishes first."""
+    # Wait this long, answering USB setup and, every COMMAND_EVERY_S, asking
+    # for a command once on_command() has a function. A check that is running
+    # when the time is up finishes first.
     global _next_check
     deadline = time.ticks_add(time.ticks_ms(), int(seconds * 1000))
     while True:
@@ -350,8 +356,8 @@ def wait(seconds):
 
 
 def check_now():
-    """Make the next wait() ask for a command at once (after each report:
-    an answer to it may be waiting)."""
+    # Make the next wait() ask for a command at once (after each report:
+    # an answer to it may be waiting).
     global _next_check
     _next_check = time.ticks_ms()
 
@@ -359,7 +365,7 @@ def check_now():
 # ---- Wi-Fi -----------------------------------------------------------------
 
 def networks(settings):
-    """Return (ssid, password) pairs in order, without repeating the first network."""
+    # Return (ssid, password) pairs in order, without repeating the first network.
     pairs = []
     primary = settings.get("ssid")
     if primary:
@@ -374,10 +380,10 @@ def networks(settings):
 
 
 def connected():
-    """True once Wi-Fi has an address; tries the stored networks in order
-    when it has none. Call it before every message, so the networks are tried
-    again by themselves when the link drops. USB setup is answered before and
-    during each attempt, so a board that cannot join is still set up."""
+    # True once Wi-Fi has an address; tries the stored networks in order
+    # when it has none. Call it before every message, so the networks are tried
+    # again by themselves when the link drops. USB setup is answered before and
+    # during each attempt, so a board that cannot join is still set up.
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
     if wlan.isconnected():
@@ -393,9 +399,9 @@ def connected():
 
 
 def _join(wlan, ssid, password):
-    """One attempt at one network. True once we have an address. The console
-    is read while we wait: a UART console holds only a few hundred bytes, and
-    a setup push that waited out a 12 s join would lose the rest."""
+    # One attempt at one network. True once we have an address. The console
+    # is read while we wait: a UART console holds only a few hundred bytes, and
+    # a setup push that waited out a 12 s join would lose the rest.
     print("chirp: joining", ssid)
     try:
         wlan.connect(ssid, password)
@@ -417,8 +423,8 @@ def _join(wlan, ssid, password):
 
 
 def _drop(wlan):
-    """End a Wi-Fi attempt. The radio can refuse even that; the next try
-    goes ahead anyway."""
+    # End a Wi-Fi attempt. The radio can refuse even that; the next try
+    # goes ahead anyway.
     try:
         wlan.disconnect()
     except OSError:
@@ -444,8 +450,8 @@ _ntp_wait = 0   # seconds after that try before the next one
 
 
 def sync_clock():
-    """Try NTP to set the clock. Certificate checks need it, and a signed
-    message uses it as its nonce."""
+    # Try NTP to set the clock. Certificate checks need it, and a signed
+    # message uses it as its nonce.
     global _ntp_at, _ntp_wait
     _ntp_at = time.time()
     _ntp_wait = NTP_RESYNC_S
@@ -458,8 +464,8 @@ def sync_clock():
 
 
 def require_clock():
-    """Certificate dates are checked against the RTC, so an unset clock gets
-    one more NTP try and then fails the request."""
+    # Certificate dates are checked against the RTC, so an unset clock gets
+    # one more NTP try and then fails the request.
     if time.time() + _EPOCH_OFFSET < _CLOCK_SANE:
         sync_clock()
     if time.time() + _EPOCH_OFFSET < _CLOCK_SANE:
@@ -470,14 +476,14 @@ def require_clock():
 
 
 def clock_suspect():
-    """A signed request was refused: the nonce may be outside the window, so
-    the next NTP try comes sooner."""
+    # A signed request was refused: the nonce may be outside the window, so
+    # the next NTP try comes sooner.
     global _ntp_wait
     _ntp_wait = NTP_AFTER_401_S
 
 
 def nonce_ms():
-    """Unix ms, strictly increasing. Call it after require_clock()."""
+    # Unix ms, strictly increasing. Call it after require_clock().
     global _last_nonce
     ms = (time.time() + _EPOCH_OFFSET) * 1000 + (time.ticks_ms() % 1000)
     if ms <= _last_nonce:
@@ -516,32 +522,32 @@ def hmac_sha256(signing_key_bytes, message):
 
 
 def signed_input(nonce, tag, body):
-    """Return the bytes a signature covers: "<nonce>\\ntag=<tag>\\n" + body.
-    None means the message has no such field; it is signed as empty.
-    Example: signed_input(None, None, b"temp=21.4") == b"\\ntag=\\ntemp=21.4"."""
+    # Return the bytes a signature covers: "<nonce>\ntag=<tag>\n" + body.
+    # None means the message has no such field; it is signed as empty.
+    # Example: signed_input(None, None, b"temp=21.4") == b"\ntag=\ntemp=21.4".
     nonce = "" if nonce is None else str(nonce)
     tag = "" if tag is None else str(tag)
     return nonce.encode() + b"\ntag=" + tag.encode() + b"\n" + body
 
 
 def sign(signing_key_base64, nonce, body, tag=None):
-    """Return the hex HMAC-SHA256 for X-Chirp-Signature. Pass the nonce and
-    tag this message sends as headers, or None for a header it leaves out."""
+    # Return the hex HMAC-SHA256 for X-Chirp-Signature. Pass the nonce and
+    # tag this message sends as headers, or None for a header it leaves out.
     return hexlify(hmac_sha256(a2b_base64(signing_key_base64),
                                signed_input(nonce, tag, body))).decode()
 
 
 def sign_poll(signing_key_base64, hwid, nonce):
-    """Return the hex HMAC-SHA256 a signed device sends when it asks for
-    commands: over "chirp-down\\n<hwid>\\n<nonce>"."""
+    # Return the hex HMAC-SHA256 a signed device sends when it asks for
+    # commands: over "chirp-down\n<hwid>\n<nonce>".
     challenge = "chirp-down\n{}\n{}".format(hwid, nonce).encode()
     return hexlify(hmac_sha256(a2b_base64(signing_key_base64), challenge)).decode()
 
 
 def sign_raw(signing_key_base64, body, tag=None):
-    """Return the 32-byte HMAC-SHA256 for MQTT/TCP payload prefixes. These
-    transports carry no nonce, so the nonce field is empty; a tag travels in
-    the topic or line and is signed here. Only the body is sent."""
+    # Return the 32-byte HMAC-SHA256 for MQTT/TCP payload prefixes. These
+    # transports carry no nonce, so the nonce field is empty; a tag travels in
+    # the topic or line and is signed here. Only the body is sent.
     return hmac_sha256(a2b_base64(signing_key_base64), signed_input("", tag, body))
 
 
@@ -649,11 +655,11 @@ _ctx = None
 
 
 def tls_context():
-    """The context that refuses any chain not ending at CA_ROOTS, built once:
-    one per request holds its parsed roots until gc runs, and a dozen
-    back-to-back handshakes exhaust the heap. wrap_socket(server_hostname=...)
-    adds the host name check. It needs ssl.SSLContext with cadata, which a
-    recent MicroPython has (these demos pin 1.28.0) and v1.14 has not."""
+    # The context that refuses any chain not ending at CA_ROOTS, built once:
+    # one per request holds its parsed roots until gc runs, and a dozen
+    # back-to-back handshakes exhaust the heap. wrap_socket(server_hostname=...)
+    # adds the host name check. It needs ssl.SSLContext with cadata, which a
+    # recent MicroPython has (these demos pin 1.28.0) and v1.14 has not.
     global _ctx
     if _ctx is None:
         import ssl
@@ -662,231 +668,3 @@ def tls_context():
         ctx.load_verify_locations(cadata=CA_ROOTS)
         _ctx = ctx
     return _ctx
-
-
-# ---- HTTPS: reports and commands -------------------------------------------
-# send() posts a reading; send_answer() also says whether Warblet knows the
-# board; poll() asks for one waiting command. The server certificate must
-# chain to a root above and match the host name, or the request fails.
-# Certificate dates need a set clock, so nothing is sent without one, and a
-# signed message always carries a timestamp nonce.
-import socket
-
-TRANSPORTS.append("https")  # what the setup page is told this firmware sends over
-
-HOST = "https.warbletiot.com"  # default; a stored host overrides it
-PORT = 443
-TIMEOUT_S = 20
-
-# Dashboard commands are at most 256 bytes; a bigger reply is not a command.
-MAX_COMMAND_BYTES = 1024
-
-
-def _read_exactly(s, count):
-    """Exactly `count` bytes from the connection, or OSError if it ends first."""
-    data = b""
-    while len(data) < count:
-        piece = s.read(count - len(data))
-        if not piece:
-            raise OSError("reply cut short")
-        data += piece
-    return data
-
-
-def _read_reply_body(s):
-    """Read the reply headers, then the whole body. A reply that ends early
-    is an OSError: a cut-off command must never look like a shorter one."""
-    length = None
-    chunked = False
-    while True:
-        line = s.readline()
-        if not line:
-            raise OSError("reply cut short")
-        if line == b"\r\n":
-            break
-        name, _, value = line.partition(b":")
-        name = name.strip().lower()
-        if name == b"content-length":
-            length = int(value.strip())
-        elif name == b"transfer-encoding" and b"chunked" in value.lower():
-            chunked = True
-    if chunked:
-        # The body comes in pieces, each after a line with its size in hex,
-        # and ends with a piece of size 0.
-        body = b""
-        while True:
-            line = s.readline()
-            if not line.endswith(b"\n"):
-                raise OSError("reply cut short")
-            size = int(line.split(b";")[0].strip().decode(), 16)
-            if size == 0:
-                return body
-            if len(body) + size > MAX_COMMAND_BYTES:
-                raise OSError("reply over {} bytes".format(MAX_COMMAND_BYTES))
-            body += _read_exactly(s, size)
-            if _read_exactly(s, 2) != b"\r\n":
-                raise OSError("reply garbled")
-    if length is not None:
-        if length > MAX_COMMAND_BYTES:
-            raise OSError("reply over {} bytes".format(MAX_COMMAND_BYTES))
-        return _read_exactly(s, length)
-    # No length given: with `Connection: close` the body runs to the end.
-    body = s.read(MAX_COMMAND_BYTES + 1) or b""
-    if len(body) > MAX_COMMAND_BYTES:
-        raise OSError("reply over {} bytes".format(MAX_COMMAND_BYTES))
-    return body
-
-
-def _request(method, host, path, headers, body=None, want_reply=False):
-    """One HTTPS request with `Connection: close`. Returns (HTTP status code,
-    reply body or None). Only a 200 answer to a GET carries a body we use,
-    and a 2xx answer to a POST when the caller wants Warblet's word on it;
-    for anything else the status is enough, so we do not wait for more."""
-    addr = socket.getaddrinfo(host, PORT)[0][-1]
-    s = socket.socket()
-    try:
-        s.settimeout(TIMEOUT_S)
-        s.connect(addr)
-        try:
-            s = tls_context().wrap_socket(s, server_hostname=host)
-        except (OSError, ValueError) as e:
-            # MicroPython raises ValueError for a rejected certificate.
-            raise OSError("TLS to {} refused: {}".format(host, e))
-        lines = ["{} {} HTTP/1.1".format(method, path),
-                 "Host: {}".format(host),
-                 "Connection: close"]
-        if body is not None:
-            lines.append("Content-Length: {}".format(len(body)))
-        for name in headers:
-            lines.append("{}: {}".format(name, headers[name]))
-        s.write("\r\n".join(lines).encode() + b"\r\n\r\n")
-        if body is not None:
-            s.write(body)
-
-        status = s.readline()  # b"HTTP/1.1 202 Accepted\r\n"
-        parts = status.split(b" ")
-        if len(parts) < 2:
-            raise OSError("no status line")
-        code = int(parts[1])
-        if method == "GET" and code == 200:
-            return code, _read_reply_body(s)
-        if want_reply and 200 <= code < 300:
-            try:
-                return code, _read_reply_body(s)
-            except (OSError, ValueError):
-                return code, None  # taken all the same; only the word is lost
-        return code, None
-    finally:
-        s.close()
-
-
-def send(payload, tag=None):
-    """POST the payload bytes, with an optional tag saying what the message is
-    (for example "press"). Returns the HTTP status code, or 0 when no answer
-    came; a refusal or a failure is said on the console."""
-    return _said(payload, tag, False)[0]
-
-
-def send_answer(payload, tag=None):
-    """send(), and Warblet's word on it: a 202 says "accepted" (stored) or
-    "unclaimed" (no account has this board, so it was only seen; it is set up
-    at warbletiot.com/flash). Returns (HTTP status code or 0, that word, or
-    None when the answer has none)."""
-    code, reply = _said(payload, tag, True)
-    if reply and b'"unclaimed"' in reply:
-        return code, "unclaimed"
-    if reply and b'"accepted"' in reply:
-        return code, "accepted"
-    return code, None
-
-
-def _said(payload, tag, want_reply):
-    """_send(), with a refusal or a failure said on the console. A command
-    check follows each message: an answer to it may be waiting."""
-    try:
-        code, reply = _send(payload, tag, want_reply)
-    except Exception as e:
-        print("chirp: send failed:", e)
-        return 0, None
-    finally:
-        check_now()
-    if not 200 <= code < 300:
-        print("chirp: ingest replied", code)
-    return code, reply
-
-
-def _send(payload, tag, want_reply):
-    require_clock()
-    headers = {
-        "Content-Type": "application/octet-stream",
-        "X-Chirp-Token": config["token"],
-    }
-    # A claim code rides in both headers until it binds and becomes the token.
-    if config["token"].startswith("CHIRP-"):
-        headers["X-Chirp-Claim"] = config["token"]
-    if tag is not None:
-        headers["X-Chirp-Tag"] = tag
-
-    # require_clock() above means there is a nonce.
-    key = signing_key()
-    if key:
-        nonce = nonce_ms()
-        headers["X-Chirp-Nonce"] = str(nonce)
-        headers["X-Chirp-Signature"] = sign(key, nonce, payload, tag)
-
-    code, reply = _request("POST", config.get("host") or HOST,
-                           "/ingest/{}".format(config["hwid"]),
-                           headers, payload, want_reply)
-    if code == 401 and key:
-        clock_suspect()
-    return code, reply
-
-
-def poll():
-    """Ask Warblet for the next waiting command (GET .../down).
-    Returns (HTTP status code, command bytes or None).
-    200 carries one command; 204 means nothing is waiting."""
-    require_clock()
-    headers = {"X-Chirp-Token": config["token"]}
-
-    # A signed device proves it holds its key, so a leaked token alone cannot
-    # read its commands. require_clock() above means there is a nonce.
-    key = signing_key()
-    if key:
-        nonce = nonce_ms()
-        headers["X-Chirp-Nonce"] = str(nonce)
-        headers["X-Chirp-Signature"] = sign_poll(key, config["hwid"], nonce)
-
-    code, reply = _request("GET", config.get("host") or HOST,
-                           "/ingest/{}/down".format(config["hwid"]), headers)
-    if code == 401 and key:
-        clock_suspect()
-    if code != 200:
-        return code, None
-    if reply.startswith(b"CHIRPKEY1 "):
-        # Warblet can send a signing key this way, and marks it delivered.
-        # This firmware takes its key over USB, so it drops this one -- and
-        # never prints it. Install the key over the USB setup instead.
-        print("chirp: a signing key came in place of a command; not used "
-              "(this firmware takes keys over USB)")
-        return code, None
-    return code, reply
-
-
-def _check_commands(handler):
-    """Ask Warblet for one waiting command and hand it to the handler.
-    Another waiting command comes at the next check."""
-    if not network.WLAN(network.STA_IF).isconnected():
-        return
-    try:
-        code, command = poll()
-    except Exception as e:
-        print("chirp: command check failed:", e)
-        return
-    if code == 200 and command is not None:
-        handler(command)
-    elif code not in (200, 204):
-        print("chirp: command check replied", code)
-
-
-use_commands(_check_commands)

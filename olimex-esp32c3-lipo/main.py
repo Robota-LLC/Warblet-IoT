@@ -5,7 +5,7 @@ import time
 
 import machine
 
-import warblet        # USB setup, Wi-Fi and messages to Warblet
+import warblet_https as warblet   # USB setup, Wi-Fi and messages to Warblet
 
 INTERVAL_S = 30      # heartbeat gap; a press does not wait for it
 BUTTON_POLL_INTERVAL_MS = 20   # how often we look at the button
