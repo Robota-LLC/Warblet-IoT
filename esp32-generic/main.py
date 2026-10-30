@@ -5,23 +5,24 @@ import struct
 import time
 
 import machine
-import network
 
-import chirp_prov
-import chirp_send
+import warblet         # USB setup, Wi-Fi, the clock and signing
+import warblet_https   # enables HTTPS reports and dashboard commands; keep this import
 
 INTERVAL_S = 30      # seconds between readings
-COMMAND_POLL_S = 5   # wait after each command check; a check is one HTTPS request
+warblet.COMMAND_EVERY_S = 5   # how often to ask Warblet for a command; a check is one HTTPS request
 RESTART_AFTER_ERROR_S = 10  # pause before restarting after an unexpected error
 
-# Demo identifier included in the USB announce.
+# What the setup page sees: this demo, and the release its files last changed in.
 DEMO_SLUG = "demo-esp32-generic"
+DEMO_VERSION = "v1.6.0"
 
 # A valid GPIO number does not mean an LED is connected there.
 LED_PIN = 2
 LED_ACTIVE_LOW = False
 
-led_is_on = False  # what the last command asked for
+led = None            # the LED, once open_led() has run
+led_is_on = False     # what the last command asked for
 
 
 def open_led():
@@ -63,9 +64,10 @@ def blink(led):
     drive_led(led, led_is_on)
 
 
-def on_downlink(led, msg):
-    """Match commands as bytes and ignore unrecognized ones."""
-    cmd = bytes(msg)
+def on_command(command):
+    """Each command from the dashboard, as bytes. Match them as bytes and
+    ignore unrecognized ones."""
+    cmd = bytes(command)
     if cmd == b"led:on":
         set_led(led, True)
     elif cmd == b"led:off":
@@ -79,32 +81,6 @@ def on_downlink(led, msg):
         print("chirp: down ignored:", len(cmd), "bytes")
         return
     print("chirp: down", cmd.decode(), "-- LED", "ON" if led_is_on else "OFF")
-
-
-def check_for_command(config, led):
-    """Ask Warblet for one waiting command and act on it. Another waiting
-    command comes at the next check."""
-    if not network.WLAN(network.STA_IF).isconnected():
-        return
-    try:
-        code, command = chirp_send.poll(config)
-    except Exception as e:
-        print("chirp: command check failed:", e)
-        return
-    if code == 200 and command is not None:
-        on_downlink(led, command)
-    elif code not in (200, 204):
-        print("chirp: command check replied", code)
-
-
-def wait_and_handle_commands(config, led, seconds):
-    """Between readings: answer USB setup and ask for a command every
-    COMMAND_POLL_S."""
-    deadline = time.ticks_add(time.ticks_ms(), int(seconds * 1000))
-    while time.ticks_diff(deadline, time.ticks_ms()) > 0:
-        check_for_command(config, led)
-        left_s = time.ticks_diff(deadline, time.ticks_ms()) / 1000.0
-        chirp_prov.service(config, max(0, min(COMMAND_POLL_S, left_s)))
 
 
 def read_temperature_c():
@@ -133,39 +109,24 @@ def encode_temperature(celsius):
 
 
 def main():
+    global led
     led = open_led()
-    chirp_prov.set_slug(DEMO_SLUG)
-    config = chirp_prov.load()
-
-    # Wait for USB setup. A successful config push restarts the board.
-    if not chirp_prov.ready(config):
-        print("chirp: not provisioned -- waiting on USB, warbletiot.com/flash")
-        while True:
-            chirp_prov.service(config, 1)
-
-    print("chirp: reporting as", config["hwid"],
-          "signed" if config.get("key") else "token only")
+    warblet.demo(DEMO_SLUG, DEMO_VERSION)
+    warblet.on_command(on_command)
+    warblet.begin()       # the first time, waits here for USB setup
 
     while True:
-        if chirp_prov.connect_wifi(config):
+        if warblet.connected():
             celsius = read_temperature_c()
             if celsius is None:
                 print("chirp: this chip has no die temperature -- nothing to "
                       "send. Give read_temperature_c() a real sensor.")
-            else:
-                try:
-                    code = chirp_send.send(config,
-                                           encode_temperature(celsius))
-                    if 200 <= code < 300:
-                        print("chirp: sent {:.1f} C".format(celsius))
-                        blink(led)
-                    else:
-                        print("chirp: ingest replied", code)
-                except Exception as e:
-                    print("chirp: send failed:", e)
+            elif warblet.send(encode_temperature(celsius)):
+                print("chirp: sent {:.1f} C".format(celsius))
+                blink(led)
 
         # Check for commands and USB setup between reports.
-        wait_and_handle_commands(config, led, INTERVAL_S)
+        warblet.wait(INTERVAL_S)
 
 
 try:

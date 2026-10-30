@@ -1,30 +1,45 @@
-"""HTTPS sender with token authentication and optional HMAC-SHA256.
-send() posts a reading; send_answer() also says whether Warblet knows the
-board; poll() asks for one waiting command.
-The server certificate must chain to a root below and match the host name,
-or the request fails. Certificate dates need a set clock, so nothing is sent
-without one, and a signed message always carries a timestamp nonce.
-It needs ssl.SSLContext with cadata, which a recent MicroPython has (these
-demos pin 1.28.0) and v1.14 has not."""
+# HTTPS reports and commands: the part of warblet.py that sends. main.py
+# imports it after warblet, and its last line adds it to warblet:
+#
+#     import warblet
+#     import warblet_https
+#
+# Its two main settings go on warblet, where main.py changes them after the
+# imports: warblet.HOST and warblet.COMMAND_EVERY_S (below). A setting in
+# capitals here can be changed the same way, for example
+# warblet_https.TIMEOUT_S = 30.
+
+# ---- HTTPS: reports and commands -------------------------------------------
+# send() posts a reading; send_answer() also says whether Warblet knows the
+# board; poll() asks for one waiting command. The server certificate must
+# chain to a root in CA_ROOTS below and match the host name, or the request
+# fails.
+# Certificate dates need a set clock, so nothing is sent without one, and a
+# signed message always carries a timestamp nonce.
+import network
 import socket
 import time
 
-import chirp_sign
+import warblet
 
-# Default HTTPS host; a stored host overrides it.
-HOST = "https.warbletiot.com"
+# Where to send (a host the setup page stored wins), and how often to ask for
+# a command (a check takes about 1 s).
+warblet.HOST = "https.warbletiot.com"
+warblet.COMMAND_EVERY_S = 5
+
 PORT = 443
 TIMEOUT_S = 20
 
 # Dashboard commands are at most 256 bytes; a bigger reply is not a command.
 MAX_COMMAND_BYTES = 1024
 
-# The nonce needs Unix seconds. MicroPython counts from 2000 on the ESP32 and
-# STM32 ports and from 1970 on some others (rp2, mimxrt).
-_EPOCH_OFFSET = 946684800 if time.gmtime(0)[0] == 2000 else 0
-_CLOCK_SANE = 1735689600  # Minimum Unix time accepted as a set clock
 
-# Let's Encrypt roots. X2 and X1 anchor today's chains; YE and YR are their successors.
+# ---- TLS: the roots Warblet's certificates chain to ------------------------
+
+# Let's Encrypt roots. X2 and X1 anchor today's chains; YE and YR are their
+# successors. One string each, loaded one at a time: all four in one string
+# would need 5 KB in one piece, and on an ESP32-C3 a running demo's heap may
+# not have it, so MicroPython takes 64 KB from the memory TLS needs.
 # ISRG Root X2: https://letsencrypt.org/certs/isrg-root-x2.pem
 # SHA-256 (DER): 69729B8E15A86EFC177A57AFB7171DFC64ADD28C2FCA8CF1507E34453CCB1470
 # ISRG Root X1: https://letsencrypt.org/certs/isrgrootx1.pem
@@ -33,7 +48,8 @@ _CLOCK_SANE = 1735689600  # Minimum Unix time accepted as a set clock
 # SHA-256 (DER): E14FFCAD5B0025731006CAA43A121A22D8E9700F4FB9CF852F02A708AA5D5666
 # ISRG Root YR: https://letsencrypt.org/certs/gen-y/root-yr.pem
 # SHA-256 (DER): E57B7E6F150C419102E8D5C055729FF967B9D1A829BF00CEC89CA604EBF4A86F
-CA_ROOTS = """-----BEGIN CERTIFICATE-----
+CA_ROOTS = (
+"""-----BEGIN CERTIFICATE-----
 MIICGzCCAaGgAwIBAgIQQdKd0XLq7qeAwSxs6S+HUjAKBggqhkjOPQQDAzBPMQsw
 CQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFyY2gg
 R3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMjAeFw0yMDA5MDQwMDAwMDBaFw00
@@ -47,7 +63,8 @@ zj0EAwMDaAAwZQIwe3lORlCEwkSHRhtFcP9Ymd70/aTSVaYgLXTWNLxBo1BfASdW
 tL4ndQavEi51mI38AjEAi/V3bNTIZargCyzuFJ0nN6T5U6VR5CmD1/iQMVtCnwr1
 /q4AaOeMSQ+2b1tbFfLn
 -----END CERTIFICATE-----
------BEGIN CERTIFICATE-----
+""",
+"""-----BEGIN CERTIFICATE-----
 MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw
 TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh
 cmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4
@@ -78,7 +95,8 @@ oyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq
 mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d
 emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
 -----END CERTIFICATE-----
------BEGIN CERTIFICATE-----
+""",
+"""-----BEGIN CERTIFICATE-----
 MIIB2TCCAWCgAwIBAgIRAKQCa6LvbHwg1AR+XmWmk4AwCgYIKoZIzj0EAwMwLjEL
 MAkGA1UEBhMCVVMxDTALBgNVBAoTBElTUkcxEDAOBgNVBAMTB1Jvb3QgWUUwHhcN
 MjUwOTAzMDAwMDAwWhcNNDUwOTAyMjM1OTU5WjAuMQswCQYDVQQGEwJVUzENMAsG
@@ -90,7 +108,8 @@ BBYEFKPIJlqOoUzQNWP8myPIOq5W809WMAoGCCqGSM49BAMDA2cAMGQCMHhMr8N9
 LdL1VQKs9BdV81r76eXRB6mtjuNjzk6/lBsPNToWLTDzGYgtQKO1jl63uAIwGV7m
 onyF377c+MM1oqVNs17sgu7F9YKZwgLmVbeOMDbKAXHtKMDLbiGllCcs8f47
 -----END CERTIFICATE-----
------BEGIN CERTIFICATE-----
+""",
+"""-----BEGIN CERTIFICATE-----
 MIIFKTCCAxGgAwIBAgIRAOxGNJNgz0sP+KmC2Tqpyj0wDQYJKoZIhvcNAQELBQAw
 LjELMAkGA1UEBhMCVVMxDTALBgNVBAoTBElTUkcxEDAOBgNVBAMTB1Jvb3QgWVIw
 HhcNMjUwOTAzMDAwMDAwWhcNNDUwOTAyMjM1OTU5WjAuMQswCQYDVQQGEwJVUzEN
@@ -120,75 +139,34 @@ awuw1EawTDrs13VUlJVEsbQ0/O/1aaV73mCdOQ8azqL2KTv1Ewu1xbquE2S+kdQU
 To9TUwat3wUA6cwXh1EfpS/3fJ0aGah5hdpRyoCLDlsSn8tkrjMfFFX0viC+GxHc
 sI1ANRYvqSFC2X1VRZfDg+wD6E21BccmifG4yWc=
 -----END CERTIFICATE-----
-"""
+""",
+)
 
-_last_nonce = 0
-_ntp_at = None  # time.time() at the last NTP try
-_ntp_wait = 0   # seconds after that try before the next one
-
-# An RTC drifts, and a nonce has to stay inside the server's +/-5 min:
-# re-sync this often, and sooner after a refused signed send -- but not on
-# every send, since a bad token or key is refused the same way.
-NTP_RESYNC_S = 6 * 3600
-NTP_AFTER_401_S = 15 * 60
+_tls = None
 
 
-def sync_clock():
-    """Try NTP to set the clock. Certificate checks need it, and a signed
-    message uses it as its nonce."""
-    global _ntp_at, _ntp_wait
-    _ntp_at = time.time()
-    _ntp_wait = NTP_RESYNC_S
-    try:
-        import ntptime
-        ntptime.settime()
-        _ntp_at = time.time()  # the clock may have jumped
-    except Exception as e:
-        print("chirp: ntp sync failed:", e)
-
-
-def _require_clock():
-    """Certificate dates are checked against the RTC, so an unset clock gets
-    one more NTP try and then fails the send."""
-    if time.time() + _EPOCH_OFFSET < _CLOCK_SANE:
-        sync_clock()
-    if time.time() + _EPOCH_OFFSET < _CLOCK_SANE:
-        raise OSError("no clock, so the server certificate cannot be checked "
-                      "-- allow NTP on this network")
-    if _ntp_at is None or time.time() - _ntp_at > _ntp_wait:
-        sync_clock()  # a failed re-sync keeps the clock it has
-
-
-def _nonce_ms():
-    """Unix ms, strictly increasing. Call it after _require_clock()."""
-    global _last_nonce
-    ms = (time.time() + _EPOCH_OFFSET) * 1000 + (time.ticks_ms() % 1000)
-    if ms <= _last_nonce:
-        ms = _last_nonce + 1  # the contract forbids two signed sends on one ms
-    _last_nonce = ms
-    return ms
-
-
-_ctx = None
-
-
-def _tls_context():
-    """The context that refuses any chain not ending at CA_ROOTS, built once:
-    one per send holds its parsed roots until gc runs, and a dozen
-    back-to-back handshakes exhaust the heap. wrap_socket(server_hostname=...)
-    adds the host name check."""
-    global _ctx
-    if _ctx is None:
+def tls_context():
+    # The TLS context for every request, built once (one per request would
+    # hold its parsed roots until gc runs, and a dozen handshakes exhaust the
+    # heap). It refuses any chain that does not end at CA_ROOTS, and
+    # wrap_socket(..., server_hostname=host) adds the host name check. Roots
+    # that will not load raise OSError: no connection, never an unchecked one.
+    global _tls
+    if _tls is None:
         import ssl
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ctx.verify_mode = ssl.CERT_REQUIRED
-        ctx.load_verify_locations(cadata=CA_ROOTS)
-        _ctx = ctx
-    return _ctx
+        try:
+            for root in CA_ROOTS:   # each adds to the context's roots
+                ctx.load_verify_locations(cadata=root)
+        except (OSError, ValueError) as e:
+            raise OSError("the roots in this file do not load ({}), so nothing is sent".format(e))
+        _tls = ctx
+    return _tls
 
 
 def _read_exactly(s, count):
-    """Exactly `count` bytes from the connection, or OSError if it ends first."""
+    # Exactly `count` bytes from the connection, or OSError if it ends first.
     data = b""
     while len(data) < count:
         piece = s.read(count - len(data))
@@ -199,8 +177,8 @@ def _read_exactly(s, count):
 
 
 def _read_reply_body(s):
-    """Read the reply headers, then the whole body. A reply that ends early
-    is an OSError: a cut-off command must never look like a shorter one."""
+    # Read the reply headers, then the whole body. A reply that ends early
+    # is an OSError: a cut-off command must never look like a shorter one.
     length = None
     chunked = False
     while True:
@@ -243,17 +221,18 @@ def _read_reply_body(s):
 
 
 def _request(method, host, path, headers, body=None, want_reply=False):
-    """One HTTPS request with `Connection: close`. Returns (HTTP status code,
-    reply body or None). Only a 200 answer to a GET carries a body we use,
-    and a 2xx answer to a POST when the caller wants Warblet's word on it;
-    for anything else the status is enough, so we do not wait for more."""
+    # One HTTPS request with `Connection: close`. Returns (HTTP status code,
+    # reply body or None). Only a 200 answer to a GET carries a body we use,
+    # and a 2xx answer to a POST when the caller wants Warblet's word on it;
+    # for anything else the status is enough, so we do not wait for more.
     addr = socket.getaddrinfo(host, PORT)[0][-1]
     s = socket.socket()
     try:
         s.settimeout(TIMEOUT_S)
         s.connect(addr)
+        ctx = tls_context()   # roots that do not load: no request, never an unchecked one
         try:
-            s = _tls_context().wrap_socket(s, server_hostname=host)
+            s = ctx.wrap_socket(s, server_hostname=host)
         except (OSError, ValueError) as e:
             # MicroPython raises ValueError for a rejected certificate.
             raise OSError("TLS to {} refused: {}".format(host, e))
@@ -285,18 +264,21 @@ def _request(method, host, path, headers, body=None, want_reply=False):
         s.close()
 
 
-def send(config, payload, tag=None):
-    """POST the raw payload bytes, with an optional tag saying what the
-    message is (for example "press"). Returns the HTTP status code."""
-    return _send(config, payload, tag, False)[0]
+def send(payload, tag=None):
+    # POST the payload bytes, with an optional tag saying what the message is
+    # (for example "press"). True when Warblet took it: an HTTP 2xx, which is
+    # "stored", or "seen" while no account has the board (send_answer() tells
+    # the two apart). False otherwise, and the console says why. main.py calls
+    # it as warblet.send().
+    return 200 <= _said(payload, tag, False)[0] < 300
 
 
-def send_answer(config, payload, tag=None):
-    """send(), and Warblet's word on it: a 202 says "accepted" (stored) or
-    "unclaimed" (no account has this board, so it was only seen; it is set
-    up at warbletiot.com/flash). Returns (HTTP status code, that word, or
-    None when the answer has none)."""
-    code, reply = _send(config, payload, tag, True)
+def send_answer(payload, tag=None):
+    # send(), and Warblet's word on it: a 202 says "accepted" (stored) or
+    # "unclaimed" (no account has this board, so it was only seen; it is set up
+    # at warbletiot.com/flash). Returns (HTTP status code or 0, that word, or
+    # None when the answer has none).
+    code, reply = _said(payload, tag, True)
     if reply and b'"unclaimed"' in reply:
         return code, "unclaimed"
     if reply and b'"accepted"' in reply:
@@ -304,64 +286,119 @@ def send_answer(config, payload, tag=None):
     return code, None
 
 
-def _send(config, payload, tag, want_reply):
-    global _ntp_wait
-    _require_clock()
-    headers = {
-        "Content-Type": "application/octet-stream",
-        "X-Chirp-Token": config["token"],
-    }
-    # A claim code rides in both headers until it binds and becomes the token.
-    if config["token"].startswith("CHIRP-"):
-        headers["X-Chirp-Claim"] = config["token"]
-    if tag is not None:
-        headers["X-Chirp-Tag"] = tag
-
-    # The stored key is base64; chirp_sign decodes it.
-    # _require_clock() above means there is a nonce.
-    signing_key_base64 = config.get("key")
-    if signing_key_base64:
-        nonce = _nonce_ms()
-        headers["X-Chirp-Nonce"] = str(nonce)
-        headers["X-Chirp-Signature"] = chirp_sign.sign(
-            signing_key_base64, nonce, payload, tag)
-
-    code, reply = _request("POST", config.get("host") or HOST,
-                           "/ingest/{}".format(config["hwid"]),
-                           headers, payload, want_reply)
-    if code == 401 and signing_key_base64:
-        _ntp_wait = NTP_AFTER_401_S  # the nonce may be outside the window
+def _said(payload, tag, want_reply):
+    # _send(), with a refusal or a failure said on the console. A command
+    # check follows each message: an answer to it may be waiting.
+    try:
+        code, reply = _send(payload, tag, want_reply)
+    except Exception as e:
+        print("chirp: send failed:", e)
+        return 0, None
+    finally:
+        check_now()
+    if not 200 <= code < 300:
+        print("chirp: ingest replied", code)
     return code, reply
 
 
-def poll(config):
-    """Ask Warblet for the next waiting command (GET .../down).
-    Returns (HTTP status code, command bytes or None).
-    200 carries one command; 204 means nothing is waiting."""
-    global _ntp_wait
-    _require_clock()
-    headers = {"X-Chirp-Token": config["token"]}
+def _send(payload, tag, want_reply):
+    warblet.require_clock()
+    headers = {
+        "Content-Type": "application/octet-stream",
+        "X-Chirp-Token": warblet.config["token"],
+    }
+    # A claim code rides in both headers until it binds and becomes the token.
+    if warblet.config["token"].startswith("CHIRP-"):
+        headers["X-Chirp-Claim"] = warblet.config["token"]
+    if tag is not None:
+        headers["X-Chirp-Tag"] = tag
+
+    # require_clock() above means there is a nonce.
+    key = warblet.signing_key()
+    if key:
+        nonce = warblet.nonce_ms()
+        headers["X-Chirp-Nonce"] = str(nonce)
+        headers["X-Chirp-Signature"] = warblet.sign(key, nonce, payload, tag)
+
+    code, reply = _request("POST", warblet.config.get("host") or warblet.HOST,
+                           "/ingest/{}".format(warblet.config["hwid"]),
+                           headers, payload, want_reply)
+    if code == 401 and key:
+        warblet.clock_suspect()
+    return code, reply
+
+
+def poll():
+    # Ask Warblet for the next waiting command (GET .../down).
+    # Returns (HTTP status code, command bytes or None).
+    # 200 carries one command; 204 means nothing is waiting.
+    warblet.require_clock()
+    headers = {"X-Chirp-Token": warblet.config["token"]}
 
     # A signed device proves it holds its key, so a leaked token alone cannot
-    # read its commands. _require_clock() above means there is a nonce.
-    signing_key_base64 = config.get("key")
-    if signing_key_base64:
-        nonce = _nonce_ms()
+    # read its commands. require_clock() above means there is a nonce.
+    key = warblet.signing_key()
+    if key:
+        nonce = warblet.nonce_ms()
         headers["X-Chirp-Nonce"] = str(nonce)
-        headers["X-Chirp-Signature"] = chirp_sign.sign_poll(
-            signing_key_base64, config["hwid"], nonce)
+        headers["X-Chirp-Signature"] = warblet.sign_poll(key, warblet.config["hwid"], nonce)
 
-    code, reply = _request("GET", config.get("host") or HOST,
-                           "/ingest/{}/down".format(config["hwid"]), headers)
-    if code == 401 and signing_key_base64:
-        _ntp_wait = NTP_AFTER_401_S  # the nonce may be outside the window
+    code, reply = _request("GET", warblet.config.get("host") or warblet.HOST,
+                           "/ingest/{}/down".format(warblet.config["hwid"]), headers)
+    if code == 401 and key:
+        warblet.clock_suspect()
     if code != 200:
         return code, None
     if reply.startswith(b"CHIRPKEY1 "):
         # Warblet can send a signing key this way, and marks it delivered.
-        # This demo takes its key over USB, so it drops this one -- and never
-        # prints it. Install the key over the USB setup instead.
+        # This firmware takes its key over USB, so it drops this one -- and
+        # never prints it. Install the key over the USB setup instead.
         print("chirp: a signing key came in place of a command; not used "
-              "(this demo takes keys over USB)")
+              "(this firmware takes keys over USB)")
         return code, None
     return code, reply
+
+
+def check_commands(handler):
+    # Ask Warblet for one waiting command and hand it to the handler.
+    # Another waiting command comes at the next check.
+    if not network.WLAN(network.STA_IF).isconnected():
+        return
+    try:
+        code, command = poll()
+    except Exception as e:
+        print("chirp: command check failed:", e)
+        return
+    if code == 200 and command is not None:
+        handler(command)
+    elif code not in (200, 204):
+        print("chirp: command check replied", code)
+
+
+_next_check = 0  # when upkeep() next asks for a command (time.ticks_ms())
+
+
+def check_now():
+    # Make the next upkeep() ask for a command at once (after each report:
+    # an answer to it may be waiting), and have wait() give upkeep() its turn
+    # at once, whichever call sent the report.
+    global _next_check
+    _next_check = time.ticks_ms()
+    warblet.turn_now()
+
+
+def upkeep(handler):
+    # warblet.wait() calls this on every pass. With a command function, ask
+    # for a command every warblet.COMMAND_EVERY_S. Returns how soon to call
+    # it again, in seconds.
+    global _next_check
+    if not handler:
+        return 3600
+    if time.ticks_diff(time.ticks_ms(), _next_check) >= 0:
+        check_commands(handler)
+        _next_check = time.ticks_add(time.ticks_ms(), int(warblet.COMMAND_EVERY_S * 1000))
+    return max(0, time.ticks_diff(_next_check, time.ticks_ms())) / 1000
+
+
+# This part's routes, its send() and its upkeep(), added to warblet.
+warblet.add_part(["https"], send, upkeep)
