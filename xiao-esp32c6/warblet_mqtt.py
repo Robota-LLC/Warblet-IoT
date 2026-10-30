@@ -46,8 +46,9 @@ CHECK_EVERY_S = 0.2
 # ---- TLS: the roots Warblet's certificates chain to ------------------------
 
 # Let's Encrypt roots. X2 and X1 anchor today's chains; YE and YR are their
-# successors. One string each, joined when the first request needs them: one
-# string of all four would need 5 KB in one piece while this file compiles.
+# successors. One string each, loaded one at a time: all four in one string
+# would need 5 KB in one piece, and on an ESP32-C3 a running demo's heap may
+# not have it, so MicroPython takes 64 KB from the memory TLS needs.
 # ISRG Root X2: https://letsencrypt.org/certs/isrg-root-x2.pem
 # SHA-256 (DER): 69729B8E15A86EFC177A57AFB7171DFC64ADD28C2FCA8CF1507E34453CCB1470
 # ISRG Root X1: https://letsencrypt.org/certs/isrgrootx1.pem
@@ -165,7 +166,8 @@ def tls_context():
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ctx.verify_mode = ssl.CERT_REQUIRED
         try:
-            ctx.load_verify_locations(cadata="".join(CA_ROOTS))
+            for root in CA_ROOTS:   # each adds to the context's roots
+                ctx.load_verify_locations(cadata=root)
         except (OSError, ValueError) as e:
             raise OSError("the roots in this file do not load ({}), so nothing is sent".format(e))
         _tls = ctx
