@@ -372,6 +372,8 @@ def _feed(byte):
     if byte not in (b"\r", b"\n"):  # the portal sends CRLF; a bare LF is tolerated
         if len(_buf) >= MAX_LINE:
             _buf, _start = bytearray(), -1  # far too long for a setup line: start again
+        elif _start < 0 and len(_buf) >= 64:
+            _buf = _buf[-4:]  # nothing before "CHIRP" counts, so junk is not kept
         _buf += byte
         if _start < 0 and byte == b"P" and len(_buf) >= 5 and _buf[-5:] == b"CHIRP":
             _start = len(_buf) - 5
