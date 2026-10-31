@@ -138,6 +138,7 @@ def save(settings):
         _sync()
     except OSError:
         _remove(NEW_PATH)
+        _sync()                     # the removal on flash before the answer
         raise
     try:
         os.rename(NEW_PATH, CFG_PATH)
@@ -150,6 +151,7 @@ def save(settings):
             _sync()                 # FAT removed the old file: the new copy is stored
             return
         _remove(NEW_PATH)           # the old file stands
+        _sync()                     # and the candidate's removal is on flash
         raise
     _sync()
 

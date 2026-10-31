@@ -41,7 +41,7 @@
     "host": "mqtt.warbletiot.com",
     "commands": ["led:on", "led:off", "led:toggle", "led:blink"],
     "knobs": {
-      "tls": {"configKey": "tls", "default": true}
+      "tls": {"configKey": "tls"}
     }
   }
 }

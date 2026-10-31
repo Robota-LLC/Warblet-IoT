@@ -10,7 +10,7 @@
 #     warblet.begin()                            # waits for USB setup the first time
 #     while True:
 #         if warblet.connected():                # joins Wi-Fi when it must
-#             warblet.send(report(), tag)        # True once Warblet has it
+#             warblet.send(report(), tag)        # True when it went: the part's send() says what that means
 #         warblet.wait(INTERVAL_S)               # answers USB setup, collects commands
 #
 # The setup page at warbletiot.com/flash sends the Wi-Fi networks, the board's
@@ -73,6 +73,7 @@ _poller.register(sys.stdin, select.POLLIN)
 # back to the text stream.
 _console = getattr(sys.stdin, "buffer", sys.stdin)
 _buf = bytearray()   # the console line so far, as bytes
+_start = -1          # where "CHIRP" begins in _buf, or -1 before it has come
 _probed = False      # a CHIRP? read and not yet answered
 
 
@@ -98,6 +99,14 @@ def on_command(handler):
     # Call handler(command_bytes) for each command from the dashboard.
     global _handler
     _handler = handler
+
+
+def command(data):
+    # A part hands each command here the moment it arrives, even before
+    # wait() has given the part a turn (an MQTT broker may send one inside
+    # subscribe()): the function given to on_command() gets it.
+    if _handler:
+        _handler(data)
 
 
 def add_part(transports, send, upkeep, fields=None):
@@ -156,13 +165,11 @@ def _read(path):
     # that file may be good, so nothing is decided from it.
     try:
         with open(path) as f:
-            text = f.read()
+            stored = json.load(f)  # parsed as it is read: no copy of the whole text
     except OSError as e:
         if e.args[0] == ENOENT:
             return None
         raise
-    try:
-        stored = json.loads(text)
     except ValueError:
         return None
     return stored if isinstance(stored, dict) else None
@@ -235,6 +242,7 @@ def save(settings):
         _sync()
     except OSError:
         _remove(NEW_PATH)
+        _sync()  # the removal on flash before the answer: a candidate that reached it stays refused
         raise
     try:
         os.rename(NEW_PATH, CFG_PATH)
@@ -247,6 +255,7 @@ def save(settings):
             _sync()    # FAT removed the old file: the new copy is the stored one
             return
         _remove(NEW_PATH)  # the old file stands
+        _sync()            # and the candidate's removal is on flash before the answer
         raise
     _sync()
 
@@ -314,7 +323,7 @@ def service(seconds=0):
     # then goes on for SETTINGS_S: the board's next network request reads
     # nothing, and a UART console holds only a few hundred bytes. A setup line
     # still arriving when the pass ends is read to its end.
-    global _probed, _buf
+    global _probed, _buf, _start
     deadline = time.ticks_add(time.ticks_ms(), int(seconds * 1000))
     late = 0  # bytes read past the deadline to finish a line
     while True:
@@ -345,33 +354,35 @@ def service(seconds=0):
         if remaining > 0 and _line_started(late):
             continue  # the pass ended in the middle of a line: read the rest
         if remaining <= 0 and wait:
-            _buf = bytearray()  # the line stopped coming: it will not end now
+            _buf, _start = bytearray(), -1  # the line stopped coming: it will not end now
         return
 
 
 def _line_started(late):
     # True when a setup line has begun and is still short enough to finish.
-    return late < MAX_LINE and bytes(_buf).find(b"CHIRP") >= 0
+    return late < MAX_LINE and _start >= 0
 
 
 def _feed(byte):
     # One byte off the console into the line buffer. A line counts from its
     # first "CHIRP", so stray bytes in front of a command do not spoil it.
-    global _buf, _probed
+    global _buf, _probed, _start
     if isinstance(byte, str):  # the text-stream fallback hands us characters
         byte = byte.encode()
     if byte not in (b"\r", b"\n"):  # the portal sends CRLF; a bare LF is tolerated
         if len(_buf) >= MAX_LINE:
-            _buf = bytearray()  # far too long for a setup line: start again
+            _buf, _start = bytearray(), -1  # far too long for a setup line: start again
         _buf += byte
+        if _start < 0 and byte == b"P" and len(_buf) >= 5 and _buf[-5:] == b"CHIRP":
+            _start = len(_buf) - 5
         return
-    line = bytes(_buf)
-    _buf = bytearray()
-    start = line.find(b"CHIRP")
+    start, _start = _start, -1
     if start < 0:
+        _buf = bytearray()
         return
+    line, _buf = memoryview(_buf)[start:], bytearray()
     try:
-        line = line[start:].decode().strip()
+        line = str(line, "utf-8").strip()
     except UnicodeError:
         return  # not text, so not a setup line
     if line == "CHIRP?":

@@ -175,7 +175,6 @@ def tls_context():
 
 _client = None    # the umqtt client while a session is open
 _incoming = None  # select.poll watching the session's socket
-_handler = None   # the command function upkeep() was last given
 _heard_ms = 0     # ticks_ms when the broker last sent us anything
 _pinged_ms = 0    # ticks_ms when we last pinged it
 
@@ -206,13 +205,13 @@ def send(payload, tag=None):
 
 
 def upkeep(handler):
-    # warblet.wait() calls this after every pass: hand over a command that has
-    # arrived, ping the broker every PING_S, and drop a session that has been
-    # silent for SILENCE_LIMIT_S. Returns how soon to call it again, in seconds.
-    global _handler, _heard_ms, _pinged_ms
+    # warblet.wait() calls this after every pass: read what has arrived (a
+    # command goes straight to warblet.command()), ping the broker every
+    # PING_S, and drop a session that has been silent for SILENCE_LIMIT_S.
+    # Returns how soon to call it again, in seconds.
+    global _heard_ms, _pinged_ms
     if _client is None:
         return 3600  # no session, so nothing can arrive; the next send() connects
-    _handler = handler
     now = time.ticks_ms()
     try:
         if _incoming.poll(0):
@@ -231,9 +230,9 @@ def upkeep(handler):
 
 
 def _arrived(topic, msg):
-    # A command on chirp/<id>/down, as its bytes.
-    if _handler:
-        _handler(bytes(msg))
+    # A command on chirp/<id>/down, as its bytes, the moment it comes: the
+    # broker may send one inside subscribe(), before any upkeep().
+    warblet.command(bytes(msg))
 
 
 def _connect():
@@ -270,8 +269,9 @@ def _connect():
     _heard_ms = _pinged_ms = time.ticks_ms()
     _client = client
     gc.collect()
-    # A port to a smaller part needs the heap left with TLS open.
-    print("chirp:", "mqtts" if tls else "mqtt", "session up, free heap", gc.mem_free())
+    # gc.mem_free() is the Python heap's free bytes plus the largest block it
+    # could still take from the system (MicroPython 1.28), not the heap alone.
+    print("chirp:", "mqtts" if tls else "mqtt", "session up, free memory", gc.mem_free())
 
 
 def _close():

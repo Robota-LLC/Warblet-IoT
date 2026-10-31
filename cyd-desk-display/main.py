@@ -221,6 +221,8 @@ def report(config, tag=None, body=None):
         body = {"wifi_dbm": network.WLAN(network.STA_IF).status("rssi")}
     code, answer = warblet_http.send_answer(json.dumps(body).encode(), tag)
     gc.collect()
+    # gc.mem_free() counts the Python heap's free bytes and the largest block
+    # it could still take from the system: room left, not the heap alone.
     print("chirp: sent", tag or "report", "->", code, "free", gc.mem_free())
     if answer == "unclaimed":               # no account has this board
         remember_refused(config)
