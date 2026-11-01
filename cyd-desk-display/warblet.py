@@ -57,6 +57,12 @@ SETTINGS_S = 10      # after an announce, keep reading this long for the push
 LINE_IDLE_MS = 1500  # a setup line still arriving may finish past the deadline,
                      # unless its bytes stop for this long: longer than the
                      # 1 s a hidden browser tab waits between pieces of a push
+LINE_LATE_S = 70     # ...and for at most this long past it: MAX_LINE in
+                     # 64-byte pieces a second apart takes 64 s
+LATE_JUNK = 4096     # past the deadline, other input is read up to this many
+                     # bytes: more than a console holds (a UART or USB console
+                     # here keeps a few hundred, the Pyboard's 1 KB), so what
+                     # waited is read and input that never stops is left
 
 config = {}          # the stored settings; begin() fills it
 _slug = ""           # the demo this firmware is (demo())
@@ -328,28 +334,39 @@ def service(seconds=0):
     # away, and answering each would keep it printing while the push arrives.
     # The setup page sends its push as soon as it reads the answer, so the pass
     # then goes on for SETTINGS_S: the board's next network request reads
-    # nothing, and a UART console holds only a few hundred bytes. A setup line
-    # still arriving when the pass ends is read to its end.
-    global _probed, _buf, _start
+    # nothing, and a UART console holds only a few hundred bytes. Past the
+    # pass's end, a setup line already begun (from its "CHIRP") is read to its
+    # end, for up to LINE_LATE_S more; other input is read up to LATE_JUNK
+    # bytes. Input that keeps coming cannot hold the loop.
+    global _probed, _buf, _start, _skip
     deadline = time.ticks_add(time.ticks_ms(), int(seconds * 1000))
-    late = 0  # bytes read past the deadline to finish a line
+    junk = 0  # bytes read past the deadline in no setup line
     while True:
-        remaining = time.ticks_diff(deadline, time.ticks_ms())
+        now = time.ticks_ms()
+        remaining = time.ticks_diff(deadline, now)
+        late = time.ticks_diff(time.ticks_add(deadline, LINE_LATE_S * 1000), now)
         if _probed:
             wait = 0  # owing an answer: only look for more input
         elif remaining > 0:
             wait = remaining
-        elif _line_started(late):
-            wait = LINE_IDLE_MS  # a setup line is arriving: let it end
+        elif _start >= 0:
+            wait = max(0, min(LINE_IDLE_MS, late))  # a setup line is arriving: let it end
         else:
             wait = 0
-        if _poller.poll(wait):
-            byte = _console.read(1)
-            if byte:
-                if remaining <= 0:
-                    late += 1
+        byte = _console.read(1) if _poller.poll(wait) else None
+        if byte:
+            if remaining <= 0 and _start >= 0 and late <= 0:
+                # LINE_LATE_S past the pass and still coming: given up, and
+                # the rest of it is dropped through its line ending.
+                _buf, _start, _skip = bytearray(), -1, True
                 _feed(byte)
+                return
+            _feed(byte)
+            if remaining > 0 or _start >= 0:
                 continue  # drain the rest of the line without waiting again
+            junk += 1
+            if junk < LATE_JUNK:
+                continue
         if _probed:
             _probed = False
             print(announce())
@@ -358,16 +375,14 @@ def service(seconds=0):
                 deadline = window  # the push follows: keep reading for it
         if time.ticks_diff(deadline, time.ticks_ms()) > 0:
             continue
-        if remaining > 0 and _line_started(late):
-            continue  # the pass ended in the middle of a line: read the rest
-        if remaining <= 0 and wait:
-            _buf, _start = bytearray(), -1  # the line stopped coming: it will not end now
+        if _start >= 0:
+            if remaining > 0:
+                continue  # the pass ended in the middle of a line: read the rest
+            # Its bytes stopped for LINE_IDLE_MS, or LINE_LATE_S ran out
+            # first: it will not end now. Only in the second case is the rest
+            # dropped through its line ending.
+            _buf, _start, _skip = bytearray(), -1, late <= LINE_IDLE_MS
         return
-
-
-def _line_started(late):
-    # True when a setup line has begun and is still short enough to finish.
-    return late < MAX_LINE and _start >= 0
 
 
 def _feed(byte):
