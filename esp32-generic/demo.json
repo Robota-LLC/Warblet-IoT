@@ -1,7 +1,7 @@
 {
   "slug": "demo-esp32-generic",
-  "chips": ["ESP32", "ESP32-S3", "ESP32-C3", "ESP32-C5", "ESP32-C6"],
-  "board": "Any ESP32, ESP32-S3, ESP32-C3, ESP32-C5 or ESP32-C6 module",
+  "chips": ["ESP32-S3", "ESP32-C3", "ESP32-C5", "ESP32-C6"],
+  "board": "Any ESP32-S3, ESP32-C3, ESP32-C5 or ESP32-C6 module",
   "network": "wifi",
   "starter": true,
   "result": "Send the chip's temperature to your dashboard.",
@@ -19,13 +19,6 @@
   "firmware": {
     "kind": "micropython",
     "runtimes": [
-      {
-        "chip": "ESP32",
-        "name": "MicroPython 1.28.0 ESP32_GENERIC",
-        "url": "https://micropython.org/resources/firmware/ESP32_GENERIC-20260406-v1.28.0.bin",
-        "sha256": "cd7820d02c35d34dd403b44263129c6a511b350aea8446c229890753fe240784",
-        "offset": "0x1000"
-      },
       {
         "chip": "ESP32-S3",
         "name": "MicroPython 1.28.0 ESP32_GENERIC_S3",

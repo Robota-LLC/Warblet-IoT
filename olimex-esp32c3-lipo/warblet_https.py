@@ -28,6 +28,7 @@ import warblet
 ROUTES = ["https"]
 HOST = "https.warbletiot.com"
 PORT = 443
+CHECKS_DATES = True   # a certificate's dates: every request needs a set clock
 
 # Let's Encrypt roots. X2 and X1 anchor today's chains; YE and YR are their
 # successors. One string each, loaded one at a time: all four in one string
@@ -312,7 +313,9 @@ def _said(payload, tag, want_reply):
 
 
 def _send(payload, tag, want_reply):
-    warblet.require_clock()
+    key = warblet.signing_key()
+    if key or CHECKS_DATES:
+        warblet.require_clock()  # a signed message's nonce, or a certificate's dates
     headers = {
         "Content-Type": "application/octet-stream",
         "X-Chirp-Token": warblet.config["token"],
@@ -323,8 +326,7 @@ def _send(payload, tag, want_reply):
     if tag is not None:
         headers["X-Chirp-Tag"] = tag
 
-    # require_clock() above means there is a nonce.
-    key = warblet.signing_key()
+    # With a key, require_clock() above means there is a nonce.
     if key:
         nonce = warblet.nonce_ms()
         headers["X-Chirp-Nonce"] = str(nonce)
@@ -342,12 +344,13 @@ def poll():
     # Ask Warblet for the next waiting command (GET .../down).
     # Returns (HTTP status code, command bytes or None).
     # 200 carries one command; 204 means nothing is waiting.
-    warblet.require_clock()
+    key = warblet.signing_key()
+    if key or CHECKS_DATES:
+        warblet.require_clock()  # a signed request's nonce, or a certificate's dates
     headers = {"X-Chirp-Token": warblet.config["token"]}
 
     # A signed device proves it holds its key, so a leaked token alone cannot
-    # read its commands. require_clock() above means there is a nonce.
-    key = warblet.signing_key()
+    # read its commands. With a key, require_clock() above means there is a nonce.
     if key:
         nonce = warblet.nonce_ms()
         headers["X-Chirp-Nonce"] = str(nonce)

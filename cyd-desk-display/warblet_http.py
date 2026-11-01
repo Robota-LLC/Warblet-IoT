@@ -24,12 +24,13 @@ import warblet
 # ---- this part's own: plain HTTP --------------------------------------------
 # Every request is plain HTTP to port 80. Nothing is encrypted: the token and
 # each message can be read on the way, though a signed message still cannot be
-# changed or replayed. Each request still sets the clock first, for a signed
-# message's nonce. It is for a board where TLS leaves too little memory;
-# warblet_https.py is this file with TLS.
+# changed or replayed. Only a signed request needs the clock (its nonce), so
+# a board at Token sends with none. It is for a board where TLS leaves too
+# little memory; warblet_https.py is this file with TLS.
 ROUTES = ["http"]
 HOST = "http.warbletiot.com"
 PORT = 80
+CHECKS_DATES = False  # no certificate: only a signed request needs the clock
 
 
 def _wrap(s, host):
@@ -180,7 +181,9 @@ def _said(payload, tag, want_reply):
 
 
 def _send(payload, tag, want_reply):
-    warblet.require_clock()
+    key = warblet.signing_key()
+    if key or CHECKS_DATES:
+        warblet.require_clock()  # a signed message's nonce, or a certificate's dates
     headers = {
         "Content-Type": "application/octet-stream",
         "X-Chirp-Token": warblet.config["token"],
@@ -191,8 +194,7 @@ def _send(payload, tag, want_reply):
     if tag is not None:
         headers["X-Chirp-Tag"] = tag
 
-    # require_clock() above means there is a nonce.
-    key = warblet.signing_key()
+    # With a key, require_clock() above means there is a nonce.
     if key:
         nonce = warblet.nonce_ms()
         headers["X-Chirp-Nonce"] = str(nonce)
@@ -210,12 +212,13 @@ def poll():
     # Ask Warblet for the next waiting command (GET .../down).
     # Returns (HTTP status code, command bytes or None).
     # 200 carries one command; 204 means nothing is waiting.
-    warblet.require_clock()
+    key = warblet.signing_key()
+    if key or CHECKS_DATES:
+        warblet.require_clock()  # a signed request's nonce, or a certificate's dates
     headers = {"X-Chirp-Token": warblet.config["token"]}
 
     # A signed device proves it holds its key, so a leaked token alone cannot
-    # read its commands. require_clock() above means there is a nonce.
-    key = warblet.signing_key()
+    # read its commands. With a key, require_clock() above means there is a nonce.
     if key:
         nonce = warblet.nonce_ms()
         headers["X-Chirp-Nonce"] = str(nonce)
