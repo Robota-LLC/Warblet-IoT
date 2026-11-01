@@ -2,7 +2,7 @@
   "_": "arduino-libraries/Warblet is the Warblet Arduino library, vendored byte for byte at this commit of its repository: the files listed, and nothing else. A release pin also names the release whose tag is this commit; this one is before its release. Change it only by copying the library at a commit of its repository and writing this file again.",
   "library": "Warblet",
   "repository": "https://github.com/Robota-LLC/Warblet-Arduino",
-  "commit": "398bab881a88c670e078ea3b53b54d795b5205a9",
+  "commit": "dc74fc90cd8619d990afa0b4f216848a071c0e02",
   "paths": [
     "library.properties",
     "LICENSE",
@@ -12,7 +12,7 @@
     "examples"
   ],
   "files": {
-    "docs/REFERENCE.md": "e65e8be7eb7499b01a769dd61d82aa2f421b8f177740b033298eac6a08b1aba7",
+    "docs/REFERENCE.md": "d92f689aca5ba5454edc1f316b1cf2a5cf99f99df442878554111f013c6404f3",
     "examples/Button/Button.ino": "3b70a5cd2bc14c274d551ed8627962864a5f9f858fc836e6f0cd2970fab92604",
     "examples/Button/decoder.star": "9b39f39cacea4b22e9eb7f0c3b5c6c8d57b1ee15c535dc2d151c517f8eba2585",
     "examples/DeskDisplay/decoder.star": "c20e657d267c3c30c220f4564e766408eda40b3315f53c02680cda4f8a6595b0",
@@ -32,12 +32,12 @@
     "library.properties": "365d426a70af7caf98eaaa1dc868716348cf37a10e3f6cf5cdc66553e83ce867",
     "LICENSE": "efd2c13bd707dbe25316d65ea23cb0a1c73b8ea587639e3db220d32aab9b60b3",
     "README.md": "998a8c1bf2f5481b97ecc86b1112e836e96b5f16a857ab1a510060bb6e47ba3c",
-    "src/Warblet.cpp": "b733d50e198b6560046dad849acf9678b90333e967f5f4b158fea793fbd36695",
+    "src/Warblet.cpp": "fbe67e1397451ef0b1ab962bd12f56435bdb534dfe397fb934364360322d3b7d",
     "src/Warblet.h": "55c3a89536ac55060af82f64e6e26ed97c7d4227f87bb211877cdeaa45ead403",
     "src/warblet/core/json.cpp": "d4a182881e9eb0f0461d19ea98a1cecafcc07f76c58211b068bfa5350dfad4f6",
     "src/warblet/core/json.h": "ee261640c50c72363da4fe98aacde171162c6b7cb9e1e28f5a765e41d3e89361",
-    "src/warblet/core/prov.cpp": "11baa7c915d48bb8dad347e89727fa8a242cbd05e48db8d5f5c552f238371ed8",
-    "src/warblet/core/prov.h": "2a1d864362af6edc26ee3c575696e5f1be24a93fab28d9fee9799edd8923b03d",
+    "src/warblet/core/prov.cpp": "2be86589db49daa8b05a235aa274ca812bb9204b5ed61c2e5e5f27665b86acb0",
+    "src/warblet/core/prov.h": "c8fad6d66f4d6be4e1a36087db4bb50f6de8c989381481afe6ee349ad6927b6e",
     "src/warblet/core/sha256.cpp": "fc87079614613f4f1aaf565cb46a6d945b6d5c440b5fbb5d24ce94949ed7724b",
     "src/warblet/core/sha256.h": "9c74d35701e22ad4cf3a5af05f1529269a3ff53c0ce7403bc699a8fb7ae54627",
     "src/warblet/core/sign.cpp": "3dc79c00bbd5c27e7b389ec8e82052d5eed80cc97183cfcf77f3b014b69569a6",
