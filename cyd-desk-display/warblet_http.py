@@ -241,8 +241,8 @@ def poll():
 
 
 def check_commands(handler):
-    # Ask Warblet for one waiting command and hand it to the handler.
-    # Another waiting command comes at the next check.
+    # Ask Warblet for one waiting command and hand it to warblet.command(),
+    # which runs the handler. Another waiting command comes at the next check.
     if not network.WLAN(network.STA_IF).isconnected():
         return
     try:
@@ -251,7 +251,7 @@ def check_commands(handler):
         print("chirp: command check failed:", e)
         return
     if code == 200 and command is not None:
-        handler(command)
+        warblet.command(command)
     elif code not in (200, 204):
         print("chirp: command check replied", code)
 

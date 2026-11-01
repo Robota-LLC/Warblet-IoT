@@ -104,11 +104,16 @@ def on_command(handler):
 
 
 def command(data):
-    # A part hands each command here the moment it arrives, even before
-    # wait() has given the part a turn (an MQTT broker may send one inside
-    # subscribe()): the function given to on_command() gets it.
+    # Hand one command to the function given to on_command(). A part calls
+    # this from its upkeep(), which wait() runs outside any send or
+    # connection, so the handler can send (and connect) as main.py does. A
+    # handler that raises is said on the console in one line, and the loop
+    # goes on.
     if _handler:
-        _handler(data)
+        try:
+            _handler(data)
+        except Exception as e:
+            print("chirp: the command handler failed:", e)
 
 
 def add_part(transports, send, upkeep, fields=None):

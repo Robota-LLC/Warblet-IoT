@@ -42,6 +42,14 @@ SILENCE_LIMIT_S = 75
 # How often upkeep() looks at the session for a command, at most.
 CHECK_EVERY_S = 0.2
 
+# A command waits from the moment it arrives until upkeep() hands it over: at
+# most QUEUE_MAX of them, QUEUE_BYTES together, so a burst cannot take the
+# memory the next TLS handshake needs. Past either, the newest is dropped and
+# the console says so. One command of any size fits an empty queue: Warblet
+# sends at most 8 KiB in one.
+QUEUE_MAX = 8
+QUEUE_BYTES = 8192
+
 
 # ---- TLS: the roots Warblet's certificates chain to ------------------------
 
@@ -177,9 +185,8 @@ _client = None     # the umqtt client while a session is open
 _incoming = None   # select.poll watching the session's socket
 _heard_ms = 0      # ticks_ms when the broker last sent us anything
 _pinged_ms = 0     # ticks_ms when we last pinged it
-_connecting = False  # True while _connect() opens a session
-_waiting = []      # commands that came while it did, oldest first
-_draining = False  # True while _connect() hands those over
+_queue = []        # commands waiting for upkeep(), oldest first
+_queued = 0        # their bytes together
 
 
 def send(payload, tag=None):
@@ -208,50 +215,55 @@ def send(payload, tag=None):
 
 
 def upkeep(handler):
-    # warblet.wait() calls this after every pass: read what has arrived (a
-    # command goes straight to warblet.command()), ping the broker every
-    # PING_S, and drop a session that has been silent for SILENCE_LIMIT_S.
-    # Returns how soon to call it again, in seconds.
-    global _heard_ms, _pinged_ms
-    if _client is None:
-        return 3600  # no session, so nothing can arrive; the next send() connects
-    now = time.ticks_ms()
-    try:
-        if _incoming.poll(0):
-            _heard_ms = now  # a command, a ping answer, or the session ending
-            _client.check_msg()
-        if time.ticks_diff(now, _pinged_ms) >= PING_S * 1000:
-            _client.ping()
-            _pinged_ms = now
-        if time.ticks_diff(now, _heard_ms) >= SILENCE_LIMIT_S * 1000:
-            raise OSError("no answer from the broker for {} s".format(SILENCE_LIMIT_S))
-    except Exception as e:
-        print("chirp: mqtt link lost:", e)
-        _close()
-        return 3600
-    return CHECK_EVERY_S
+    # warblet.wait() calls this after every pass, outside any send: read what
+    # has arrived, ping the broker every PING_S, drop a session that has been
+    # silent for SILENCE_LIMIT_S, and hand the oldest waiting command to
+    # warblet.command(). One per turn, with or without a session, so its
+    # handler can send, and connect, as main.py does. Returns how soon to call
+    # it again, in seconds.
+    global _heard_ms, _pinged_ms, _queued
+    if _client is not None:
+        now = time.ticks_ms()
+        try:
+            if _incoming.poll(0):
+                _heard_ms = now  # a command, a ping answer, or the session ending
+                _client.check_msg()
+            if time.ticks_diff(now, _pinged_ms) >= PING_S * 1000:
+                _client.ping()
+                _pinged_ms = now
+            if time.ticks_diff(now, _heard_ms) >= SILENCE_LIMIT_S * 1000:
+                raise OSError("no answer from the broker for {} s".format(SILENCE_LIMIT_S))
+        except Exception as e:
+            print("chirp: mqtt link lost:", e)
+            _close()
+    if _queue:
+        data = _queue.pop(0)
+        _queued -= len(data)
+        warblet.command(data)
+        if _queue:
+            return 0  # the next one at the next turn
+    return CHECK_EVERY_S if _client is not None else 3600  # no session: the next send() connects
 
 
 def _arrived(topic, msg):
-    # A command on chirp/<id>/down, as its bytes. The broker may send one
-    # inside subscribe(), before the session is up: that one waits, and
-    # _connect() hands it over once there is a session for its handler to
-    # send on. Any other goes to warblet.command() the moment it comes.
-    if _connecting:
-        _waiting.append(bytes(msg))
-    else:
-        warblet.command(bytes(msg))
+    # A command on chirp/<id>/down, as its bytes, inside subscribe() or
+    # check_msg(): only queued. upkeep() hands it over.
+    global _queued
+    data = bytes(msg)
+    if len(_queue) >= QUEUE_MAX or (_queue and _queued + len(data) > QUEUE_BYTES):
+        print("chirp: a command dropped ({} bytes): {} already waiting".format(len(data), len(_queue)))
+        return
+    _queue.append(data)
+    _queued += len(data)
 
 
 def _connect():
     # Open a session: TLS unless "tls" is stored as false, with the clock set
     # first (certificate dates are checked at the handshake), then subscribe to
     # this board's commands. Errors propagate, with the half-open connection
-    # closed; each step gives up after CONNECT_TIMEOUT_S. Once the session is
-    # up, the commands that came while it opened go to warblet.command(), in
-    # order: a handler always has a session to send on, and never opens a
-    # second one with the same client id.
-    global _client, _incoming, _heard_ms, _pinged_ms, _connecting, _draining
+    # closed; each step gives up after CONNECT_TIMEOUT_S. A command the broker
+    # sends inside subscribe() is queued for upkeep(), like any other.
+    global _client, _incoming, _heard_ms, _pinged_ms
     _close()
     from umqtt.simple import MQTTClient  # imported when first needed
     config = warblet.config
@@ -264,7 +276,6 @@ def _connect():
     client = MQTTClient(config["hwid"], host, port=PORT if tls else PORT_PLAINTEXT,
                         user=config["hwid"], password=config["token"],
                         keepalive=KEEPALIVE_S, **kwargs)
-    _connecting = True
     try:
         try:
             client.connect(timeout=CONNECT_TIMEOUT_S)
@@ -284,22 +295,8 @@ def _connect():
         except Exception:
             pass
         raise
-    finally:
-        _connecting = False
     _heard_ms = _pinged_ms = time.ticks_ms()
     _client = client
-    # A handler's send() may connect again; that inner _connect() leaves the
-    # queue to this loop, so each handler runs on its own, in order.
-    if not _draining:
-        _draining = True
-        try:
-            while _waiting:
-                try:
-                    warblet.command(_waiting.pop(0))
-                except Exception as e:
-                    print("chirp: a command's handler failed:", e)
-        finally:
-            _draining = False
     import gc
     gc.collect()
     # gc.mem_free() is the Python heap's free bytes plus the largest block it
