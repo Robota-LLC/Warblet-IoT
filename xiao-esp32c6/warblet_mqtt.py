@@ -179,6 +179,7 @@ _heard_ms = 0      # ticks_ms when the broker last sent us anything
 _pinged_ms = 0     # ticks_ms when we last pinged it
 _connecting = False  # True while _connect() opens a session
 _waiting = []      # commands that came while it did, oldest first
+_draining = False  # True while _connect() hands those over
 
 
 def send(payload, tag=None):
@@ -250,7 +251,7 @@ def _connect():
     # up, the commands that came while it opened go to warblet.command(), in
     # order: a handler always has a session to send on, and never opens a
     # second one with the same client id.
-    global _client, _incoming, _heard_ms, _pinged_ms, _connecting
+    global _client, _incoming, _heard_ms, _pinged_ms, _connecting, _draining
     _close()
     from umqtt.simple import MQTTClient  # imported when first needed
     config = warblet.config
@@ -287,11 +288,18 @@ def _connect():
         _connecting = False
     _heard_ms = _pinged_ms = time.ticks_ms()
     _client = client
-    while _waiting:  # a handler's send() may reconnect, and carry on this queue
+    # A handler's send() may connect again; that inner _connect() leaves the
+    # queue to this loop, so each handler runs on its own, in order.
+    if not _draining:
+        _draining = True
         try:
-            warblet.command(_waiting.pop(0))
-        except Exception as e:
-            print("chirp: a command's handler failed:", e)
+            while _waiting:
+                try:
+                    warblet.command(_waiting.pop(0))
+                except Exception as e:
+                    print("chirp: a command's handler failed:", e)
+        finally:
+            _draining = False
     import gc
     gc.collect()
     # gc.mem_free() is the Python heap's free bytes plus the largest block it
