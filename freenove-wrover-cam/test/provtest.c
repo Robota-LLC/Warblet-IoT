@@ -501,8 +501,9 @@ static void test_store(void)
         check(chirp_store_save(&new) != ESP_OK, "a flash operation that failed: the save says no", NULL);
         power_on();
         chirp_store_load(&got);
-        check(same_settings(&got, &new) || same_settings(&got, &old),
-              "...and the next start reads one whole copy (the contract's one exception)", NULL);
+        check(same_settings(&got, &new),
+              "...and the next start reads the new record, though the save said no (the contract's one exception)",
+              NULL);
         chirp_config_t third;
         a_full_setup(&third, "board-third", "tok-third");
         check(chirp_store_save(&third) == ESP_OK, "...and the next push's save goes", NULL);
