@@ -54,8 +54,9 @@ MAX_LINE = 4096      # a setup line is never this long; more is junk
 WIFI_TIMEOUT_S = 12  # per-attempt association wait
 PROV_PASS_S = 0.5    # USB setup time before each association attempt
 SETTINGS_S = 10      # after an announce, keep reading this long for the push
-LINE_IDLE_MS = 500   # a setup line still arriving may finish past the deadline,
-                     # unless its bytes stop for this long
+LINE_IDLE_MS = 1500  # a setup line still arriving may finish past the deadline,
+                     # unless its bytes stop for this long: longer than the
+                     # 1 s a hidden browser tab waits between pieces of a push
 
 config = {}          # the stored settings; begin() fills it
 _slug = ""           # the demo this firmware is (demo())
@@ -73,7 +74,8 @@ _poller.register(sys.stdin, select.POLLIN)
 # back to the text stream.
 _console = getattr(sys.stdin, "buffer", sys.stdin)
 _buf = bytearray()   # the console line so far, as bytes
-_start = -1          # where "CHIRP" begins in _buf, or -1 before it has come
+_start = -1          # 0 once "CHIRP" has come (_buf starts there), else -1
+_skip = False        # the rest of a line that was too long: dropped to its end
 _probed = False      # a CHIRP? read and not yet answered
 
 
@@ -365,24 +367,29 @@ def _line_started(late):
 
 def _feed(byte):
     # One byte off the console into the line buffer. A line counts from its
-    # first "CHIRP", so stray bytes in front of a command do not spoil it.
-    global _buf, _probed, _start
+    # first "CHIRP": stray bytes in front of a command are dropped and do not
+    # spoil it. A line longer than MAX_LINE from there is thrown away whole,
+    # through its line ending, so no part of it is read as a command.
+    global _buf, _probed, _start, _skip
     if isinstance(byte, str):  # the text-stream fallback hands us characters
         byte = byte.encode()
     if byte not in (b"\r", b"\n"):  # the portal sends CRLF; a bare LF is tolerated
+        if _skip:
+            return
         if len(_buf) >= MAX_LINE:
-            _buf, _start = bytearray(), -1  # far too long for a setup line: start again
-        elif _start < 0 and len(_buf) >= 64:
+            _buf, _start, _skip = bytearray(), -1, True  # far too long for a setup line
+            return
+        if _start < 0 and len(_buf) >= 64:
             _buf = _buf[-4:]  # nothing before "CHIRP" counts, so junk is not kept
         _buf += byte
         if _start < 0 and byte == b"P" and len(_buf) >= 5 and _buf[-5:] == b"CHIRP":
-            _start = len(_buf) - 5
+            _buf, _start = bytearray(b"CHIRP"), 0  # the line starts here
         return
-    start, _start = _start, -1
+    start, _start, _skip = _start, -1, False
     if start < 0:
         _buf = bytearray()
         return
-    line, _buf = memoryview(_buf)[start:], bytearray()
+    line, _buf = memoryview(_buf), bytearray()
     try:
         line = str(line, "utf-8").strip()
     except UnicodeError:

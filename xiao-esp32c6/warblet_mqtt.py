@@ -173,10 +173,12 @@ def tls_context():
         _tls = ctx
     return _tls
 
-_client = None    # the umqtt client while a session is open
-_incoming = None  # select.poll watching the session's socket
-_heard_ms = 0     # ticks_ms when the broker last sent us anything
-_pinged_ms = 0    # ticks_ms when we last pinged it
+_client = None     # the umqtt client while a session is open
+_incoming = None   # select.poll watching the session's socket
+_heard_ms = 0      # ticks_ms when the broker last sent us anything
+_pinged_ms = 0     # ticks_ms when we last pinged it
+_connecting = False  # True while _connect() opens a session
+_waiting = []      # commands that came while it did, oldest first
 
 
 def send(payload, tag=None):
@@ -230,17 +232,25 @@ def upkeep(handler):
 
 
 def _arrived(topic, msg):
-    # A command on chirp/<id>/down, as its bytes, the moment it comes: the
-    # broker may send one inside subscribe(), before any upkeep().
-    warblet.command(bytes(msg))
+    # A command on chirp/<id>/down, as its bytes. The broker may send one
+    # inside subscribe(), before the session is up: that one waits, and
+    # _connect() hands it over once there is a session for its handler to
+    # send on. Any other goes to warblet.command() the moment it comes.
+    if _connecting:
+        _waiting.append(bytes(msg))
+    else:
+        warblet.command(bytes(msg))
 
 
 def _connect():
     # Open a session: TLS unless "tls" is stored as false, with the clock set
     # first (certificate dates are checked at the handshake), then subscribe to
-    # this board's commands. Errors propagate; each step gives up after
-    # CONNECT_TIMEOUT_S.
-    global _client, _incoming, _heard_ms, _pinged_ms
+    # this board's commands. Errors propagate, with the half-open connection
+    # closed; each step gives up after CONNECT_TIMEOUT_S. Once the session is
+    # up, the commands that came while it opened go to warblet.command(), in
+    # order: a handler always has a session to send on, and never opens a
+    # second one with the same client id.
+    global _client, _incoming, _heard_ms, _pinged_ms, _connecting
     _close()
     from umqtt.simple import MQTTClient  # imported when first needed
     config = warblet.config
@@ -253,21 +263,36 @@ def _connect():
     client = MQTTClient(config["hwid"], host, port=PORT if tls else PORT_PLAINTEXT,
                         user=config["hwid"], password=config["token"],
                         keepalive=KEEPALIVE_S, **kwargs)
+    _connecting = True
     try:
-        client.connect(timeout=CONNECT_TIMEOUT_S)
-    except (OSError, ValueError) as e:
-        # MicroPython raises ValueError for a rejected certificate.
-        if tls:
-            raise OSError("TLS to {} refused: {}".format(host, e))
+        try:
+            client.connect(timeout=CONNECT_TIMEOUT_S)
+        except (OSError, ValueError) as e:
+            # MicroPython raises ValueError for a rejected certificate.
+            if tls:
+                raise OSError("TLS to {} refused: {}".format(host, e))
+            raise
+        client.set_callback(_arrived)
+        client.subscribe("chirp/{}/down".format(config["hwid"]))
+        import select
+        _incoming = select.poll()
+        _incoming.register(client.sock, select.POLLIN)
+    except Exception:
+        try:
+            client.sock.close()  # no session: nothing may stay open
+        except Exception:
+            pass
         raise
-    client.set_callback(_arrived)
-    client.subscribe("chirp/{}/down".format(config["hwid"]))
-    import gc
-    import select
-    _incoming = select.poll()
-    _incoming.register(client.sock, select.POLLIN)
+    finally:
+        _connecting = False
     _heard_ms = _pinged_ms = time.ticks_ms()
     _client = client
+    while _waiting:  # a handler's send() may reconnect, and carry on this queue
+        try:
+            warblet.command(_waiting.pop(0))
+        except Exception as e:
+            print("chirp: a command's handler failed:", e)
+    import gc
     gc.collect()
     # gc.mem_free() is the Python heap's free bytes plus the largest block it
     # could still take from the system (MicroPython 1.28), not the heap alone.

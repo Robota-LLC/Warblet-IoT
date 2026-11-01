@@ -29,7 +29,9 @@ _poller.register(sys.stdin, select.POLLIN)
 # Read the console as bytes: a text read waits for the rest of a character,
 # so one stray byte from another program could stop the board.
 _console = getattr(sys.stdin, "buffer", sys.stdin)
-_line = bytearray()
+_line = bytearray()   # the console line so far: from its "CHIRP", once that has come
+_marked = False       # "CHIRP" has come on this line
+_skip = False         # the rest of a line that was too long: dropped to its end
 
 
 def start():
@@ -209,7 +211,6 @@ def drop(wlan):
 def wait(seconds):
     """Wait, answering the setup page on the USB console meanwhile. Returns on
     time even while bytes keep arriving."""
-    global _line
     deadline = time.ticks_add(time.ticks_ms(), int(seconds * 1000))
     while True:
         left = time.ticks_diff(deadline, time.ticks_ms())
@@ -220,21 +221,33 @@ def wait(seconds):
         byte = _console.read(1)
         if isinstance(byte, str):   # a runtime with no byte console
             byte = byte.encode()
-        if byte in (b"\r", b"\n"):
+        _take(byte)
+
+
+def _take(byte):
+    """One console byte into the line. A line counts from its first "CHIRP":
+    stray bytes in front are dropped and do not spoil a command. A line longer
+    than MAX_LINE from there is thrown away whole, through its line ending, so
+    no part of it is read as a command."""
+    global _line, _marked, _skip
+    if byte in (b"\r", b"\n"):
+        if _marked and not _skip:
             _handle(bytes(_line))
-            _line = bytearray()
-        elif byte:
-            if len(_line) >= MAX_LINE:
-                _line = bytearray()
-            _line += byte
+        _line, _marked, _skip = bytearray(), False, False
+    elif byte and not _skip:
+        if len(_line) >= MAX_LINE:
+            _line, _marked, _skip = bytearray(), False, True   # far too long
+            return
+        if not _marked and len(_line) >= 64:
+            _line = _line[-4:]      # nothing before "CHIRP" counts, so junk is not kept
+        _line += byte
+        if not _marked and _line[-5:] == b"CHIRP":
+            _line, _marked = bytearray(b"CHIRP"), True      # the line starts here
 
 
 def _handle(raw):
-    start = raw.find(b"CHIRP")      # stray bytes in front do not spoil a command
-    if start < 0:
-        return
     try:
-        line = raw[start:].decode().strip()
+        line = raw.decode().strip()
     except UnicodeError:
         return
     if line == "CHIRP?":
