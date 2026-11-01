@@ -15,9 +15,7 @@ CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_QUAD=y
 CONFIG_SPIRAM_SPEED_40M=y
 
-# The release this image belongs to. The app reports this version, whatever git
-# says, and two builds of the same source give the same bytes: no build date,
-# time or folder goes into the app or the bootloader.
-CONFIG_APP_PROJECT_VER_FROM_CONFIG=y
-CONFIG_APP_PROJECT_VER="v1.6.0"
+# Two builds of the same source give the same bytes: no build date, time or
+# folder goes into the app or the bootloader. The version is PROJECT_VER, in
+# CMakeLists.txt.
 CONFIG_APP_REPRODUCIBLE_BUILD=y

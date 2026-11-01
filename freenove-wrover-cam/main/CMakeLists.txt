@@ -1,14 +1,12 @@
 idf_component_register(
     SRCS
         "main.c"
-        "chirp_store.c"
-        "chirp_prov.c"
-        "chirp_sign.c"
+        "warblet.c"
         "chirp_send.c"
-        "wifi_ladder.c"
         "camera.c"
     INCLUDE_DIRS "."
     PRIV_REQUIRES
+        esp_app_format
         nvs_flash
         json
         esp_wifi

@@ -3,8 +3,7 @@
 #include <string.h>
 
 #include "chirp_mqtt.h"
-#include "chirp_sign.h"
-#include "wifi_ladder.h"
+#include "warblet.h"
 
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
@@ -16,6 +15,10 @@
 #include "mqtt_client.h"
 
 static const char *TAG = "chirp_mqtt";
+
+/* mqtt.warbletiot.com's TLS port: sessions on it are observed as mqtts, the
+ * label enforceTls rests on. A stored host changes the host, never this. */
+#define CHIRP_MQTT_PORT 8883
 
 #define REPORT_PERIOD_MS 300000
 #define CONNECT_WAIT_MS 20000
@@ -341,10 +344,9 @@ esp_err_t chirp_mqtt_start(const chirp_config_t *config,
     snprintf(s_topic_up, sizeof(s_topic_up), CHIRP_TOPIC_UP, hwid);
     snprintf(s_topic_down, sizeof(s_topic_down), CHIRP_TOPIC_DOWN, hwid);
 
-    /* Use MQTTS on port 8883. A stored host changes only the hostname. */
+    /* MQTTS on port 8883. A stored host changes only the hostname. */
     char uri[URI_MAX];
-    snprintf(uri, sizeof(uri), "mqtts://%s:%u", s_config.host,
-             (unsigned)CHIRP_DEFAULT_PORT);
+    snprintf(uri, sizeof(uri), "mqtts://%s:%u", chirp_store_host(&s_config), (unsigned)CHIRP_MQTT_PORT);
 
     s_bits = xEventGroupCreate();
     if (s_bits == NULL) {
@@ -360,11 +362,8 @@ esp_err_t chirp_mqtt_start(const chirp_config_t *config,
         .credentials = {
             .client_id = hwid,
             .username  = hwid,
-            /* Use a NULL password when no credential is stored.
-             * Tokens and claim codes share the MQTT password field. */
-            .authentication.password = s_config.cred_kind == CHIRP_CRED_NONE
-                                           ? NULL
-                                           : s_config.cred,
+            /* Tokens and claim codes share the MQTT password field. */
+            .authentication.password = s_config.cred,
         },
         .session = {
             .keepalive             = KEEPALIVE_S,
@@ -392,9 +391,7 @@ esp_err_t chirp_mqtt_start(const chirp_config_t *config,
     }
 
     ESP_LOGI(TAG, "%s, up=%s down=%s, %s", uri, s_topic_up, s_topic_down,
-             s_config.cred_kind == CHIRP_CRED_NONE ? "no password flag (L0)"
-             : s_config.has_key ? "password + 32-byte envelope (L2)"
-                                : "password (L1)");
+             s_config.has_key ? "password + 32-byte envelope (L2)" : "password (L1)");
 
     /* The TLS handshake runs on the MQTT client's task; the frame stays in PSRAM. */
     if (xTaskCreate(send_task, "chirp_mqtt", 6144, NULL, 5, NULL) != pdPASS) {

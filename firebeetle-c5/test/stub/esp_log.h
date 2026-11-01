@@ -1,4 +1,6 @@
+/* Host stand-in (test only): log lines are dropped. */
 #pragma once
-#define ESP_LOGE(tag, ...) ((void)(tag))
-#define ESP_LOGW(tag, ...) ((void)(tag))
-#define ESP_LOGI(tag, ...) ((void)(tag))
+static inline void esp_log_drop(const char *tag, const char *fmt, ...) { (void)tag; (void)fmt; }
+#define ESP_LOGI(tag, fmt, ...) esp_log_drop(tag, fmt, ##__VA_ARGS__)
+#define ESP_LOGW(tag, fmt, ...) esp_log_drop(tag, fmt, ##__VA_ARGS__)
+#define ESP_LOGE(tag, fmt, ...) esp_log_drop(tag, fmt, ##__VA_ARGS__)

@@ -8,9 +8,7 @@
 #include "camera.h"
 #include "camera_health.h"
 #include "chirp_mqtt.h"
-#include "chirp_prov.h"
-#include "chirp_store.h"
-#include "wifi_ladder.h"
+#include "warblet.h"
 
 #include "driver/uart.h"
 #include "driver/uart_vfs.h"
@@ -22,8 +20,14 @@
 
 static const char *TAG = "warblet";
 
-/* This demo's catalogue id, sent in the USB announce. */
-#define DEMO_SLUG "demo-wrover-cam-mqtts"
+/* What this demo is: its catalogue id (sent in the USB announce), its
+ * default id, where it reports, and its route. */
+static const warblet_demo_t DEMO = {
+    .slug         = "demo-wrover-cam-mqtts",
+    .hwid_prefix  = "cam-",                 /* the default id: this + the MAC's last three bytes */
+    .default_host = "mqtt.warbletiot.com",  /* a host the setup page stored wins */
+    .transports   = "\"mqtts\"",
+};
 
 /* Health goes out when it changes, and every 5 minutes while the camera is
  * not ready. A frame that was sent also counts as health. */
@@ -185,30 +189,32 @@ static void console_init(void)
     uart_vfs_dev_port_set_tx_line_endings(CONFIG_ESP_CONSOLE_UART_NUM, ESP_LINE_ENDINGS_LF);
     uart_vfs_dev_use_driver(CONFIG_ESP_CONSOLE_UART_NUM);
 
-    /* Blocking, unbuffered stdin, so the reader task sleeps in fgets(). */
-    fcntl(fileno(stdin), F_SETFL, 0);
+    /* stdin does not block, so the setup reader can tell a line that
+     * stopped coming; stdout does, so an answer is never cut short. */
+    fcntl(fileno(stdin), F_SETFL, O_NONBLOCK);
     fcntl(fileno(stdout), F_SETFL, 0);
     setvbuf(stdin, NULL, _IONBF, 0);
 }
 
 void app_main(void)
 {
-    ESP_ERROR_CHECK(chirp_store_init());
+    ESP_ERROR_CHECK(warblet_start(&DEMO));
     console_init();
 
     chirp_config_t config;
     ESP_ERROR_CHECK(chirp_store_load(&config));
-    ESP_LOGI(TAG, "hwid=%s host=%s networks=%u credential=%s signing-key=%s",
-             chirp_store_hwid(&config), config.host, config.ap_count,
+    ESP_LOGI(TAG, "hwid=%s host=%s credential=%s signing-key=%s",
+             chirp_store_hwid(&config), chirp_store_host(&config),
              config.cred_kind == CHIRP_CRED_CLAIM ? "claim" :
              config.cred_kind == CHIRP_CRED_TOKEN ? "token" : "none",
              config.has_key ? "yes" : "no");
 
-    /* Always listening, provisioned or not. */
-    ESP_ERROR_CHECK(chirp_prov_start(&config, DEMO_SLUG));
+    /* Always listening, set up or not. */
+    ESP_ERROR_CHECK(chirp_prov_start(&config));
 
-    if (config.ap_count == 0) {
-        ESP_LOGI(TAG, "no networks stored, waiting to be provisioned");
+    /* A network and a credential, or nothing is sent: this demo has no Open mode. */
+    if (config.ssid[0] == '\0' || config.cred_kind == CHIRP_CRED_NONE) {
+        ESP_LOGI(TAG, "not set up yet, waiting for the setup page");
         return;
     }
     ESP_ERROR_CHECK(wifi_ladder_start(&config));
@@ -226,10 +232,6 @@ void app_main(void)
         s_worker_available = true;
     }
 
-    /* With no credential, connect without a password. */
-    if (config.cred_kind == CHIRP_CRED_NONE) {
-        ESP_LOGI(TAG, "no claim code or token stored, reporting as open (L0)");
-    }
     /* A stored host esp-mqtt cannot use stops MQTT, not the board: USB setup
      * keeps listening, so a new push can put it right. */
     esp_err_t err = chirp_mqtt_start(&config, report_camera, handle_command);

@@ -2,8 +2,7 @@
 #include <string.h>
 
 #include "chirp_send.h"
-#include "chirp_sign.h"
-#include "wifi_ladder.h"
+#include "warblet.h"
 
 #include "esp_crt_bundle.h"
 #include "esp_http_client.h"
@@ -35,10 +34,6 @@ static esp_err_t set_auth_headers(esp_http_client_handle_t client,
                                   const char *tag,
                                   const uint8_t *body, size_t body_len)
 {
-    if (s_config.cred_kind == CHIRP_CRED_NONE) {
-        return ESP_OK;  /* an empty token header would read as "token present
-                           and wrong", not "open device" */
-    }
     esp_http_client_set_header(client, "X-Chirp-Token", s_config.cred);
     if (s_config.cred_kind == CHIRP_CRED_CLAIM) {
         /* A spent claim code becomes the token, so sending this header forever stays correct. */
@@ -171,7 +166,7 @@ chirp_send_result_t chirp_send_bytes(const uint8_t *bytes, size_t length,
     char body[BODY_MAX];
     int  status = 0;
 
-    snprintf(url, sizeof(url), "https://%s/ingest/%s", s_config.host,
+    snprintf(url, sizeof(url), "https://%s/ingest/%s", chirp_store_host(&s_config),
              chirp_store_hwid(&s_config));
     esp_err_t err = http_exchange(url, HTTP_METHOD_POST, tag, bytes, length,
                                   &status, body, sizeof(body));
@@ -196,7 +191,7 @@ static bool poll_down(char *out, size_t out_size)
     int  status = 0;
 
     out[0] = '\0';
-    snprintf(url, sizeof(url), "https://%s/ingest/%s/down", s_config.host,
+    snprintf(url, sizeof(url), "https://%s/ingest/%s/down", chirp_store_host(&s_config),
              chirp_store_hwid(&s_config));
     esp_err_t err = http_exchange(url, HTTP_METHOD_GET, NULL, NULL, 0, &status,
                                   out, out_size);

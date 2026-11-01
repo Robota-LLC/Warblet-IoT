@@ -19,14 +19,13 @@
     "images": [
       {"file": "build/freenove-wrover-cam-mqtts-full.bin", "offset": "0x0", "use": "blank"},
       {"file": "build/freenove-wrover-cam-mqtts-update.bin", "offset": "0x10000", "use": "provisioned"}
-    ]
+    ],
+    "capabilities": {"v": 1, "auth": [1, 2], "keyProvisioning": ["usb"], "otaKeyRotation": false, "otaFirmwareUpdate": false, "transports": ["mqtts"]},
+    "fw": "v1.6.0"
   },
   "provision": {
-    "protocol": "chirp-prov/1.6",
+    "protocol": "chirp-prov/1.8",
     "host": "mqtt.warbletiot.com",
-    "commands": ["snap"],
-    "knobs": {
-      "level": {"max": 2}
-    }
+    "commands": ["snap"]
   }
 }

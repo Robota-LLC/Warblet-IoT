@@ -5,10 +5,8 @@
 #include <string.h>
 
 #include "camera.h"
-#include "chirp_prov.h"
+#include "warblet.h"
 #include "chirp_send.h"
-#include "chirp_store.h"
-#include "wifi_ladder.h"
 
 #include "driver/uart.h"
 #include "driver/uart_vfs.h"
@@ -18,8 +16,14 @@
 
 static const char *TAG = "warblet";
 
-/* This demo's catalogue id, sent in the USB announce. */
-#define DEMO_SLUG "demo-wrover-cam"
+/* What this demo is: its catalogue id (sent in the USB announce), its
+ * default id, where it reports, and its route. */
+static const warblet_demo_t DEMO = {
+    .slug         = "demo-wrover-cam",
+    .hwid_prefix  = "cam-",                 /* the default id: this + the MAC's last three bytes */
+    .default_host = "https.warbletiot.com", /* a host the setup page stored wins */
+    .transports   = "\"https\"",
+};
 
 /* ---------------------------------------------------------------------------
  * the camera
@@ -68,27 +72,28 @@ static void console_init(void)
     uart_vfs_dev_port_set_tx_line_endings(CONFIG_ESP_CONSOLE_UART_NUM, ESP_LINE_ENDINGS_LF);
     uart_vfs_dev_use_driver(CONFIG_ESP_CONSOLE_UART_NUM);
 
-    /* Blocking, unbuffered stdin, so the reader task sleeps in fgets(). */
-    fcntl(fileno(stdin), F_SETFL, 0);
+    /* stdin does not block, so the setup reader can tell a line that
+     * stopped coming; stdout does, so an answer is never cut short. */
+    fcntl(fileno(stdin), F_SETFL, O_NONBLOCK);
     fcntl(fileno(stdout), F_SETFL, 0);
     setvbuf(stdin, NULL, _IONBF, 0);
 }
 
 void app_main(void)
 {
-    ESP_ERROR_CHECK(chirp_store_init());
+    ESP_ERROR_CHECK(warblet_start(&DEMO));
     console_init();
 
     chirp_config_t config;
     ESP_ERROR_CHECK(chirp_store_load(&config));
-    ESP_LOGI(TAG, "hwid=%s host=%s networks=%u credential=%s signing-key=%s",
-             chirp_store_hwid(&config), config.host, config.ap_count,
+    ESP_LOGI(TAG, "hwid=%s host=%s credential=%s signing-key=%s",
+             chirp_store_hwid(&config), chirp_store_host(&config),
              config.cred_kind == CHIRP_CRED_CLAIM ? "claim" :
              config.cred_kind == CHIRP_CRED_TOKEN ? "token" : "none",
              config.has_key ? "yes" : "no");
 
-    /* Always listening, provisioned or not. */
-    ESP_ERROR_CHECK(chirp_prov_start(&config, DEMO_SLUG));
+    /* Always listening, set up or not. */
+    ESP_ERROR_CHECK(chirp_prov_start(&config));
 
     /* Camera before network. With no camera there is nothing to send, but a
      * restart loop would also stop the board being set up over USB: so stay
@@ -103,15 +108,12 @@ void app_main(void)
         }
     }
 
-    if (config.ap_count == 0) {
-        ESP_LOGI(TAG, "no networks stored, waiting to be provisioned");
+    /* A network and a credential, or nothing is sent: this demo has no Open mode. */
+    if (config.ssid[0] == '\0' || config.cred_kind == CHIRP_CRED_NONE) {
+        ESP_LOGI(TAG, "not set up yet, waiting for the setup page");
         return;
     }
     ESP_ERROR_CHECK(wifi_ladder_start(&config));
 
-    /* With no credential, omit authentication headers. */
-    if (config.cred_kind == CHIRP_CRED_NONE) {
-        ESP_LOGI(TAG, "no claim code or token stored, reporting as open (L0)");
-    }
     ESP_ERROR_CHECK(chirp_send_start(&config, send_camera_frame, handle_command));
 }

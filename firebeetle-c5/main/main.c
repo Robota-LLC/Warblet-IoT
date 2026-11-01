@@ -5,10 +5,8 @@
 #include <stdio.h>
 
 #include "chirp_led.h"
-#include "chirp_prov.h"
 #include "chirp_send.h"
-#include "chirp_store.h"
-#include "wifi_ladder.h"
+#include "warblet.h"
 
 #include "driver/temperature_sensor.h"
 #include "driver/usb_serial_jtag.h"
@@ -17,8 +15,14 @@
 
 static const char *TAG = "warblet";
 
-/* This demo's catalogue id, sent in the USB announce. */
-#define DEMO_SLUG "demo-firebeetle-c5"
+/* What this demo is: its catalogue id (sent in the USB announce), its
+ * default id, where it reports, and its route. */
+static const warblet_demo_t DEMO = {
+    .slug         = "demo-firebeetle-c5",
+    .hwid_prefix  = "c5-",                 /* the default id: this + the MAC's last three bytes */
+    .default_host = "tcp.warbletiot.com",  /* a host the setup page stored wins */
+    .transports   = "\"tcp\"",
+};
 
 /* Two bytes: round(temp_c * 10) as a signed big-endian int16. Keep
  * ../decoder.star consistent with this format. */
@@ -87,51 +91,51 @@ static void handle_command(const char *command)
  * start-up
  * ------------------------------------------------------------------------ */
 
-/* Line-based stdin needs the USB-Serial-JTAG driver behind the VFS; the default
- * polling console never blocks. Line endings stay raw: the parser strips CR itself. */
+/* The setup reader needs the USB-Serial-JTAG driver behind the VFS. Line
+ * endings stay raw: the reader takes CR or LF itself. The send ring holds a
+ * whole announce (up to 512 bytes): the default 256 drops what does not fit
+ * once the host stops reading for 50 ms. */
 static void console_init(void)
 {
     usb_serial_jtag_driver_config_t console_config = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
     console_config.rx_buffer_size = 1024;
+    console_config.tx_buffer_size = 1024;
     ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&console_config));
 
     usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_LF);
     usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_LF);
     usb_serial_jtag_vfs_use_driver();
 
-    /* Blocking, unbuffered stdin, so the reader task sleeps in fgets(). */
-    fcntl(fileno(stdin), F_SETFL, 0);
+    /* stdin does not block, so the reader can tell a line that stopped
+     * coming; stdout does, so an answer is never cut short. */
+    fcntl(fileno(stdin), F_SETFL, O_NONBLOCK);
     fcntl(fileno(stdout), F_SETFL, 0);
     setvbuf(stdin, NULL, _IONBF, 0);
 }
 
 void app_main(void)
 {
-    ESP_ERROR_CHECK(chirp_store_init());
+    ESP_ERROR_CHECK(warblet_start(&DEMO));
     console_init();
     ESP_ERROR_CHECK(chirp_led_start());
 
     chirp_config_t config;
     ESP_ERROR_CHECK(chirp_store_load(&config));
-    ESP_LOGI(TAG, "hwid=%s host=%s networks=%u credential=%s signing-key=%s",
-             chirp_store_hwid(&config), config.host, config.ap_count,
+    ESP_LOGI(TAG, "hwid=%s host=%s credential=%s signing-key=%s",
+             chirp_store_hwid(&config), chirp_store_host(&config),
              config.cred_kind == CHIRP_CRED_CLAIM ? "claim" :
              config.cred_kind == CHIRP_CRED_TOKEN ? "token" : "none",
              config.has_key ? "yes" : "no");
 
-    /* Always listening, provisioned or not. */
-    ESP_ERROR_CHECK(chirp_prov_start(&config, DEMO_SLUG));
+    /* Always listening, set up or not. */
+    ESP_ERROR_CHECK(chirp_prov_start(&config));
 
-    if (config.ap_count == 0) {
-        ESP_LOGI(TAG, "no networks stored, waiting to be provisioned");
+    /* A network and a credential, or nothing is sent: this demo has no Open mode. */
+    if (config.ssid[0] == '\0' || config.cred_kind == CHIRP_CRED_NONE) {
+        ESP_LOGI(TAG, "not set up yet, waiting for the setup page");
         return;
     }
     ESP_ERROR_CHECK(wifi_ladder_start(&config));
-
-    /* Without a credential, the transport uses the open-device marker. */
-    if (config.cred_kind == CHIRP_CRED_NONE) {
-        ESP_LOGI(TAG, "no claim code or token stored, reporting as open (L0)");
-    }
 
     ESP_ERROR_CHECK(temperature_sensor_start());
     ESP_ERROR_CHECK(chirp_send_start(&config, report_temperature, handle_command));

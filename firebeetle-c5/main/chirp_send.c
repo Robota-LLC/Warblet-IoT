@@ -3,8 +3,7 @@
 #include <string.h>
 
 #include "chirp_send.h"
-#include "chirp_sign.h"
-#include "wifi_ladder.h"
+#include "warblet.h"
 
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -18,6 +17,9 @@ static const char *TAG = "chirp_send";
 
 #define REPORT_PERIOD_MS  30000
 #define CONNECT_TIMEOUT_S 10
+
+/* tcp.warbletiot.com's port; a stored host changes the host, never this. */
+#define CHIRP_PORT 7700
 
 /* Reconnect backoff: the first connect is at once; after a drop the loop waits
  * the backoff first, doubling it after each failed connect, and a payload line
@@ -58,13 +60,14 @@ static int64_t now_ms(void)
 static int tcp_connect(void)
 {
     char port[8];
-    snprintf(port, sizeof(port), "%u", (unsigned)CHIRP_DEFAULT_PORT);
+    snprintf(port, sizeof(port), "%u", (unsigned)CHIRP_PORT);
+    const char *host = chirp_store_host(&s_config);
 
     struct addrinfo hints = { .ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM };
     struct addrinfo *res  = NULL;
-    int rc = getaddrinfo(s_config.host, port, &hints, &res);
+    int rc = getaddrinfo(host, port, &hints, &res);
     if (rc != 0 || res == NULL) {
-        ESP_LOGW(TAG, "cannot resolve %s: %d", s_config.host, rc);
+        ESP_LOGW(TAG, "cannot resolve %s: %d", host, rc);
         return -1;
     }
 
@@ -79,7 +82,7 @@ static int tcp_connect(void)
     setsockopt(socket_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
     if (connect(socket_fd, res->ai_addr, res->ai_addrlen) != 0) {
-        ESP_LOGW(TAG, "connect %s:%s: errno %d", s_config.host, port, errno);
+        ESP_LOGW(TAG, "connect %s:%s: errno %d", host, port, errno);
         close(socket_fd);
         freeaddrinfo(res);
         return -1;
@@ -98,7 +101,7 @@ static int tcp_connect(void)
     }
 
     ESP_LOGI(TAG, "connected to %s:%s, keepalive %ds/%ds x%d",
-             s_config.host, port, KEEPALIVE_IDLE_S, KEEPALIVE_INTVL_S,
+             host, port, KEEPALIVE_IDLE_S, KEEPALIVE_INTVL_S,
              KEEPALIVE_CNT);
     return socket_fd;
 }
@@ -138,14 +141,9 @@ static esp_err_t send_hello(void)
         n = snprintf(line, sizeof(line), "CHIRP1 %s claim:%s\n",
                      chirp_store_hwid(&s_config), s_config.cred);
         break;
-    case CHIRP_CRED_TOKEN:
+    default:
         n = snprintf(line, sizeof(line), "CHIRP1 %s %s\n",
                      chirp_store_hwid(&s_config), s_config.cred);
-        break;
-    default:
-        /* "-", not empty: the server splits the hello on whitespace. */
-        n = snprintf(line, sizeof(line), "CHIRP1 %s -\n",
-                     chirp_store_hwid(&s_config));
         break;
     }
     if (n < 0 || (size_t)n >= sizeof(line)) {
@@ -155,8 +153,7 @@ static esp_err_t send_hello(void)
     if (err == ESP_OK) {
         /* Log the hello with the secret field stood in for. */
         ESP_LOGI(TAG, "-> CHIRP1 %s %s", chirp_store_hwid(&s_config),
-                 s_config.cred_kind == CHIRP_CRED_CLAIM ? "claim:<code>" :
-                 s_config.cred_kind == CHIRP_CRED_TOKEN ? "<token>" : "-");
+                 s_config.cred_kind == CHIRP_CRED_CLAIM ? "claim:<code>" : "<token>");
     }
     return err;
 }
