@@ -2,7 +2,7 @@
   "_": "arduino-libraries/Warblet is the Warblet Arduino library, vendored byte for byte at this commit of its repository: the files listed, and nothing else. A release pin also names the release whose tag is this commit; this one is before its release. Change it only by copying the library at a commit of its repository and writing this file again.",
   "library": "Warblet",
   "repository": "https://github.com/Robota-LLC/Warblet-Arduino",
-  "commit": "fb46b2c27cb08bb3821419e484b6eb15e443f812",
+  "commit": "9fc39f3005f7fe05a25f6c4ff066aa8876c5d218",
   "paths": [
     "library.properties",
     "LICENSE",
@@ -12,7 +12,7 @@
     "examples"
   ],
   "files": {
-    "docs/REFERENCE.md": "d92f689aca5ba5454edc1f316b1cf2a5cf99f99df442878554111f013c6404f3",
+    "docs/REFERENCE.md": "bc4e238686fa1f6acfa252c405e0fc67b0ef5c5a8fd13a94d2ef2440851b9497",
     "examples/Button/Button.ino": "3b70a5cd2bc14c274d551ed8627962864a5f9f858fc836e6f0cd2970fab92604",
     "examples/Button/decoder.star": "9b39f39cacea4b22e9eb7f0c3b5c6c8d57b1ee15c535dc2d151c517f8eba2585",
     "examples/DeskDisplay/decoder.star": "c20e657d267c3c30c220f4564e766408eda40b3315f53c02680cda4f8a6595b0",
@@ -31,7 +31,7 @@
     "examples/TwoBoards/TwoBoards.ino": "8b436d3b40b3bb9b4741be4cf9c5a56e5f8afb599481adccb7021fc48fdbd09e",
     "library.properties": "365d426a70af7caf98eaaa1dc868716348cf37a10e3f6cf5cdc66553e83ce867",
     "LICENSE": "efd2c13bd707dbe25316d65ea23cb0a1c73b8ea587639e3db220d32aab9b60b3",
-    "README.md": "998a8c1bf2f5481b97ecc86b1112e836e96b5f16a857ab1a510060bb6e47ba3c",
+    "README.md": "5bc1c8521dbbf4196b1bdbd0437fe25861a1457df5a8f9b4a029d96f31b0e83e",
     "src/Warblet.cpp": "279ed67d67c30aa26a87b761acb0e5af697e3a6534dd6d11f595d6486fc01528",
     "src/Warblet.h": "55c3a89536ac55060af82f64e6e26ed97c7d4227f87bb211877cdeaa45ead403",
     "src/warblet/core/json.cpp": "a687b241b9c53a2ad3a01bfb55487c556a23572ae18dea6d19628c0b1edc2eb3",
