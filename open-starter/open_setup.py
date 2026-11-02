@@ -22,7 +22,8 @@ CAPS = ('{"v":1,"auth":[0],"keyProvisioning":[],"otaKeyRotation":false,'
 ID_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:-_."
 MAX_NETWORKS = 8                    # the setup page sends at most this many
 MAX_LINE = 4096                     # a setup line is never longer; more is junk
-LINE_IDLE_MS = 1500                 # a setup line whose bytes stop this long is given up
+LINE_IDLE_MS = 1500                 # a setup line is given up once the console is seen quiet this long
+LINE_LATE_MS = 70000                # wait() reads a setup line on past its time at most this long
 
 config = {}
 _poller = select.poll()
@@ -33,7 +34,7 @@ _console = getattr(sys.stdin, "buffer", sys.stdin)
 _line = bytearray()   # the console line so far: from its "CHIRP", once that has come
 _marked = False       # "CHIRP" has come on this line
 _skip = False         # the rest of a line that was too long: dropped to its end
-_last = 0             # ticks_ms() of the line's last byte, collected or thrown away
+_quiet = None         # ticks_ms() since which every look at the console found nothing
 
 
 def start():
@@ -217,31 +218,44 @@ def drop(wlan):
 
 def wait(seconds):
     """Wait, answering the setup page on the USB console meanwhile. Returns on
-    time even while bytes keep arriving."""
+    time, unless a setup line is arriving: that is read on to its end, for at
+    most LINE_LATE_MS more, so the board's other work never comes between its
+    pieces. Junk that keeps coming does not hold it: that is no setup line.
+
+    A setup line is given up wherever it is, over the limit or not, once the
+    console has been seen quiet for LINE_IDLE_MS (CHIRP-PROV v1.8): looks that
+    found nothing, that far apart. Bytes that came while the board was busy
+    would still be waiting, so a quiet console seen before and after means no
+    byte came between. Bytes found waiting join the line that was arriving:
+    nothing shows they paused, so a good push is never thrown away."""
+    global _line, _marked, _skip, _quiet
     deadline = time.ticks_add(time.ticks_ms(), int(seconds * 1000))
     while True:
-        left = time.ticks_diff(deadline, time.ticks_ms())
-        if left <= 0:
+        now = time.ticks_ms()
+        left = time.ticks_diff(deadline, now)
+        arriving = _marked or _skip         # a setup line, or one being thrown away
+        if not arriving and left <= 0:
             return
-        if not _poller.poll(left):
+        if arriving and left + LINE_LATE_MS <= 0:
+            # Still coming LINE_LATE_MS past the time: the rest of it is
+            # dropped through its line ending, by the waits after this one.
+            _line, _marked, _skip = bytearray(), False, True
+            return
+        ms = left
+        if arriving:
+            seen = 0 if _quiet is None else time.ticks_diff(now, _quiet)
+            ms = min(LINE_IDLE_MS - seen, left + LINE_LATE_MS)
+        byte = _console.read(1) if _poller.poll(max(ms, 0)) else None
+        if byte:
+            if isinstance(byte, str):   # a runtime with no byte console
+                byte = byte.encode()
+            _quiet = None
+            _take(byte)
             continue
-        byte = _console.read(1)
-        if isinstance(byte, str):   # a runtime with no byte console
-            byte = byte.encode()
-        _idle_check()
-        _take(byte)
-
-
-def _idle_check():
-    """A setup line whose bytes stopped for LINE_IDLE_MS, while the board was
-    waiting here or doing something else, is given up wherever it was, over
-    the limit or not (CHIRP-PROV v1.8): the byte just read starts afresh, so a
-    probe sent after a stalled line is answered."""
-    global _line, _marked, _skip, _last
-    now = time.ticks_ms()
-    if (_marked or _skip) and time.ticks_diff(now, _last) >= LINE_IDLE_MS:
-        _line, _marked, _skip = bytearray(), False, False
-    _last = now
+        if _quiet is None:
+            _quiet = now                # nothing waited, nothing came: quiet from here
+        if arriving and time.ticks_diff(time.ticks_ms(), _quiet) >= LINE_IDLE_MS:
+            _line, _marked, _skip = bytearray(), False, False   # seen stopped: given up
 
 
 def _take(byte):
