@@ -75,7 +75,7 @@ The board answers `CHIRP= ok` when it saves the config. The optional `key` is a 
 
 A push with `claim` or a changed `hwid` (including letter case) starts a new device. It drops the stored signing key unless the same push supplies `key`. Token-only or network-only updates keep the key; a key-only update replaces it.
 
-A setup line that stalls for 1.5 seconds is dropped without an answer. The following line is also discarded through its ending; if your next CLI command gets no response, send it again.
+A setup line that stalls for 1.5 seconds is dropped without an answer. What follows is discarded through the next line ending, unless it starts with `CHIRP`: a fresh probe or setup push is read normally. If your next CLI command gets no response, send it again.
 
 A network changed through the CLI lasts only until restart. At startup, the board restores the network from the settings saved through USB setup.
 

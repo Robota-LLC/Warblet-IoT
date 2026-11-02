@@ -65,7 +65,7 @@ With a signing key, `X-Chirp-Signature` carries a hex HMAC-SHA256 of `"<nonce>\n
 
 The payload is two bytes: Celsius multiplied by 10, rounded, and stored as a signed 16-bit integer, high byte first. `00 d7` means 21.5 °C; `ff ce` means −5.0 °C. Die temperature measures the chip, not the room.
 
-The destination is `http.warbletiot.com:80`. This sender does not use TLS: the token and reading are visible on the network. A signature does not encrypt them, and this app cannot satisfy `enforceTls`. `warblet_http.py` contains its HTTP socket client and time-sync code.
+The destination is `http.warbletiot.com:80`. This sender does not use TLS: the token and reading are visible on the network. A signature does not encrypt them, and this app cannot satisfy `enforceTls`. `warblet_http.py` is the HTTP socket client; `sync_clock()` in `warblet.py` handles time sync.
 
 ## Decoder
 
