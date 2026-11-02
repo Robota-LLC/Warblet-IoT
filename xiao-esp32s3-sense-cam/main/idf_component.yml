@@ -1,8 +1,9 @@
-## The one managed component this demo pulls: Espressif's OV2640/OV5640 driver.
-## Pinned exactly, not floated — a demo that builds differently next month is
-## the same rot the guard next door exists to catch.
+## The one managed component this demo asks for: Espressif's camera driver.
+## It brings Espressif's esp_jpeg with it, a JPEG decoder this image does not
+## link. Pinned exactly, not floated — a demo that builds differently next
+## month is the same rot the guard next door exists to catch.
 dependencies:
   idf:
     version: ">=5.5"
   espressif/esp32-camera:
-    version: "==2.1.1"
+    version: "==2.1.8"
