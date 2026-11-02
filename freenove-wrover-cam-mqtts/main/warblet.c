@@ -70,30 +70,6 @@ typedef struct {
     char       host[CHIRP_HOST_SIZE];
 } record_t;
 
-/* The values an earlier image keeps its settings in: v1.6's network list and
- * identity record, and the separate entries before those. They are read only
- * while there is no record, and go once a record is saved. */
-#define KEY_APS       "aps"
-#define KEY_IDENT     "ident"
-#define KEY_CRED      "cred"
-#define KEY_SIGNKEY   "signkey"
-#define KEY_CRED_KIND "cred_kind"
-#define KEY_HWID      "hwid"
-#define KEY_HOST      "host"
-#define KEY_LEVEL     "level"
-#define KEY_AP_COUNT  "ap_count"
-
-#define IDENT_VERSION 1
-typedef struct {
-    uint8_t version;
-    uint8_t cred_kind;
-    uint8_t has_key;
-    char    hwid[CHIRP_HWID_SIZE];
-    char    cred[CHIRP_CRED_SIZE];
-    uint8_t key[CHIRP_KEY_SIZE];
-    char    host[CHIRP_HOST_SIZE];
-} ident_t;
-
 const char *chirp_store_default_hwid(void)
 {
     static char hwid[CHIRP_HWID_SIZE];
@@ -148,91 +124,13 @@ bool chirp_config_network(const chirp_config_t *config, size_t i, const char **s
     return false;
 }
 
-/* nvs_get_str for an optional key: a missing key leaves *dst untouched. */
-static esp_err_t load_str(nvs_handle_t h, const char *key, char *dst, size_t size)
-{
-    size_t len = size;
-    esp_err_t err = nvs_get_str(h, key, dst, &len);
-    return err == ESP_ERR_NVS_NOT_FOUND ? ESP_OK : err;
-}
-
-/* What an earlier image saved: v1.6's two values, or the entries before them. */
-static esp_err_t load_earlier(nvs_handle_t h, chirp_config_t *out)
-{
-    size_t blob_len = sizeof(out->aps);
-    esp_err_t err = nvs_get_blob(h, KEY_APS, out->aps, &blob_len);
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
-        blob_len = 0;
-        err = ESP_OK;
-    }
-    if (err == ESP_OK && blob_len % sizeof(chirp_ap_t) != 0) {
-        err = ESP_ERR_NVS_INVALID_LENGTH;
-    }
-    if (err != ESP_OK) {
-        return err;
-    }
-    out->ap_count = (uint8_t)(blob_len / sizeof(chirp_ap_t));
-    if (out->ap_count > 0) {  /* its first network is the one tried first */
-        strlcpy(out->ssid, out->aps[0].ssid, sizeof(out->ssid));
-        strlcpy(out->pass, out->aps[0].pass, sizeof(out->pass));
-    }
-
-    ident_t id;
-    size_t id_len = sizeof(id);
-    err = nvs_get_blob(h, KEY_IDENT, &id, &id_len);
-    if (err == ESP_OK) {
-        if (id_len != sizeof(id) || id.version != IDENT_VERSION) {
-            return ESP_ERR_NVS_INVALID_LENGTH;
-        }
-        strlcpy(out->hwid, id.hwid, sizeof(out->hwid));
-        strlcpy(out->cred, id.cred, sizeof(out->cred));
-        strlcpy(out->host, id.host, sizeof(out->host));
-        out->cred_kind = (chirp_cred_kind_t)id.cred_kind;
-        out->has_key   = id.has_key != 0;
-        if (out->has_key) {
-            memcpy(out->key, id.key, sizeof(out->key));
-        }
-        return ESP_OK;
-    }
-    if (err != ESP_ERR_NVS_NOT_FOUND) {
-        return err;
-    }
-
-    err = load_str(h, KEY_HOST, out->host, sizeof(out->host));
-    if (err == ESP_OK) {
-        err = load_str(h, KEY_HWID, out->hwid, sizeof(out->hwid));
-    }
-    if (err == ESP_OK) {
-        err = load_str(h, KEY_CRED, out->cred, sizeof(out->cred));
-    }
-    if (err == ESP_OK) {
-        uint8_t kind = CHIRP_CRED_NONE;
-        esp_err_t kerr = nvs_get_u8(h, KEY_CRED_KIND, &kind);
-        if (kerr == ESP_OK) {
-            out->cred_kind = (chirp_cred_kind_t)kind;
-        } else if (kerr != ESP_ERR_NVS_NOT_FOUND) {
-            err = kerr;
-        }
-    }
-    if (err == ESP_OK) {
-        size_t key_len = sizeof(out->key);
-        esp_err_t kerr = nvs_get_blob(h, KEY_SIGNKEY, out->key, &key_len);
-        if (kerr == ESP_OK && key_len == sizeof(out->key)) {
-            out->has_key = true;
-        } else if (kerr != ESP_ERR_NVS_NOT_FOUND && kerr != ESP_ERR_NVS_INVALID_LENGTH) {
-            err = kerr;
-        }
-    }
-    return err;
-}
-
 static esp_err_t load_record(nvs_handle_t h, chirp_config_t *out)
 {
     record_t rec;
     size_t   len = sizeof(rec);
     esp_err_t err = nvs_get_blob(h, KEY_SETTINGS, &rec, &len);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
-        return load_earlier(h, out);
+        return ESP_OK;  /* never set up: the record is the only place settings live */
     }
     if (err != ESP_OK) {
         return err;
@@ -312,21 +210,6 @@ esp_err_t chirp_store_save(const chirp_config_t *config)
         err = nvs_set_blob(h, KEY_SETTINGS, &rec, sizeof(rec));
         if (err == ESP_OK) {
             err = nvs_commit(h);
-        }
-        if (err == ESP_OK) {
-            /* Only now do an earlier image's values go. The record is read
-             * before them, so whatever a cut leaves of them is never read. */
-            static const char *const earlier[] = {
-                KEY_IDENT, KEY_CRED, KEY_SIGNKEY, KEY_CRED_KIND, KEY_HWID, KEY_HOST, KEY_LEVEL,
-                KEY_AP_COUNT, KEY_APS,
-            };
-            for (size_t i = 0; i < sizeof(earlier) / sizeof(earlier[0]); i++) {
-                esp_err_t e = nvs_erase_key(h, earlier[i]);
-                if (e != ESP_OK && e != ESP_ERR_NVS_NOT_FOUND) {
-                    ESP_LOGW(TAG, "an earlier value (%s) stays: %s", earlier[i], esp_err_to_name(e));
-                }
-            }
-            nvs_commit(h);
         }
         nvs_close(h);
     }
@@ -554,6 +437,10 @@ static const char *merge_push(const char *json, const chirp_config_t *stored, ch
         strlcpy(out->pass, out->aps[0].pass, sizeof(out->pass));
     } else if (pushed_ssid) {
         out->ap_count = 0;  /* a top-level ssid without aps names exactly one network */
+    } else if (pushed_pass && out->ap_count > 0) {
+        /* A pass alone is the password of the network tried first, the list's
+         * first entry: it changes there too, and the list keeps the rest. */
+        strlcpy(out->aps[0].pass, out->pass, sizeof(out->aps[0].pass));
     }
 
     /* A setup code, or an id other than the stored one, starts a new device:

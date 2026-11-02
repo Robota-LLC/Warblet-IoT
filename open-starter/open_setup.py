@@ -298,6 +298,10 @@ def _apply(body):
         new["ssid"], new["pass"] = aps[0]["ssid"], aps[0]["pass"]   # tried first
     elif "ssid" in push:
         new.pop("aps", None)        # one network named means exactly that one
+    elif "pass" in push and new.get("aps"):
+        first = dict(new["aps"][0])  # a pass alone is the first network's, in the list too
+        first["pass"] = push["pass"]
+        new["aps"] = [first] + new["aps"][1:]
     if not (new.get("ssid") and new.get("hwid")):
         return "err missing-field"
     try:

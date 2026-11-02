@@ -6,7 +6,7 @@
  *   - the announce: v1.8's line, with this demo's slug, fw and capabilities
  *     as demo.json declares them;
  *   - the store: one record; a save NVS fails cleanly, or fails after writing;
- *     a power cut at every step of a save; what an earlier image left;
+ *     a power cut at every step of a save; values another image left;
  *   - the line: one over the limit, a line that stops, stray bytes in front.
  * From this demo's folder, with ESP-IDF's cJSON and base64:
  *
@@ -163,30 +163,6 @@ esp_err_t nvs_get_blob(nvs_handle_t h, const char *key, void *out, size_t *len)
     *len = e->len;
     return ESP_OK;
 }
-esp_err_t nvs_get_str(nvs_handle_t h, const char *key, char *out, size_t *len)
-{
-    (void)h;
-    fake_entry_t *e = find(key);
-    if (e == NULL || e->type != 's') {
-        return ESP_ERR_NVS_NOT_FOUND;
-    }
-    if (*len < e->len) {
-        return ESP_ERR_NVS_INVALID_LENGTH;
-    }
-    memcpy(out, e->data, e->len);
-    *len = e->len;
-    return ESP_OK;
-}
-esp_err_t nvs_get_u8(nvs_handle_t h, const char *key, uint8_t *out)
-{
-    (void)h;
-    fake_entry_t *e = find(key);
-    if (e == NULL || e->type != 'u') {
-        return ESP_ERR_NVS_NOT_FOUND;
-    }
-    *out = e->data[0];
-    return ESP_OK;
-}
 /* One key's value is written whole or not at all (NVS writes the new entry
  * before it marks the old one erased). */
 esp_err_t nvs_set_blob(nvs_handle_t h, const char *key, const void *value, size_t len)
@@ -200,19 +176,6 @@ esp_err_t nvs_set_blob(nvs_handle_t h, const char *key, const void *value, size_
     }
     put(key, 'b', value, len);
     return fault == FAULT_AFTER_WRITE ? ESP_ERR_NVS_REMOVE_FAILED : ESP_OK;
-}
-esp_err_t nvs_erase_key(nvs_handle_t h, const char *key)
-{
-    (void)h;
-    if (!step()) {
-        return ESP_FAIL;
-    }
-    fake_entry_t *e = find(key);
-    if (e == NULL) {
-        return ESP_ERR_NVS_NOT_FOUND;
-    }
-    *e = nvs.e[--nvs.n];
-    return ESP_OK;
 }
 esp_err_t nvs_commit(nvs_handle_t h)
 {
@@ -511,56 +474,37 @@ static void test_store(void)
         check(same_settings(&got, &third), "...and settles it, read back after a restart", NULL);
     }
 
-    /* A power cut at every step of a save, from a record and from what a v1.6
-     * image left: the next start reads the old or the new settings, whole,
-     * and the new ones whenever the save said ok. */
-    for (int from = 0; from < 2; from++) {
-        for (int k = 0; k < 16; k++) {
-            memset(&nvs, 0, sizeof(nvs));
-            power_on();
-            if (from == 0) {
-                chirp_store_save(&old);
-            } else {
-                chirp_ap_t aps[1] = {{"home", "pw"}};
-                ident_t id = {.version = IDENT_VERSION, .cred_kind = CHIRP_CRED_TOKEN};
-                strlcpy(id.hwid, "board-old", sizeof(id.hwid));
-                strlcpy(id.cred, "tok-old", sizeof(id.cred));
-                put(KEY_APS, 'b', aps, sizeof(aps));
-                put(KEY_IDENT, 'b', &id, sizeof(id));
-            }
-            chirp_config_t before;
-            chirp_store_load(&before);  /* the old settings, as this image reads them */
-            cut_after = k;
-            esp_err_t err = chirp_store_save(&new);
-            power_on();
-            chirp_store_load(&got);
-            bool whole = same_settings(&got, &before) || same_settings(&got, &new);
-            char what[96];
-            snprintf(what, sizeof(what), "a power cut after %d step(s) of a save, from %s", k,
-                     from ? "a v1.6 image's two values" : "a record");
-            check(whole && (err != ESP_OK || same_settings(&got, &new)), what, NULL);
-        }
+    /* A power cut at every step of a save: the next start reads the old or
+     * the new settings, whole, and the new ones whenever the save said ok. */
+    for (int k = 0; k < 8; k++) {
+        memset(&nvs, 0, sizeof(nvs));
+        power_on();
+        chirp_store_save(&old);
+        chirp_config_t before;
+        chirp_store_load(&before);
+        cut_after = k;
+        esp_err_t err = chirp_store_save(&new);
+        power_on();
+        chirp_store_load(&got);
+        bool whole = same_settings(&got, &before) || same_settings(&got, &new);
+        char what[64];
+        snprintf(what, sizeof(what), "a power cut after %d step(s) of a save", k);
+        check(whole && (err != ESP_OK || same_settings(&got, &new)), what, NULL);
     }
 
-    /* What a v1.6 image left is read, and goes with the next save. */
+
+    /* The store is one record (the owner's ruling: v1.6.0 never shipped, so
+     * there is nothing earlier to keep). A board flashed over values another
+     * image left finds no settings, and the page sets it up. */
     memset(&nvs, 0, sizeof(nvs));
     power_on();
-    chirp_ap_t aps[2] = {{"cafe", "p1"}, {"office", "p2"}};
-    ident_t id = {.version = IDENT_VERSION, .cred_kind = CHIRP_CRED_TOKEN};
-    strlcpy(id.hwid, "board-1", sizeof(id.hwid));
-    strlcpy(id.cred, "tok-1", sizeof(id.cred));
-    put(KEY_APS, 'b', aps, sizeof(aps));
-    put(KEY_IDENT, 'b', &id, sizeof(id));
+    chirp_ap_t other_aps[2] = {{"cafe", "p1"}, {"office", "p2"}};
+    put("aps", 'b', other_aps, sizeof(other_aps));          /* v1.6's network list */
+    put("hwid", 's', "board-other", sizeof("board-other"));  /* and the entries before it */
+    put("cred", 's', "tok-other", sizeof("tok-other"));
     chirp_store_load(&got);
-    const char *s0 = NULL, *p0 = NULL, *s1 = NULL, *p1 = NULL, *s2 = NULL, *p2 = NULL;
-    check(strcmp(got.hwid, "board-1") == 0 && strcmp(got.cred, "tok-1") == 0 &&
-              chirp_config_network(&got, 0, &s0, &p0) && strcmp(s0, "cafe") == 0 &&
-              chirp_config_network(&got, 1, &s1, &p1) && strcmp(s1, "office") == 0 &&
-              !chirp_config_network(&got, 2, &s2, &p2),
-          "a v1.6 image's settings are read: its networks in order, each once", NULL);
-    check(chirp_store_save(&got) == ESP_OK && find(KEY_APS) == NULL && find(KEY_IDENT) == NULL &&
-              find(KEY_SETTINGS) != NULL,
-          "...and the next save leaves one record and nothing of v1.6's", NULL);
+    check(got.hwid[0] == '\0' && got.cred[0] == '\0' && got.ap_count == 0 && got.ssid[0] == '\0',
+          "values another image left are not read: the board starts as never set up", NULL);
 }
 
 static void test_line(void)

@@ -506,6 +506,13 @@ def _merged(body, settings):
     elif "ssid" in push:
         # A top-level ssid without aps replaces the stored network list.
         candidate.pop("aps", None)
+    elif "pass" in push and candidate.get("aps"):
+        # A pass alone is the password of the network tried first, which is
+        # the list's first entry: it changes there too, and the list keeps
+        # its other networks.
+        first = dict(candidate["aps"][0])
+        first["pass"] = push["pass"]
+        candidate["aps"] = [first] + candidate["aps"][1:]
     # A new device does not sign with the old device's key: the key goes,
     # unless this same push brings one. A token, networks or a key alone
     # keep it.
