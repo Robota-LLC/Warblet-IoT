@@ -50,8 +50,7 @@ DEFS := \
   -DOPENTHREAD_FTD -DMAC -DMAC_LAYER \
   -DDISABLE_RFTS_EXT_EVNT_HNDLR=1 -DPHY_40nm_3_40_a \
   -DOPENTHREAD_CONFIG_FILE='<stm32wba-openthread-ftd-config.h>' \
-  -DOPENTHREAD_PROJECT_CORE_CONFIG_FILE='<stm32wba-openthread-ftd-config.h>' \
-  -DCHIRP_FW='"$(FW_VERSION)"'
+  -DOPENTHREAD_PROJECT_CORE_CONFIG_FILE='<stm32wba-openthread-ftd-config.h>'
 
 # ---- include paths (.cproject, verbatim, rebased to repo root) ---------------
 INCS := \
@@ -143,6 +142,10 @@ CFLAGS   := $(CPU) $(DEFS) $(INCS) $(OPT) $(WARN) \
             -ffunction-sections -fdata-sections -fstack-usage \
             -MMD -MP -std=gnu11
 ASFLAGS  := $(CPU) $(OPT) -ffunction-sections -fdata-sections
+# One object's own options: set with := for the object and its .opts together
+# (target-specific), so the options the audit records are the ones it is
+# compiled with.
+XFLAGS   :=
 
 # Wrap CLI initialization to register setup and reporting tasks.
 # Wrap UART input to dispatch complete lines without editing ST sources.
@@ -154,7 +157,7 @@ WRAPS    := -Wl,--wrap=otPlatUartReceived -Wl,--wrap=otCliInit -Wl,--wrap=HAL_UA
 # chirp/src/flashcfg.c's NMI_Handler catches a flash ECC error in the config
 # page and passes every other NMI to ST's, which is built under another name.
 # (The startup file defines NMI_Handler too, so a --wrap would not reach it.)
-$(BUILD)/$(APP)/Core/Src/stm32wbaxx_it.o: CFLAGS += -DNMI_Handler=st_NMI_Handler
+$(BUILD)/$(APP)/Core/Src/stm32wbaxx_it.o $(BUILD)/$(APP)/Core/Src/stm32wbaxx_it.opts: XFLAGS := -DNMI_Handler=st_NMI_Handler
 
 LDFLAGS  := $(CPU) -T$(LDSCRIPT) --specs=nano.specs --specs=nosys.specs \
             -Wl,--gc-sections -Wl,-Map=$(BUILD)/$(TARGET).map,--cref \
@@ -163,6 +166,11 @@ LDFLAGS  := $(CPU) -T$(LDSCRIPT) --specs=nano.specs --specs=nosys.specs \
 # ---- objects -----------------------------------------------------------------
 OBJS := $(addprefix $(BUILD)/,$(SRCS:.c=.o)) $(addprefix $(BUILD)/,$(ASRCS:.s=.o))
 DEPS := $(OBJS:.o=.d)
+
+# Our version, for our objects only: ST's code does not use it, and the
+# options ST's objects are compiled with are audited (st_receive.ok below).
+CHIRP_OBJS := $(filter $(BUILD)/chirp/%,$(OBJS))
+$(CHIRP_OBJS) $(CHIRP_OBJS:.o=.opts): XFLAGS := -DCHIRP_FW='"$(FW_VERSION)"'
 
 .PHONY: all clean size test fetch
 all: $(BUILD)/$(TARGET).bin size
@@ -216,15 +224,28 @@ test:
 	  $(BUILD)/echotest$(HOSTEXE); \
 	else echo "SKIP  echotest: ST's uart.c is not here yet (make fetch)"; fi
 
-$(BUILD)/%.o: %.c
+$(BUILD)/%.o: %.c $(BUILD)/%.opts
 	@mkdir -p $(dir $@)
 	@echo "  CC   $<"
-	@$(CC) -c $(CFLAGS) $< -o $@
+	@$(CC) -c $(CFLAGS) $(XFLAGS) $< -o $@
 
-$(BUILD)/%.o: %.s
+$(BUILD)/%.o: %.s $(BUILD)/%.opts
 	@mkdir -p $(dir $@)
 	@echo "  AS   $<"
-	@$(AS) -c $(ASFLAGS) $< -o $@
+	@$(AS) -c $(ASFLAGS) $(XFLAGS) $< -o $@
+
+# Each object's compile options, written only when they change: the object is
+# compiled again when they do, and the receive audit made again.
+$(BUILD)/%.opts: %.c FORCE
+	@mkdir -p $(dir $@)
+	@printf '%s\n' '$*' $(CFLAGS) $(XFLAGS) > $@.new; if cmp -s $@.new $@; then rm -f $@.new; else mv -f $@.new $@; fi
+
+$(BUILD)/%.opts: %.s FORCE
+	@mkdir -p $(dir $@)
+	@printf '%s\n' '$*' $(wordlist 2,$(words $(AS)),$(AS)) $(ASFLAGS) $(XFLAGS) > $@.new; if cmp -s $@.new $@; then rm -f $@.new; else mv -f $@.new $@; fi
+
+.PHONY: FORCE
+FORCE:
 
 # ST never receives on the CLI UART, so it never echoes: the wrap above
 # refuses the one call ST's uart.c arms its receive with. This fails the build
@@ -237,18 +258,25 @@ $(BUILD)/%.o: %.s
 #     or an inlined LL call leaves no symbol, so a changed, missing or
 #     unlisted file fails until a person has audited it again and run
 #     make st-audit-write;
+#   - an ST object is compiled with other options than the audit recorded
+#     (tools/st_receive_audit.flags: every option but warnings and
+#     dependency output, -D, -U, -include, -std and the include paths in
+#     order among them). A changed option compiles the object again and
+#     makes this check again;
 #   - ST's uart.o no longer arms its receive through that call;
 #   - an object or library other than board_serial.o and the HAL's own UART
 #     files (where these calls live and call each other; what they compile
 #     from is pinned above) reaches the UART's receive by any other call.
 ST_AUDIT  := tools/st_receive_audit.sha256
 ST_SRCS   := $(filter-out chirp/%,$(SRCS) $(ASRCS))
+ST_FLAGS  := tools/st_receive_audit.flags
+ST_OPTS   := $(addprefix $(BUILD)/,$(addsuffix .opts,$(basename $(ST_SRCS))))
 ST_UART_O := $(BUILD)/Middlewares/ST/STM32_WPAN/thread/openthread/platform/uart.o
 RX_OWN    := $(BUILD)/chirp/src/board_serial.o $(BUILD)/Drivers/STM32WBAxx_HAL_Driver/Src/stm32wbaxx_hal_uart.o \
              $(BUILD)/Drivers/STM32WBAxx_HAL_Driver/Src/stm32wbaxx_hal_uart_ex.o
 RX_OTHER  := HAL_UART_Receive|HAL_UART_Receive_DMA|HAL_UARTEx_ReceiveToIdle|HAL_UARTEx_ReceiveToIdle_IT|HAL_UARTEx_ReceiveToIdle_DMA|UART_Start_Receive_IT|UART_Start_Receive_DMA
-$(BUILD)/st_receive.ok: $(OBJS) $(LIBS) $(ST_AUDIT) tools/st_audit.sh
-	@sh tools/st_audit.sh check $(ST_AUDIT) -- $(ST_SRCS) $(LIBS) -- $(DEPS)
+$(BUILD)/st_receive.ok: $(OBJS) $(LIBS) $(ST_OPTS) $(ST_AUDIT) $(ST_FLAGS) tools/st_audit.sh
+	@sh tools/st_audit.sh check $(ST_AUDIT) $(ST_FLAGS) -- $(ST_SRCS) $(LIBS) -- $(DEPS) -- $(ST_OPTS)
 	@$(NM) -u $(ST_UART_O) | grep -qE ' U HAL_UART_Receive_IT$$' || \
 	  { echo "ST's uart.o no longer arms its receive with HAL_UART_Receive_IT, which the wrap refuses: ST could echo what it receives"; exit 1; }
 	@other=$$($(NM) -u -A $(filter-out $(RX_OWN),$(OBJS)) $(LIBS) 2>/dev/null | grep -E ' U ($(RX_OTHER))$$'); \
@@ -257,10 +285,11 @@ $(BUILD)/st_receive.ok: $(OBJS) $(LIBS) $(ST_AUDIT) tools/st_audit.sh
 	@touch $@
 
 # Only after a person has audited what changed: the ST files this image is
-# built from, each with its sha256, into tools/st_receive_audit.sha256.
+# built from, each with its sha256, into tools/st_receive_audit.sha256, and
+# the options each ST object is compiled with into tools/st_receive_audit.flags.
 .PHONY: st-audit-write
-st-audit-write: $(OBJS)
-	@sh tools/st_audit.sh write $(ST_AUDIT) -- $(ST_SRCS) $(LIBS) -- $(DEPS)
+st-audit-write: $(OBJS) $(ST_OPTS)
+	@sh tools/st_audit.sh write $(ST_AUDIT) $(ST_FLAGS) -- $(ST_SRCS) $(LIBS) -- $(DEPS) -- $(ST_OPTS)
 
 $(BUILD)/$(TARGET).elf: $(OBJS) $(LDSCRIPT) $(BUILD)/st_receive.ok
 	@echo "  LD   $@"
