@@ -682,6 +682,25 @@ static void test_rules(void)
           "  ... and fits CHIRP_RECORD_MAX, which fits the store", NULL);
     check(n + 16u > CHIRP_RECORD_MAX, "  ... and CHIRP_RECORD_MAX is within 16 bytes of it", NULL);
     {
+      /* The bound counts two record bytes for each byte of text, which holds
+       * because a network refuses control characters: each would be a six-byte
+       * \u00XX in the record. Passwords of them are refused, nothing stored. */
+      static char ctl[CHIRP_LINE_MAX + 512];
+      char       *q = ctl;
+      unsigned    before_n = n;
+      q += sprintf(q, "{\"aps\":[");
+      for (i = 0; i < 8; i++) {
+        q += sprintf(q, "%s{\"ssid\":\"net-%d\",\"pass\":\"", i ? "," : "", i);
+        for (int k = 0; k < 64; k++) { q += sprintf(q, "\\u0001"); }
+        q += sprintf(q, "\"}");
+      }
+      q += sprintf(q, "]}");
+      check(strcmp(push(ctl), "CHIRP= err bad-json") == 0,
+            "passwords of control characters (six record bytes each) are refused", NULL);
+      (void)cfg_json(&n);
+      check(n == before_n, "  ... and the longest record is still the one held", NULL);
+    }
+    {
       /* What the next start reads is the push's settings, with aps's first
        * network as the one tried first. */
       static char want[CHIRP_LINE_MAX + 512];

@@ -277,27 +277,22 @@ static bool nameable(const char *name)
     return true;
 }
 
-/* A text value into a fixed field: a string that fits, with no control
- * character (these values reach request headers and the console), or, for a
- * network's name and password, any character but NUL, which merge_push()
- * has already refused (CHIRP-PROV v1.8). */
-static bool take_text_any(const cJSON *item, char *dst, size_t size, bool controls)
+/* A text value into a fixed field: a string that fits, with no character
+ * below U+0020 and no U+007F. That holds for a network's name and password
+ * too (CHIRP-PROV v1.8): a WPA2 passphrase is printable ASCII, and these
+ * values reach request headers, the console and the record. */
+static bool take_text(const cJSON *item, char *dst, size_t size)
 {
     if (!cJSON_IsString(item) || item->valuestring == NULL || strlen(item->valuestring) >= size) {
         return false;
     }
-    for (const unsigned char *c = (const unsigned char *)item->valuestring; *c != '\0' && !controls; c++) {
+    for (const unsigned char *c = (const unsigned char *)item->valuestring; *c != '\0'; c++) {
         if (*c < 0x20 || *c == 0x7f) {
             return false;
         }
     }
     strlcpy(dst, item->valuestring, size);
     return true;
-}
-
-static bool take_text(const cJSON *item, char *dst, size_t size)
-{
-    return take_text_any(item, dst, size, false);
 }
 
 /* True when the JSON text holds a NUL as an escape (\u0000). A backslash
@@ -388,9 +383,9 @@ static bool take_networks(const cJSON *list, chirp_config_t *out)
             return false;
         }
         chirp_ap_t *ap = &out->aps[out->ap_count];
-        if (!take_text_any(cJSON_GetObjectItemCaseSensitive(entry, "ssid"), ap->ssid, sizeof(ap->ssid), true) ||
+        if (!take_text(cJSON_GetObjectItemCaseSensitive(entry, "ssid"), ap->ssid, sizeof(ap->ssid)) ||
             ap->ssid[0] == '\0' ||
-            !take_text_any(cJSON_GetObjectItemCaseSensitive(entry, "pass"), ap->pass, sizeof(ap->pass), true)) {
+            !take_text(cJSON_GetObjectItemCaseSensitive(entry, "pass"), ap->pass, sizeof(ap->pass))) {
             return false;
         }
         out->ap_count++;
@@ -447,10 +442,10 @@ static const char *merge_push(const char *json, const chirp_config_t *stored, ch
     for (const cJSON *it = root->child; it != NULL && good; it = it->next) {
         const char *k = it->string;
         if (strcmp(k, "ssid") == 0) {
-            good = take_text_any(it, out->ssid, sizeof(out->ssid), true) && out->ssid[0] != '\0';
+            good = take_text(it, out->ssid, sizeof(out->ssid)) && out->ssid[0] != '\0';
             pushed_ssid = true;
         } else if (strcmp(k, "pass") == 0) {
-            good = take_text_any(it, out->pass, sizeof(out->pass), true);
+            good = take_text(it, out->pass, sizeof(out->pass));
             pushed_pass = true;
         } else if (strcmp(k, "aps") == 0) {
             good = take_networks(it, out);

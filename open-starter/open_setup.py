@@ -160,7 +160,11 @@ def save(settings):
 
 def fits(name, value):
     """True when a pushed text is within the contract's bounds: an ssid of 1 to
-    32 bytes, a pass of up to 64, an id of up to 128 of the id characters."""
+    32 bytes and a pass of up to 64, neither holding a character below U+0020
+    or U+007F, and an id of up to 128 of the id characters."""
+    if name in ("ssid", "pass"):
+        if any(c < " " or c == "\x7f" for c in value):
+            return False
     if name == "ssid":
         return 0 < len(value.encode()) <= 32
     if name == "pass":

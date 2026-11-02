@@ -441,16 +441,21 @@ def valid_hwid(value):
     return len(value) <= 128 and all(c in HWID_CHARS for c in value)
 
 
+def _controls(text):
+    # A character below U+0020, or U+007F: never in a network's name or password.
+    return any(c < " " or c == "\x7f" for c in text)
+
+
 def fits(name, value):
     # True when a pushed text is within the contract's bounds: an ssid of 1 to
-    # 32 bytes, a pass of up to 64, a claim or token of 1 to 63 printable ASCII
+    # 32 bytes and a pass of up to 64, neither holding a control character, a claim or token of 1 to 63 printable ASCII
     # characters without the space, a
     # host of up to 63 letters, digits, . and -, an id in the platform's
     # grammar, and a key that will sign.
     if name == "ssid":
-        return 0 < len(value.encode()) <= 32
+        return 0 < len(value.encode()) <= 32 and not _controls(value)
     if name == "pass":
-        return len(value.encode()) <= 64
+        return len(value.encode()) <= 64 and not _controls(value)
     if name in ("claim", "token"):
         return 0 < len(value) <= 63 and all("!" <= c <= "~" for c in value)
     if name == "host":

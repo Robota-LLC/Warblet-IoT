@@ -108,9 +108,11 @@ static int all(const char *s, int (*ok)(char))
 
 /* ------------------------------------------------------------------ one value */
 
-/* A string value into dst: it fits, and holds no control character (these
- * values reach the console, a request and the record). 1 = taken; 0 leaves
- * dst empty. */
+/* A string value into dst: it fits, and holds no character below U+0020 and
+ * no U+007F (these values reach the console, a request and the record). A
+ * network's name and password are held to it too (CHIRP-PROV v1.8), which
+ * keeps every stored byte at two record bytes or fewer: put_text() writes a
+ * byte at or above 0x80 as it is. 1 = taken; 0 leaves dst empty. */
 static int take_text(const js_val *v, char *dst, unsigned dstsz)
 {
   int n, i = 0;
@@ -122,20 +124,6 @@ static int take_text(const js_val *v, char *dst, unsigned dstsz)
   dst[0] = '\0';
   return 0;
 }
-
-#if CHIRP_TAKES_WIFI
-/* A network's name or password into dst: it fits, and holds any character but
- * NUL, which js_str_copy() refuses (CHIRP-PROV v1.8): a tab or another control
- * character, sent escaped, is kept, and put_text() writes it back escaped. */
-static int take_net_text(const js_val *v, char *dst, unsigned dstsz)
-{
-  int n;
-
-  if (v->t == JS_STR && (n = js_str_copy(v, dst, dstsz)) >= 0 && (unsigned)n == text_len(dst)) { return 1; }
-  dst[0] = '\0';
-  return 0;
-}
-#endif
 
 /* Hex digits into dst: exactly want of them, or with want 0 an even number. */
 static int take_hex(const js_val *v, char *dst, unsigned dstsz, unsigned want)
@@ -190,10 +178,10 @@ static int take_networks(const js_val *list, settings *s)
     if (n == CHIRP_APS_MAX || entry.t != JS_OBJ) { return 0; }
     while ((r = js_obj_next(entry.p, entry.n, &at, &k, &v)) == 1) {
       if (field_name(&k, name) && text_eq(name, "ssid") && !got_ssid) {
-        got_ssid = take_net_text(&v, s->aps[n].ssid, sizeof s->aps[n].ssid) && s->aps[n].ssid[0] != '\0';
+        got_ssid = take_text(&v, s->aps[n].ssid, sizeof s->aps[n].ssid) && s->aps[n].ssid[0] != '\0';
         if (!got_ssid) { return 0; }
       } else if (field_name(&k, name) && text_eq(name, "pass") && !got_pass) {
-        got_pass = take_net_text(&v, s->aps[n].pass, sizeof s->aps[n].pass);
+        got_pass = take_text(&v, s->aps[n].pass, sizeof s->aps[n].pass);
         if (!got_pass) { return 0; }
       } else {
         return 0;                          /* anything else, or a name twice */
@@ -277,11 +265,11 @@ static const char *take_field(const char *name, const js_val *v, settings *s)
 #if CHIRP_TAKES_WIFI
   if (text_eq(name, "ssid")) {
     /* 1 to 32 bytes: an empty one names no network. */
-    if (take_net_text(v, s->ssid, sizeof s->ssid) && s->ssid[0] != '\0') { return 0; }
+    if (take_text(v, s->ssid, sizeof s->ssid) && s->ssid[0] != '\0') { return 0; }
     s->ssid[0] = '\0';
     return BAD;
   }
-  if (text_eq(name, "pass")) { return take_net_text(v, s->pass, sizeof s->pass) ? 0 : BAD; }
+  if (text_eq(name, "pass")) { return take_text(v, s->pass, sizeof s->pass) ? 0 : BAD; }
   if (text_eq(name, "aps"))  { return take_networks(v, s) ? 0 : BAD; }
 #endif
   return BAD;
