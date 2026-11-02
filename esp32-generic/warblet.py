@@ -373,7 +373,11 @@ def service(seconds=0):
         if not (byte or _last):
             _last = now  # nothing waited, nothing came: quiet from here
         # The look ended when the poll's wait did: time spent after it is not
-        # quiet the board saw.
+        # quiet the board saw. The wait counts whole: in MicroPython 1.28.0,
+        # poll returns empty only once its timeout has run out (EINTR loops,
+        # anything else raises: extmod/modselect.c), and
+        # sys.stdin.buffer.read(n) takes each byte with mp_hal_stdin_rx_chr()
+        # and returns n bytes, never nothing (shared/runtime/sys_stdio_mphal.c).
         idle = held and not byte and time.ticks_diff(now, _last) + wait >= LINE_IDLE_MS
         if byte:
             _last = 0
