@@ -64,6 +64,7 @@ static volatile uint32_t s_ring_head;
 static volatile uint32_t s_ring_tail;
 static volatile uint8_t  s_ring_lost;   /* the next byte in carries RX_LOST */
 static volatile uint32_t s_rx_last_ms;  /* HAL_GetTick() when the last bytes came */
+static volatile uint8_t  s_begun;       /* board_serial_begin() has run: the console is ours */
 
 /* DMA reception buffer; the callbacks copy each new region into the ring.
  * 512 bytes is ~44 ms at 115200. */
@@ -238,30 +239,47 @@ static void rx_task(void)
   }
 }
 
-/* Interrupt-side ring push, shared by the two DMA callbacks below. */
+/* Ring push. Two producers can feed the ring: the DMA callbacks below and
+ * ot-cli's receive hook (the backstop at the end of this file). The HAL runs
+ * one receive at a time on a UART, since starting either needs RxState READY,
+ * so they do not overlap; the push masks interrupts all the same, so the ring
+ * stays whole whichever of them runs, and from whatever priority. */
 static void ring_push(uint16_t c)
 {
-  uint32_t head = s_ring_head;
-  uint32_t next = head + 1u;
+  uint32_t primask = __get_PRIMASK();
+  uint32_t head, next;
 
+  __disable_irq();
+  head = s_ring_head;
+  next = head + 1u;
   if (next == RX_RING) { next = 0u; }
   if (s_ring_lost)     { c |= RX_LOST; }
 
   if (next != s_ring_tail) { s_ring[head] = c; s_ring_head = next; s_ring_lost = 0u; }
   else                     { s_ring_lost = 1u; }
+  __set_PRIMASK(primask);
 }
 
-/* Copy received DMA bytes to the ring, wake the task, and re-arm completed
- * transfers. An event comes at most a buffer's time (44 ms) after its first
- * byte, so its time stands for all of its bytes. */
-static void rx_event(UART_HandleTypeDef *huart, uint16_t pos)
+/* Bytes in, from either producer, under one set of rules: the first is marked
+ * RX_PAUSED when the bytes had stopped for BOARD_SERIAL_IDLE_MS, and the task
+ * assembles and routes the lines. A DMA event comes at most a buffer's time
+ * (44 ms) after its first byte, so its time stands for all of its bytes. */
+static void ring_take_in(const uint8_t *bytes, unsigned n)
 {
   uint32_t now   = HAL_GetTick();
   uint16_t pause = (now - s_rx_last_ms >= BOARD_SERIAL_IDLE_MS) ? RX_PAUSED : 0u;
-  uint16_t i;
+  unsigned i;
 
-  for (i = s_dma_last; i < pos; i++) { ring_push((uint16_t)(s_dma_buf[i] | pause)); pause = 0u; }
-  if (pos > s_dma_last) { s_rx_last_ms = now; }
+  for (i = 0u; i < n; i++) { ring_push((uint16_t)(bytes[i] | pause)); pause = 0u; }
+  if (n > 0u) { s_rx_last_ms = now; }
+  UTIL_SEQ_SetTask(SERIAL_TASK_RX, CFG_SEQ_PRIO_1);
+}
+
+/* Copy received DMA bytes to the ring, wake the task, and re-arm completed
+ * transfers. */
+static void rx_event(UART_HandleTypeDef *huart, uint16_t pos)
+{
+  if (pos > s_dma_last) { ring_take_in(s_dma_buf + s_dma_last, (unsigned)(pos - s_dma_last)); }
   s_dma_last = pos;
 
   if (huart->RxState == HAL_UART_STATE_READY) {
@@ -298,14 +316,19 @@ void board_serial_begin(void (*on_chirp_line)(char *line, unsigned len))
 {
   s_on_chirp_line = on_chirp_line;
 
-  if (oTCLIuart == NULL) { return; }
-
   s_ring_head = 0u;
   s_ring_tail = 0u;
   s_ring_lost = 0u;
   s_line_len  = 0u;
   s_line_bad  = NULL;
   s_line_dropped = 0;
+
+  /* The task exists before anything can wake it; from here the receive hook
+   * feeds the ring too. */
+  UTIL_SEQ_RegTask(SERIAL_TASK_RX, UTIL_SEQ_RFU, rx_task);
+  s_begun = 1u;
+
+  if (oTCLIuart == NULL) { return; }
 
   /* Replace ST's 1-byte interrupt receive with DMA, which is immune to
    * radio-interrupt latency. */
@@ -326,8 +349,6 @@ void board_serial_begin(void (*on_chirp_line)(char *line, unsigned len))
   s_rx_dma.Init.TransferAllocatedPort = DMA_SRC_ALLOCATED_PORT0 | DMA_DEST_ALLOCATED_PORT0;
   s_rx_dma.Init.TransferEventMode     = DMA_TCEM_BLOCK_TRANSFER;
   s_rx_dma.Init.Mode                  = DMA_NORMAL;
-
-  UTIL_SEQ_RegTask(SERIAL_TASK_RX, UTIL_SEQ_RFU, rx_task);
 
   if (HAL_DMA_Init(&s_rx_dma) != HAL_OK ||
       HAL_DMA_ConfigChannelAttributes(&s_rx_dma, DMA_CHANNEL_NPRIV) != HAL_OK) {
@@ -350,27 +371,17 @@ void board_serial_begin(void (*on_chirp_line)(char *line, unsigned len))
 
 /* ------------------------------------------------------------------ backstop */
 
-/* Second line of defence: if anything routes bytes back through
- * otPlatUartReceived, a CHIRP line still must not reach ot-cli. */
+/* ot-cli's receive hook. ST's 1-byte interrupt receive feeds it until
+ * board_serial_begin() replaces that receive with DMA, and so would anything
+ * that started it again. Its bytes go through the same ring and line rules as
+ * the DMA path, a byte at a time or a buffer at a time: a line is routed once
+ * it ends, a push is never echoed or handed to the CLI, and a setup line that
+ * pauses is given up. Before board_serial_begin() the console is not ours yet:
+ * what comes is dropped, nothing reaches the CLI, and nothing is answered
+ * (the setup page probes again). Lines for ot-cli reach it through
+ * forward_to_cli(), which calls the real hook. */
 void __wrap_otPlatUartReceived(const uint8_t *aBuf, uint16_t aBufLength)
 {
-  uint16_t i;
-
-  if (!is_chirp_line((const char *)aBuf, aBufLength)) {
-    __real_otPlatUartReceived(aBuf, aBufLength);
-    return;
-  }
-
-  /* Not our own task, so the assembler is idle; start clean. */
-  s_line_len     = 0u;
-  s_line_bad     = NULL;
-  s_line_dropped = 0;
-
-  for (i = 0; i < aBufLength; i++) {
-    uint8_t c = aBuf[i];
-    if (c == '\r' || c == '\n') { dispatch_line(); continue; }
-    if (s_line_len < BOARD_SERIAL_LINE_MAX) { s_line[s_line_len++] = (char)c; }
-    else if (s_line_bad == NULL)            { s_line_bad = "too-long"; }
-  }
-  dispatch_line();
+  if (!s_begun || aBuf == NULL || aBufLength == 0u) { return; }
+  ring_take_in(aBuf, aBufLength);
 }

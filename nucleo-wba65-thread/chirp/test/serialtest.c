@@ -129,6 +129,21 @@ static void receive(const char *bytes, unsigned n)
 
 static void receive_text(const char *text) { receive(text, (unsigned)strlen(text)); }
 
+/* Bytes through ot-cli's receive hook instead, in calls of `piece` bytes, the
+ * scheduler running the task after each (ST's 1-byte receive is piece 1). */
+static void hook(const char *bytes, unsigned n, unsigned piece)
+{
+  while (n > 0u) {
+    unsigned k = n < piece ? n : piece;
+    __wrap_otPlatUartReceived((const uint8_t *)bytes, (uint16_t)k);
+    rx_task();
+    bytes += k;
+    n -= k;
+  }
+}
+
+static void hook_text(const char *text, unsigned piece) { hook(text, (unsigned)strlen(text), piece); }
+
 static void reset_seen(void)
 {
   chirp_lines = 0u;
@@ -320,6 +335,76 @@ static void stall_inside(const char *push, const char *secret, size_t into, cons
   then_console_works(what);
 }
 
+/* Before board_serial_begin() the hook drops what it gets: nothing reaches
+ * ot-cli and nothing is answered. */
+static void test_hook_before_begin(void)
+{
+  puts("--- ot-cli's receive hook, before board_serial_begin() ---");
+  reset_seen();
+  hook_text("CHIRP?\r\n", 1u);
+  hook_text("state\r\n", 8u);
+  hook_text("CHIRP+ {\"token\":\"tok-EARLY-SECRET-77\"}\r\n", 64u);
+  rx_task();
+  arcUartProcess();
+  st_wire[st_wire_len] = '\0';
+  expect(cli_len == 0u && chirp_lines == 0u && st_wire_len == 0u,
+         "before the console is ours, the hook drops everything: nothing to ot-cli, no answer");
+  expect(!leaks("tok-EARLY-SECRET-77"), "  ... and no byte of a push is shown");
+}
+
+/* After the probe and the CLI command, through the hook too. */
+static void then_hook_works(const char *what)
+{
+  char why[160];
+
+  reset_seen();
+  hook_text("CHIRP?\r\n", 1u);
+  arcUartProcess();
+  snprintf(why, sizeof why, "  ... then a probe through the hook is answered (%s)", what);
+  expect(chirp_lines == 1u && strcmp(chirp_last, "CHIRP?") == 0 && st_wire_len == sizeof ANNOUNCE - 1u, why);
+  reset_seen();
+  hook_text("state\r\n", 1u);
+  snprintf(why, sizeof why, "  ... and a CLI command through the hook reaches ot-cli (%s)", what);
+  expect(strcmp(cli_got, "state\r\n") == 0, why);
+}
+
+/* The hook keeps the DMA path's rules: a stray prefix, a push a byte at a
+ * time, a marker split across calls, a credential tail after a pause. */
+static void test_hook(void)
+{
+  static const char stray[] = "XCHIRP+ {\"token\":\"tok-HOOK-STRAY-0042\"}\r\n";
+  static const char push[]  = "CHIRP+ {\"token\":\"tok-HOOK-BYTEWISE-9\"}\r\n";
+
+  puts("--- ot-cli's receive hook, after board_serial_begin() ---");
+  reset_seen();
+  hook_text(stray, sizeof stray);
+  expect(cli_len == 0u && chirp_lines == 0u && !leaks("tok-HOOK-STRAY-0042"),
+         "a push with a stray byte in front, through the hook: not to ot-cli, not echoed, not read");
+  then_hook_works("stray prefix");
+
+  reset_seen();
+  hook_text(push, 1u);
+  expect(chirp_lines == 1u && strncmp(chirp_last, push, sizeof push - 3u) == 0 && cli_len == 0u &&
+             !leaks("tok-HOOK-BYTEWISE-9"),
+         "a push a byte at a time through the hook is one setup line, never echoed or handed to ot-cli");
+  then_hook_works("push a byte at a time");
+
+  reset_seen();
+  hook_text("CH", 2u);
+  hook_text("IRP+ {\"token\":\"tok-HOOK-SPLIT-1234\"}\r\n", 64u);
+  expect(chirp_lines == 1u && cli_len == 0u && !leaks("tok-HOOK-SPLIT-1234"),
+         "a CHIRP marker split across hook calls still makes one setup line");
+  then_hook_works("marker split");
+
+  reset_seen();
+  hook_text("CHIRP+ {\"token\":\"tok-HOOK-", 1u);
+  tick += BOARD_SERIAL_IDLE_MS;
+  hook_text("TAIL-SECRET-5150\"}\r\n", 1u);
+  expect(cli_len == 0u && chirp_lines == 0u && !leaks("TAIL-SECRET-5150"),
+         "a setup line that pauses inside its credential, through the hook: the tail reaches nothing");
+  then_hook_works("credential tail");
+}
+
 static void test_secrets(void)
 {
   static const char tok[]  = "tok-S3CRET-0123456789";
@@ -446,12 +531,14 @@ static void test_ring_full(void)
 
 int main(void)
 {
+  test_hook_before_begin();
   board_serial_begin(on_line);
   test_burst();
   test_lines();
   test_secrets();
   test_idle_anywhere();
   test_ring_full();
+  test_hook();
 
   printf("\nserialtest: %d passed, %d failed\n", passes, fails);
   printf("%s (%d failure%s)\n", fails ? "FAILED" : "PASSED", fails, fails == 1 ? "" : "s");
