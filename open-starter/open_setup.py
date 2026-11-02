@@ -22,6 +22,7 @@ CAPS = ('{"v":1,"auth":[0],"keyProvisioning":[],"otaKeyRotation":false,'
 ID_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:-_."
 MAX_NETWORKS = 8                    # the setup page sends at most this many
 MAX_LINE = 4096                     # a setup line is never longer; more is junk
+LINE_IDLE_MS = 1500                 # a setup line whose bytes stop this long is given up
 
 config = {}
 _poller = select.poll()
@@ -32,6 +33,7 @@ _console = getattr(sys.stdin, "buffer", sys.stdin)
 _line = bytearray()   # the console line so far: from its "CHIRP", once that has come
 _marked = False       # "CHIRP" has come on this line
 _skip = False         # the rest of a line that was too long: dropped to its end
+_last = 0             # ticks_ms() of the line's last byte, collected or thrown away
 
 
 def start():
@@ -226,7 +228,20 @@ def wait(seconds):
         byte = _console.read(1)
         if isinstance(byte, str):   # a runtime with no byte console
             byte = byte.encode()
+        _idle_check()
         _take(byte)
+
+
+def _idle_check():
+    """A setup line whose bytes stopped for LINE_IDLE_MS, while the board was
+    waiting here or doing something else, is given up wherever it was, over
+    the limit or not (CHIRP-PROV v1.8): the byte just read starts afresh, so a
+    probe sent after a stalled line is answered."""
+    global _line, _marked, _skip, _last
+    now = time.ticks_ms()
+    if (_marked or _skip) and time.ticks_diff(now, _last) >= LINE_IDLE_MS:
+        _line, _marked, _skip = bytearray(), False, False
+    _last = now
 
 
 def _take(byte):
