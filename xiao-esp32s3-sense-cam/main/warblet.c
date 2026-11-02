@@ -6,7 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
-#include <unistd.h>
 
 #include "warblet.h"
 
@@ -236,8 +235,14 @@ esp_err_t chirp_store_save(const chirp_config_t *config)
 #define LINE_IDLE_MS 1500
 /* Before "CHIRP" nothing counts, so only enough to find it is kept. */
 #define JUNK_KEPT 64
+/* A turn of the reader takes at most this much off the console, then lets
+ * every other task run for 10 ms, so a flood of bytes cannot hold the
+ * processor. A host keeping the contract's pace (64 bytes, then 30 ms) sends
+ * far less than this in a turn. */
+#define READ_BATCH 1024
 
-static chirp_config_t s_config;   /* the stored settings a push merges onto */
+static chirp_config_t        s_config;  /* the stored settings a push merges onto */
+static chirp_console_read_fn s_read;    /* main.c's: what has come in, never a wait */
 
 static void emit(const char *line)
 {
@@ -629,32 +634,43 @@ static void feed(char c, int64_t now_ms)
     }
 }
 
-static void prov_task(void *arg)
+/* One turn of the reader: the bytes that have come in, up to READ_BATCH, each
+ * stamped with the time it was taken. The read never waits: one that waited
+ * for more would hand feed() the bytes from both sides of a pause with one
+ * time, and a line that stopped coming would never be seen to stop. */
+static void prov_step(void)
 {
-    ESP_LOGI(TAG, "listening for CHIRP-PROV v1.8 on the console");
-    /* stdin is non-blocking (main.c's console_init), so a line that stops
-     * coming can be timed. */
-    int fd = fileno(stdin);
-    for (;;) {
-        char buf[64];
-        int n = read(fd, buf, sizeof(buf));
-        int64_t now = esp_timer_get_time() / 1000;
+    uint8_t buf[64];
+    for (size_t taken = 0; taken < READ_BATCH;) {
+        size_t room = READ_BATCH - taken;
+        int n = s_read(buf, room < sizeof(buf) ? room : sizeof(buf));
         if (n <= 0) {
-            vTaskDelay(pdMS_TO_TICKS(10));
-            continue;
+            return;  /* nothing more has come */
         }
+        int64_t now = esp_timer_get_time() / 1000;
         for (int i = 0; i < n; i++) {
-            feed(buf[i], now);
+            feed((char)buf[i], now);
         }
+        taken += (size_t)n;
     }
 }
 
-esp_err_t chirp_prov_start(const chirp_config_t *config)
+static void prov_task(void *arg)
 {
-    if (config == NULL) {
+    ESP_LOGI(TAG, "listening for CHIRP-PROV v1.8 on the console");
+    for (;;) {
+        prov_step();
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+esp_err_t chirp_prov_start(const chirp_config_t *config, chirp_console_read_fn read_console)
+{
+    if (config == NULL || read_console == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
     s_config = *config;
+    s_read   = read_console;
     if (xTaskCreate(prov_task, "warblet_setup", 6144, NULL, 5, NULL) != pdPASS) {
         return ESP_ERR_NO_MEM;
     }

@@ -90,10 +90,15 @@ bool chirp_config_network(const chirp_config_t *config, size_t i, const char **s
 
 /* ---- USB setup ---------------------------------------------------------------- */
 
-/* Starts the console reader with a copy of config, which a push merges onto.
- * It answers CHIRP? with the announce and CHIRP+ with a stored push (then a
- * restart) or a refusal. */
-esp_err_t chirp_prov_start(const chirp_config_t *config);
+/* Takes up to size bytes that have already come in on the console and never
+ * waits for more. Returns how many it took: 0 when none has come, below 0 on
+ * a driver error. main.c's console_read() is one. */
+typedef int (*chirp_console_read_fn)(uint8_t *buf, size_t size);
+
+/* Starts the console reader with a copy of config, which a push merges onto,
+ * and the function it reads the console with. It answers CHIRP? with the
+ * announce and CHIRP+ with a stored push (then a restart) or a refusal. */
+esp_err_t chirp_prov_start(const chirp_config_t *config, chirp_console_read_fn read_console);
 
 /* ---- Wi-Fi ---------------------------------------------------------------------- */
 

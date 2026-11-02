@@ -1,4 +1,4 @@
-/* Host stand-in (test only): enough for warblet.c to compile; never called. */
+/* Host stand-in (test only): handlers are taken and never called. */
 #pragma once
 #include <stdint.h>
 #include "esp_err.h"

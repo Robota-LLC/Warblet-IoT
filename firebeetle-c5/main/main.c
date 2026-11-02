@@ -1,6 +1,5 @@
 /* FireBeetle C5 temperature reports and LED commands.
  * Edit sensor setup, reading, and packing here; chirp_send manages the TCP connection. */
-#include <fcntl.h>
 #include <math.h>
 #include <stdio.h>
 
@@ -91,9 +90,10 @@ static void handle_command(const char *command)
  * start-up
  * ------------------------------------------------------------------------ */
 
-/* The setup reader needs the USB-Serial-JTAG driver behind the VFS. Line
- * endings stay raw: the reader takes CR or LF itself. The send ring holds a
- * whole announce (up to 512 bytes): the default 256 drops what does not fit
+/* The console is the C5's own USB port (USB-Serial-JTAG), run by its driver:
+ * printf() and the log go out through it, and the setup reader takes what
+ * comes in with console_read(). Lines go out ending in LF. The send ring holds
+ * a whole announce (up to 512 bytes): the default 256 drops what does not fit
  * once the host stops reading for 50 ms. */
 static void console_init(void)
 {
@@ -102,15 +102,17 @@ static void console_init(void)
     console_config.tx_buffer_size = 1024;
     ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&console_config));
 
-    usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_LF);
     usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_LF);
     usb_serial_jtag_vfs_use_driver();
+}
 
-    /* stdin does not block, so the reader can tell a line that stopped
-     * coming; stdout does, so an answer is never cut short. */
-    fcntl(fileno(stdin), F_SETFL, O_NONBLOCK);
-    fcntl(fileno(stdout), F_SETFL, 0);
-    setvbuf(stdin, NULL, _IONBF, 0);
+/* What has come in on the console, straight from the driver with a wait of 0,
+ * so the setup reader can tell a line that stopped coming. (Setting stdin to
+ * not wait would not hold: ESP-IDF keeps one such setting for the whole
+ * console, and stdout shares it.) */
+static int console_read(uint8_t *buf, size_t size)
+{
+    return usb_serial_jtag_read_bytes(buf, size, 0);
 }
 
 void app_main(void)
@@ -128,7 +130,7 @@ void app_main(void)
              config.has_key ? "yes" : "no");
 
     /* Always listening, set up or not. */
-    ESP_ERROR_CHECK(chirp_prov_start(&config));
+    ESP_ERROR_CHECK(chirp_prov_start(&config, console_read));
 
     /* A network and a credential, or nothing is sent: this demo has no Open mode. */
     if (config.ssid[0] == '\0' || config.cred_kind == CHIRP_CRED_NONE) {

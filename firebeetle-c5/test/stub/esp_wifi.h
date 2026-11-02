@@ -1,4 +1,4 @@
-/* Host stand-in (test only): enough for warblet.c to compile; never called. */
+/* Host stand-in (test only): Wi-Fi starts, and no network is ever joined. */
 #pragma once
 #include <stdint.h>
 #include "esp_err.h"

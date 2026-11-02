@@ -1,6 +1,5 @@
 /* Capture scheduled and requested JPEG frames, then send them over HTTPS.
  * The camera module handles sensor setup and buffer ownership. */
-#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -62,21 +61,26 @@ static const char *handle_command(const char *command)
  * start-up
  * ------------------------------------------------------------------------ */
 
-/* Use blocking UART0 input through the CH340 bridge for serial setup.
- * Keep LF line endings; the parser strips a trailing CR. */
+/* The console is UART0, through the board's CH340 USB bridge, run by its
+ * driver: printf() and the log go out through it, and the setup reader takes
+ * what comes in with console_read(). Lines go out ending in LF. With no send
+ * buffer, printf() waits until its bytes are in the UART, so the board drops
+ * none of them. */
 static void console_init(void)
 {
     ESP_ERROR_CHECK(uart_driver_install(CONFIG_ESP_CONSOLE_UART_NUM, 1024, 0, 0, NULL, 0));
 
-    uart_vfs_dev_port_set_rx_line_endings(CONFIG_ESP_CONSOLE_UART_NUM, ESP_LINE_ENDINGS_LF);
     uart_vfs_dev_port_set_tx_line_endings(CONFIG_ESP_CONSOLE_UART_NUM, ESP_LINE_ENDINGS_LF);
     uart_vfs_dev_use_driver(CONFIG_ESP_CONSOLE_UART_NUM);
+}
 
-    /* stdin does not block, so the setup reader can tell a line that
-     * stopped coming; stdout does, so an answer is never cut short. */
-    fcntl(fileno(stdin), F_SETFL, O_NONBLOCK);
-    fcntl(fileno(stdout), F_SETFL, 0);
-    setvbuf(stdin, NULL, _IONBF, 0);
+/* What has come in on the console, straight from the driver with a wait of 0,
+ * so the setup reader can tell a line that stopped coming. (Setting stdin to
+ * not wait would not hold: ESP-IDF keeps one such setting for the whole
+ * console, and stdout shares it.) */
+static int console_read(uint8_t *buf, size_t size)
+{
+    return uart_read_bytes(CONFIG_ESP_CONSOLE_UART_NUM, buf, size, 0);
 }
 
 void app_main(void)
@@ -93,7 +97,7 @@ void app_main(void)
              config.has_key ? "yes" : "no");
 
     /* Always listening, set up or not. */
-    ESP_ERROR_CHECK(chirp_prov_start(&config));
+    ESP_ERROR_CHECK(chirp_prov_start(&config, console_read));
 
     /* Camera before network. With no camera there is nothing to send, but a
      * restart loop would also stop the board being set up over USB: so stay

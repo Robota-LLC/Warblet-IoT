@@ -1,7 +1,6 @@
 /* Photo doorbell: a button press, a `snap` command or the heartbeat timer
  * captures a JPEG and publishes it over MQTTS, tagged with what caused it.
  * The camera module handles sensor setup and buffer ownership. */
-#include <fcntl.h>
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -169,9 +168,10 @@ static const char *handle_command(const char *command)
  * start-up
  * ------------------------------------------------------------------------ */
 
-/* The S3's own USB port is the console: there is no bridge chip. Line-based
- * stdin needs the USB-Serial-JTAG driver behind the VFS; the default polling
- * console never blocks. Line endings stay raw: the parser strips CR itself. */
+/* The S3's own USB port is the console (USB-Serial-JTAG; there is no bridge
+ * chip), run by its driver: printf() and the log go out through it, and the
+ * setup reader takes what comes in with console_read(). Lines go out ending
+ * in LF. */
 static void console_init(void)
 {
     usb_serial_jtag_driver_config_t console_config = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
@@ -179,15 +179,17 @@ static void console_init(void)
     console_config.tx_buffer_size = 1024;  /* a whole announce: the default 256 drops the rest */
     ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&console_config));
 
-    usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_LF);
     usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_LF);
     usb_serial_jtag_vfs_use_driver();
+}
 
-    /* stdin does not block, so the setup reader can tell a line that
-     * stopped coming; stdout does, so an answer is never cut short. */
-    fcntl(fileno(stdin), F_SETFL, O_NONBLOCK);
-    fcntl(fileno(stdout), F_SETFL, 0);
-    setvbuf(stdin, NULL, _IONBF, 0);
+/* What has come in on the console, straight from the driver with a wait of 0,
+ * so the setup reader can tell a line that stopped coming. (Setting stdin to
+ * not wait would not hold: ESP-IDF keeps one such setting for the whole
+ * console, and stdout shares it.) */
+static int console_read(uint8_t *buf, size_t size)
+{
+    return usb_serial_jtag_read_bytes(buf, size, 0);
 }
 
 void app_main(void)
@@ -204,7 +206,7 @@ void app_main(void)
              config.has_key ? "yes" : "no");
 
     /* Always listening, set up or not. */
-    ESP_ERROR_CHECK(chirp_prov_start(&config));
+    ESP_ERROR_CHECK(chirp_prov_start(&config, console_read));
 
     /* Camera before network. With no camera there is nothing to send, but a
      * restart loop would also stop the board being set up over USB: so stay
