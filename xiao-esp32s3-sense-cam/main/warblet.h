@@ -90,6 +90,18 @@ bool chirp_config_network(const chirp_config_t *config, size_t i, const char **s
 
 /* ---- USB setup ---------------------------------------------------------------- */
 
+/* A setup line is never longer; a longer one is thrown away whole, through its
+ * line ending. The longest legal push is about 3.2 KB. */
+#define CHIRP_LINE_MAX 4096
+
+/* The receive ring main.c gives its console driver: a whole line and more. A
+ * host keeping the contract's pace never comes near 1 KB, but one that sends a
+ * line at once (a paste into a terminal) can outrun the reader between its
+ * turns, and ESP-IDF's USB-Serial-JTAG driver drops what does not fit without
+ * a word: on a board a 3,156-byte line sent at once came in cut, and was never
+ * answered. */
+#define CHIRP_CONSOLE_RX_SIZE (CHIRP_LINE_MAX + 1024)
+
 /* Takes up to size bytes that have already come in on the console and never
  * waits for more. Returns how many it took: 0 when none has come, below 0 on
  * a driver error. main.c's console_read() is one. */

@@ -386,12 +386,21 @@ static int64_t wire_at[WIRE_MAX];
 static size_t  wire_len, wire_pos;
 static int64_t wire_next;  /* when the next piece sent arrives */
 
+/* The console driver's receive ring, as ESP-IDF's driver keeps it: what comes
+ * in goes into the ring main.c sized, one USB packet (up to 64 bytes) at a
+ * time, and a packet that does not fit is dropped. 0 before a driver is
+ * installed: then nothing is dropped. */
+static size_t console_rx_size;
+static size_t wire_seen;            /* bytes the driver has dealt with: kept or dropped */
+static size_t ring_fill;            /* kept, and not read yet */
+static bool   wire_lost[WIRE_MAX];  /* dropped: the ring was full */
+
 /* Sends n bytes in pieces of `piece`, gap_ms apart, after what was sent
  * before. */
 static void wire_send(const char *bytes, size_t n, size_t piece, int gap_ms)
 {
     if (wire_pos == wire_len) {
-        wire_pos = wire_len = 0;
+        wire_pos = wire_len = wire_seen = ring_fill = 0;
     }
     int64_t at = wire_next > clock_ms ? wire_next : clock_ms;
     for (size_t i = 0; i < n && wire_len < WIRE_MAX; i++) {
@@ -399,6 +408,7 @@ static void wire_send(const char *bytes, size_t n, size_t piece, int gap_ms)
             at += gap_ms;
         }
         wire[wire_len] = bytes[i];
+        wire_lost[wire_len] = false;
         wire_at[wire_len++] = at;
     }
     wire_next = at + gap_ms;
@@ -420,6 +430,24 @@ static size_t since_yield, most_between_yields;  /* bytes taken without another 
 static const char *console_driver;  /* the driver main.c installed */
 static jmp_buf reader_stop;
 static bool    in_reader;
+
+/* What has come in by now, into the ring in packets, as the driver's interrupt
+ * puts it there: bytes that came at the same moment, up to 64 to a packet. */
+static void driver_takes_in(void)
+{
+    while (wire_seen < wire_len && wire_at[wire_seen] <= clock_ms) {
+        size_t n = 0;
+        while (n < 64 && wire_seen + n < wire_len && wire_at[wire_seen + n] == wire_at[wire_seen]) {
+            n++;
+        }
+        bool keep = console_rx_size == 0 || ring_fill + n <= console_rx_size;
+        for (size_t i = 0; i < n; i++) {
+            wire_lost[wire_seen + i] = !keep;
+        }
+        ring_fill += keep ? n : 0;
+        wire_seen += n;
+    }
+}
 
 static int console_take(void *buf, uint32_t length, TickType_t ticks)
 {
@@ -443,10 +471,16 @@ static int console_take(void *buf, uint32_t length, TickType_t ticks)
             since_yield = 0;
         }
     }
+    driver_takes_in();
     size_t most = READ_PIECES[read_count++ % (sizeof(READ_PIECES) / sizeof(READ_PIECES[0]))];
     size_t n = 0;
-    while (n < length && n < most && wire_pos < wire_len && wire_at[wire_pos] <= clock_ms) {
+    while (n < length && n < most && wire_pos < wire_seen) {
+        if (wire_lost[wire_pos]) {
+            wire_pos++;
+            continue;
+        }
         ((char *)buf)[n++] = wire[wire_pos++];
+        ring_fill--;
     }
     since_yield += n;
     if (since_yield > most_between_yields) {
@@ -458,6 +492,7 @@ static int console_take(void *buf, uint32_t length, TickType_t ticks)
 esp_err_t usb_serial_jtag_driver_install(usb_serial_jtag_driver_config_t *config)
 {
     console_driver = "USB-Serial-JTAG";
+    console_rx_size = (size_t)config->rx_buffer_size;
     return ESP_OK;
 }
 int usb_serial_jtag_read_bytes(void *buf, uint32_t length, TickType_t ticks_to_wait)
@@ -468,6 +503,7 @@ esp_err_t uart_driver_install(uart_port_t uart_num, int rx_buffer_size, int tx_b
                               void *uart_queue, int intr_alloc_flags)
 {
     console_driver = "UART";
+    console_rx_size = (size_t)rx_buffer_size;
     return ESP_OK;
 }
 int uart_read_bytes(uart_port_t uart_num, void *buf, uint32_t length, TickType_t ticks_to_wait)
@@ -697,6 +733,11 @@ static void test_startup(void)
     check(strcmp(started, "warblet_setup") == 0 && mqtt_inits == 0,
           "never set up: startup starts the setup reader, and no network and no transport", started);
     check(console_driver != NULL, "startup installs the console's driver", NULL);
+    char ring[64];
+    snprintf(ring, sizeof(ring), "a %u-byte receive ring for a %u-byte line",
+             (unsigned)console_rx_size, (unsigned)CHIRP_LINE_MAX);
+    check(console_rx_size > CHIRP_LINE_MAX, "startup gives the console driver a ring that holds a whole line",
+          ring);
 
     const char *line = answer_to("CHIRP?\r\n");
     char *caps = strstr(line, " caps=");
@@ -796,6 +837,35 @@ static void test_reader(void)
     check(most_between_yields <= READ_BATCH, "a flood is taken at most 1 KB a turn, other tasks running between",
           detail);
     check(strncmp(said, "CHIRP! ", 7) == 0, "...and the probe behind it is answered", said);
+
+    /* The longest kind of push, about 3.2 KB, sent in one write, as a paste
+     * into a terminal sends it: the driver's ring holds it while the reader
+     * waits for its turn, and it lands whole. */
+    static char at_once[CHIRP_LINE_MAX];
+    size_t n = (size_t)snprintf(at_once, sizeof(at_once), "CHIRP+ {\"aps\":[");
+    for (int i = 0; i < CHIRP_MAX_APS; i++) {
+        n += (size_t)snprintf(at_once + n, sizeof(at_once) - n, "%s{\"ssid\":\"", i ? "," : "");
+        for (int c = 0; c < 32; c++) {
+            n += (size_t)snprintf(at_once + n, sizeof(at_once) - n, "\\u%04x", c < 9 ? "net-wide-"[c] : 'a' + i);
+        }
+        n += (size_t)snprintf(at_once + n, sizeof(at_once) - n, "\",\"pass\":\"");
+        for (int c = 0; c < 64; c++) {
+            n += (size_t)snprintf(at_once + n, sizeof(at_once) - n, c < 20 ? "\\u%04x" : "%c", 'p');
+        }
+        n += (size_t)snprintf(at_once + n, sizeof(at_once) - n, "\"}");
+    }
+    n += (size_t)snprintf(at_once + n, sizeof(at_once) - n,
+                          "],\"token\":\"tok-at-once-0123456789\",\"hwid\":\"board-at-once\"}\r\n");
+    start_with(&base);
+    said_len = 0;
+    said[0] = '\0';
+    wire_send(at_once, n, n, 0);
+    run_reader();
+    chirp_store_load(&held);
+    snprintf(detail, sizeof(detail), "%u bytes at once: %s", (unsigned)n, said_len ? said : "no answer");
+    check(n > 3000 && strncmp(said, "CHIRP= ok", 9) == 0 && held.ap_count == CHIRP_MAX_APS &&
+              strcmp(held.hwid, "board-at-once") == 0,
+          "a 3 KB push sent in one write lands whole", detail);
 }
 
 static void test_vectors(const char *path)

@@ -180,12 +180,13 @@ static const char *handle_command(const char *command)
 
 /* The console is UART0, through the board's CH340 USB bridge, run by its
  * driver: printf() and the log go out through it, and the setup reader takes
- * what comes in with console_read(). Lines go out ending in LF. With no send
- * buffer, printf() waits until its bytes are in the UART, so the board drops
- * none of them. */
+ * what comes in with console_read(). Lines go out ending in LF. The receive
+ * ring holds a whole setup line (warblet.h says why). With no send buffer,
+ * printf() waits until its bytes are in the UART, so the board drops none of
+ * them. */
 static void console_init(void)
 {
-    ESP_ERROR_CHECK(uart_driver_install(CONFIG_ESP_CONSOLE_UART_NUM, 1024, 0, 0, NULL, 0));
+    ESP_ERROR_CHECK(uart_driver_install(CONFIG_ESP_CONSOLE_UART_NUM, CHIRP_CONSOLE_RX_SIZE, 0, 0, NULL, 0));
 
     uart_vfs_dev_port_set_tx_line_endings(CONFIG_ESP_CONSOLE_UART_NUM, ESP_LINE_ENDINGS_LF);
     uart_vfs_dev_use_driver(CONFIG_ESP_CONSOLE_UART_NUM);

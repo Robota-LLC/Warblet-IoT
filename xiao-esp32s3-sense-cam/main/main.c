@@ -171,11 +171,11 @@ static const char *handle_command(const char *command)
 /* The S3's own USB port is the console (USB-Serial-JTAG; there is no bridge
  * chip), run by its driver: printf() and the log go out through it, and the
  * setup reader takes what comes in with console_read(). Lines go out ending
- * in LF. */
+ * in LF. The receive ring holds a whole setup line (warblet.h says why). */
 static void console_init(void)
 {
     usb_serial_jtag_driver_config_t console_config = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
-    console_config.rx_buffer_size = 1024;
+    console_config.rx_buffer_size = CHIRP_CONSOLE_RX_SIZE;
     console_config.tx_buffer_size = 1024;  /* a whole announce: the default 256 drops the rest */
     ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&console_config));
 

@@ -227,9 +227,6 @@ esp_err_t chirp_store_save(const chirp_config_t *config)
  * USB setup (CHIRP-PROV v1.8)
  * ========================================================================= */
 
-/* A setup line is never longer; a longer one is thrown away whole, through its
- * line ending. The longest legal push is about 3.2 KB. */
-#define CHIRP_LINE_MAX 4096
 /* A line whose bytes stop for this long is given up: longer than the 1 s a
  * browser tab out of view waits between the pieces of a push. */
 #define LINE_IDLE_MS 1500
