@@ -48,7 +48,7 @@ CPU = -mcpu=cortex-m33 -mthumb -mfloat-abi=soft
 
 DEFS = -DSTM32WBA65xx -DCHIRP_FW='"$(FW_VERSION)"'
 
-CFLAGS = $(CPU) $(DEFS) $(INCLUDES) -std=c11 -Os -g3 \
+CFLAGS = $(CPU) $(DEFS) $(INCLUDES) -std=gnu11 -Os -g3 \
          -Wall -Wextra -Wshadow -Wundef -Wdouble-promotion \
          -ffunction-sections -fdata-sections -fno-common \
          -fno-builtin -fno-strict-aliasing
