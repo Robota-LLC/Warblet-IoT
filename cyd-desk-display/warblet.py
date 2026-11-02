@@ -71,6 +71,7 @@ _handler = None      # on_command()
 _send = None         # the part's send() (add_part)
 _upkeep = None       # the part's upkeep(), called by wait() (add_part)
 _turn_at = 0         # when the part wants its next turn (time.ticks_ms())
+_handling = False    # a command's handler is running (command())
 
 _poller = select.poll()
 _poller.register(sys.stdin, select.POLLIN)
@@ -114,12 +115,16 @@ def command(data):
     # this from its upkeep(), which wait() runs outside any send or
     # connection, so the handler can send (and connect) as main.py does. A
     # handler that raises is said on the console in one line, and the loop
-    # goes on.
+    # goes on. While it runs, a wait() inside it hands over no other command.
+    global _handling
     if _handler:
+        _handling = True
         try:
             _handler(data)
         except Exception as e:
             print("chirp: the command handler failed:", e)
+        finally:
+            _handling = False
 
 
 def add_part(transports, send, upkeep, fields=None):
@@ -337,22 +342,26 @@ def service(seconds=0):
     # nothing, and a UART console holds only a few hundred bytes. Past the
     # pass's end, a setup line already begun (from its "CHIRP") is read to its
     # end, for up to LINE_LATE_S more; other input is read up to LATE_JUNK
-    # bytes. Input that keeps coming cannot hold the loop.
+    # bytes, so junk that keeps coming cannot hold the loop. (Probes that keep
+    # coming each extend the pass, one answer per SETTINGS_S: a page probes
+    # for 15 s at most.) A setup line whose bytes stop for LINE_IDLE_MS is
+    # given up wherever it is, and inside the pass the pass goes on.
     global _probed, _buf, _start, _skip
     deadline = time.ticks_add(time.ticks_ms(), int(seconds * 1000))
     junk = 0  # bytes read past the deadline in no setup line
+    last = time.ticks_ms()  # when the last byte came
     while True:
         now = time.ticks_ms()
         remaining = time.ticks_diff(deadline, now)
         late = time.ticks_diff(time.ticks_add(deadline, LINE_LATE_S * 1000), now)
         if _probed:
             wait = 0  # owing an answer: only look for more input
-        elif remaining > 0:
-            wait = remaining
         elif _start >= 0:
-            wait = max(0, min(LINE_IDLE_MS, late))  # a setup line is arriving: let it end
+            # A setup line is arriving: its next byte, until it has been idle
+            # LINE_IDLE_MS, inside the pass or past it.
+            wait = max(0, min(LINE_IDLE_MS - time.ticks_diff(now, last), late))
         else:
-            wait = 0
+            wait = max(0, remaining)
         byte = _console.read(1) if _poller.poll(wait) else None
         if byte:
             if remaining <= 0 and _start >= 0 and late <= 0:
@@ -361,27 +370,28 @@ def service(seconds=0):
                 _buf, _start, _skip = bytearray(), -1, True
                 _feed(byte)
                 return
+            last = time.ticks_ms()
             _feed(byte)
             if remaining > 0 or _start >= 0:
                 continue  # drain the rest of the line without waiting again
             junk += 1
             if junk < LATE_JUNK:
                 continue
+        elif _start >= 0 and not _probed:
+            # Its bytes stopped for LINE_IDLE_MS, or LINE_LATE_S ran out past
+            # the pass: it will not end now. Only in the second case is the
+            # rest dropped through its line ending.
+            _buf, _start = bytearray(), -1
+            _skip = time.ticks_diff(time.ticks_add(deadline, LINE_LATE_S * 1000), time.ticks_ms()) <= 0
+            continue
         if _probed:
             _probed = False
             print(announce())
             window = time.ticks_add(time.ticks_ms(), SETTINGS_S * 1000)
             if time.ticks_diff(window, deadline) > 0:
                 deadline = window  # the push follows: keep reading for it
-        if time.ticks_diff(deadline, time.ticks_ms()) > 0:
-            continue
-        if _start >= 0:
-            if remaining > 0:
-                continue  # the pass ended in the middle of a line: read the rest
-            # Its bytes stopped for LINE_IDLE_MS, or LINE_LATE_S ran out
-            # first: it will not end now. Only in the second case is the rest
-            # dropped through its line ending.
-            _buf, _start, _skip = bytearray(), -1, late <= LINE_IDLE_MS
+        if time.ticks_diff(deadline, time.ticks_ms()) > 0 or _start >= 0:
+            continue  # the pass goes on, or a line is still arriving
         return
 
 
@@ -526,13 +536,11 @@ def _merged(body, settings):
 
 def _has_nul(value):
     # True when a name or a text anywhere in the parsed push holds a NUL.
-    if isinstance(value, str):
-        return "\x00" in value
     if isinstance(value, dict):
-        return any(_has_nul(k) or _has_nul(v) for k, v in value.items())
-    if isinstance(value, list):
+        value = list(value.items())
+    if isinstance(value, (list, tuple)):
         return any(_has_nul(x) for x in value)
-    return False
+    return isinstance(value, str) and "\x00" in value
 
 
 def _new_device(push, settings):
@@ -569,7 +577,9 @@ def wait(seconds):
     # Wait this long, answering USB setup, and give the part its turn after
     # every pass: it does what is due (a command check, a ping) and says how
     # soon it wants the next, which ends the pass early enough. A turn running
-    # when the time is up finishes first.
+    # when the time is up finishes first. Called from a command's handler, the
+    # part gets no handler: USB setup, pings and reads go on, and no second
+    # command is handed over inside the first.
     global _turn_at
     deadline = time.ticks_add(time.ticks_ms(), int(seconds * 1000))
     while True:
@@ -578,7 +588,7 @@ def wait(seconds):
             left = min(left, time.ticks_diff(_turn_at, time.ticks_ms()))
         service(max(0, left) / 1000)
         if _upkeep:
-            _turn_at = time.ticks_add(time.ticks_ms(), int(_upkeep(_handler) * 1000))
+            _turn_at = time.ticks_add(time.ticks_ms(), int(_upkeep(None if _handling else _handler) * 1000))
         if time.ticks_diff(deadline, time.ticks_ms()) <= 0:
             return
 

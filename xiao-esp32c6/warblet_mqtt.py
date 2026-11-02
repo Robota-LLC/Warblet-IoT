@@ -236,7 +236,7 @@ def upkeep(handler):
         except Exception as e:
             print("chirp: mqtt link lost:", e)
             _close()
-    if _queue:
+    if _queue and handler:  # none inside a handler's own wait()
         data = _queue.pop(0)
         _queued -= len(data)
         warblet.command(data)
