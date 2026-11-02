@@ -57,6 +57,7 @@ static char     s_json[CFG_MAX_PAYLOAD + 1];
 static unsigned s_len;
 static int      s_page = -1;     /* the page with the newest valid record, or -1 */
 static unsigned s_seq;           /* that record's seq */
+static int      s_loaded;        /* cfg_load() has run: s_page is known */
 
 const char *cfg_json(unsigned *len)
 {
@@ -112,6 +113,7 @@ int cfg_load(void)
   cfg_hdr_t h[2];
   int       got[2], newest;
 
+  s_loaded = 1;
   s_len  = 0u;
   s_page = -1;
   got[0] = read_record(0u, &h[0], 0);
@@ -140,7 +142,9 @@ int cfg_store(const char *json, unsigned len)
   unsigned      t = (s_page == 0) ? 1u : 0u;   /* the page not in use */
   unsigned      base = cfg_flash_page(t), off, i;
 
-  if (len == 0u || len > CFG_MAX_PAYLOAD) { return -1; }
+  /* Before the store has been read, the page not in use is unknown: page 0
+   * may hold the only record. */
+  if (!s_loaded || len == 0u || len > CFG_MAX_PAYLOAD) { return -1; }
 
   h.magic = CFG_MAGIC;
   h.ver   = CFG_VER;
@@ -201,6 +205,16 @@ unsigned cfg_flash_page(unsigned i)
 static unsigned cfg_bank(void)
 {
   return (flash_size_bytes() > 0x100000u) ? 1u : 0u;
+}
+
+/* The page arithmetic here assumes a 2 Mbyte part's two banks, unswapped
+ * (DUAL_BANK set and SWAP_BANK clear, as the parts ship). Otherwise the page
+ * an erase names may not be the one the store reads, and could hold the
+ * firmware: nothing is erased or written, and the save says store-failed. */
+static int banks_as_assumed(void)
+{
+  if (flash_size_bytes() <= 0x100000u) { return 1; }
+  return (FLASH->OPTR & FLASH_OPTR_DUAL_BANK) != 0u && (FLASH->OPTR & FLASH_OPTR_SWAP_BANK) == 0u;
 }
 
 /* Power lost while a page was being written can leave a quadword whose ECC
@@ -278,6 +292,8 @@ int cfg_flash_erase(unsigned i)
   unsigned bker = 0u, primask, cr;
   int      bad;
 
+  if (!banks_as_assumed()) { return -1; }
+
   /* Dual bank on the 2 Mbyte devices: the last pages are pages n/2 - 2 and
    * n/2 - 1 of bank 2. */
   if (flash_size_bytes() > 0x100000u) {
@@ -311,6 +327,8 @@ int cfg_flash_write(unsigned addr, const unsigned char qw[16])
   volatile unsigned *dst = (volatile unsigned *)addr;
   unsigned w[4], primask;
   int      bad;
+
+  if (!banks_as_assumed()) { return -1; }
 
   for (int i = 0; i < 4; i++) {
     w[i] = (unsigned)qw[i * 4 + 0]        | ((unsigned)qw[i * 4 + 1] << 8) |

@@ -4,15 +4,17 @@
  *     chirp_prov.c does: the answer, whether it is stored, and the settings
  *     the next start reads;
  *   - the rules behind them one by one: the refusals, the Thread object, the
- *     id, the credential;
- *   - the store: two pages; a save whose flash fails at any step, or loses
- *     power at any step, and the newest valid record winning at start;
+ *     id, the credential (quotation marks and backslashes at its limit too);
+ *   - the store: two pages; no save before it has been read; a save whose
+ *     flash fails at any step, or loses power at any step, and the newest
+ *     valid record winning at start;
  *   - datasets, UDP frames, SHA-256, HMAC and the signed input.
  * Run with make test VECTORS=<path to chirp-prov-v1.8.json>; the vectors live
- * with Warblet's checks, not in this folder. What this cannot show: chirp_prov.c
- * itself, which needs OpenThread (its few lines from merge to store are
- * mirrored in push() below), real flash and its ECC, and the console. Those
- * are the bench's. serialtest.c holds the line rules, hwidtest.c the announce. */
+ * with Warblet's checks, not in this folder. chirp_prov.c needs OpenThread, so
+ * its few lines from merge to store are mirrored in push() below; boottest.c
+ * runs chirp_prov.c itself on stand-ins. What this cannot show: real flash
+ * and its ECC, and the console. Those are the bench's. serialtest.c holds the
+ * line rules, hwidtest.c the announce. */
 
 #include <limits.h>
 #include <stdio.h>
@@ -461,6 +463,19 @@ static void test_rules(void)
   expect(SET, "{\"host\":\"h0123456789012345678901234567890123456789012345678901234.example\"}", "CHIRP= err bad-json",
          "a host of 64");
   expect(SET, "{\"host\":5}", "CHIRP= err bad-json", "a host that is not text");
+  {
+    /* 63 characters of " and \, the credential's limit: legal, and twice as
+     * long once the record escapes them (chirp_report.c reads it back and
+     * sends it in boottest.c). */
+    char json[128], line[256], want[256];
+    for (unsigned i = 0u; i < 63u; i++) { json[2u * i] = '\\'; json[2u * i + 1u] = (i & 1u) ? '\\' : '"'; }
+    json[126] = '\0';
+    snprintf(line, sizeof line, "{\"token\":\"%s\"}", json);
+    snprintf(want, sizeof want, "{\"token\":\"%s\",\"thread\":{\"dataset\":\"0e08aabb\"}}", json);
+    expect_held(SET, line, want, "a token of 63 quotes and backslashes: stored, and the next start reads every byte");
+    snprintf(line, sizeof line, "{\"claim\":\"%s\"}", json);
+    expect_held(SET, line, want, "  ... and a setup code of them");
+  }
 
   puts("\n--- the new-device rule ---");
   {
@@ -611,6 +626,22 @@ static void fresh_old(void)
   (void)cfg_store(OLD, sizeof OLD - 1u);
   power_on();
   (void)cfg_load(tmp, sizeof tmp, &n);
+}
+
+/* Before anything has read the store, a save is refused: it would erase the
+ * first page, which may hold the only record. Runs first, before anything
+ * else in this program calls cfg_load(). */
+static void test_store_first(void)
+{
+  static unsigned char before[2][CFG_PAGE_SIZE];
+
+  puts("--- the store refuses a save before it has been read ---");
+  flash_blank();
+  put_record(0, 41u, OLD);
+  memcpy(before, flash_mem, sizeof before);
+  verdict(cfg_store(NEW, sizeof NEW - 1u) == -1, "a save before the first load is refused", NULL);
+  verdict(memcmp(before, flash_mem, sizeof before) == 0, "  ... and the flash is untouched", NULL);
+  verdict(strcmp(reads(), OLD) == 0, "  ... so the next start reads the record it held", NULL);
 }
 
 static void test_store(void)
@@ -1227,6 +1258,7 @@ int main(int argc, char **argv)
     "060004001fffe00208111111112222222207081111111122222222051000112233445566778899aabbccddeeff"
     "030963686972702d6c6162\"}}";
 
+  test_store_first();
   test_vectors(argc > 1 ? argv[1] : NULL);
   test_rules();
   test_store();

@@ -59,6 +59,7 @@ static unsigned head_crc(unsigned seq, unsigned len)
 /* Where the record the board reads now is. */
 static int      s_page = -1;     /* the page with the newest valid record, or -1 */
 static unsigned s_seq;           /* that record's seq */
+static int      s_loaded;        /* cfg_load() has run: s_page is known */
 
 unsigned cfg_page_addr(void)
 {
@@ -109,6 +110,7 @@ int cfg_load(char *buf, unsigned bufsz, unsigned *len)
   cfg_hdr_t h[2];
   int       got[2], newest;
 
+  s_loaded = 1;
   s_page = -1;
   got[0] = read_record(0u, &h[0], 0);
   got[1] = read_record(1u, &h[1], 0);
@@ -136,7 +138,9 @@ int cfg_store(const char *json, unsigned len)
   unsigned      t = (s_page == 0) ? 1u : 0u;   /* the page not in use */
   unsigned      base = cfg_flash_page(t), off, i;
 
-  if (len == 0u || len > CFG_MAX_PAYLOAD) { return -1; }
+  /* Before the store has been read, the page not in use is unknown: page 0
+   * may hold the only record. */
+  if (!s_loaded || len == 0u || len > CFG_MAX_PAYLOAD) { return -1; }
 
   h.magic = CFG_MAGIC;
   h.ver   = CFG_VER;

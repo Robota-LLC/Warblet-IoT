@@ -59,14 +59,21 @@ static int b64_decode32(const char *s, unsigned n, unsigned char out[32])
   return (o == 32u) ? 0 : -1;
 }
 
-/* Copy a top-level JSON string field out of the stored config. */
-static int cfg_field(const char *json, unsigned jl, const char *key,
-                     char *dst, unsigned dstsz)
+/* A top-level string field of the stored config into dst, decoded: what has
+ * to fit is the decoded text (a credential's " and \ are stored escaped, at
+ * twice the length), so js_str_copy() decides. Returns its length; 0 when it
+ * is absent, empty, or too long for dst once decoded, and dst is then "". */
+static unsigned cfg_field(const char *json, unsigned jl, const char *key,
+                          char *dst, unsigned dstsz)
 {
   js_val v;
-  if (!json) { return 0; }
-  if (js_obj_get(json, jl, key, &v) != 1 || v.t != JS_STR || v.n == 0u) { return 0; }
-  return js_str_copy(&v, dst, dstsz) > 0;
+  int    n;
+
+  dst[0] = '\0';
+  if (!json || js_obj_get(json, jl, key, &v) != 1 || v.t != JS_STR) { return 0u; }
+  n = js_str_copy(&v, dst, dstsz);
+  if (n <= 0) { dst[0] = '\0'; return 0u; }
+  return (unsigned)n;
 }
 
 /* ------------------------------------------------------------------ level */
@@ -83,8 +90,8 @@ static unsigned level(void)
 void chirp_send_reload(void)
 {
   const char *json;
-  unsigned    jl = 0u;
-  js_val      v;
+  unsigned    jl = 0u, kn;
+  char        key_b64[CHIRP_KEY_LEN + 1u];
 
   s_have_cred     = 0;
   s_cred_is_claim = 0;
@@ -109,8 +116,8 @@ void chirp_send_reload(void)
     s_cred_is_claim = 1;
   }
 
-  if (js_obj_get(json, jl, "key", &v) == 1 && v.t == JS_STR &&
-      b64_decode32(v.p, v.n, s_key) == 0) {
+  kn = cfg_field(json, jl, "key", key_b64, sizeof key_b64);
+  if (kn > 0u && b64_decode32(key_b64, kn, s_key) == 0) {
     s_have_key = 1;
   }
 }

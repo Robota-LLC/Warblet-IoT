@@ -14,10 +14,6 @@
 #error "build with the Makefile: it passes CHIRP_FW, this demo's FW_VERSION"
 #endif
 
-/* A line whose bytes stop for this long is given up: longer than the 1 s a
- * browser tab out of view waits between the pieces of a push. */
-#define LINE_IDLE_MS 1500u
-
 /* Before "CHIRP" nothing counts, so only enough to find it is kept. */
 #define JUNK_KEPT 64u
 
@@ -101,10 +97,7 @@ static void summarize(const char *json, unsigned len)
     uart_puts(" host=");
     uart_write(v.p, v.n);
   }
-  if (js_obj_get(json, len, "ssid", &v) == 1 && v.t == JS_STR) {
-    uart_puts(" ssid=");
-    uart_write(v.p, v.n);
-  }
+  /* No Wi-Fi name: this board has no Wi-Fi, and it is a person's real network. */
 
   /* Report whether a signing key is stored without printing it. */
   if (js_obj_get(json, len, "key", &v) == 1 && v.t == JS_STR) {
@@ -118,9 +111,10 @@ static void summarize(const char *json, unsigned len)
       uart_puts("B) fp=");
       put_key_fp(v.p, v.n);
     } else {
+      /* A Thread network's name is a person's, and this board joins none:
+       * only that a name is held. */
       if (js_obj_get(t.p, t.n, "name", &v) == 1 && v.t == JS_STR) {
-        uart_puts(" thread=");
-        uart_write(v.p, v.n);
+        uart_puts(" thread=named");
       }
       if (js_obj_get(t.p, t.n, "key", &v) == 1 && v.t == JS_STR) {
         uart_puts(" key=");
@@ -218,21 +212,28 @@ static void handle_line(char *line, unsigned len)
 static char     s_line[CHIRP_LINE_MAX + 1];
 static unsigned s_len;
 static int      s_marked;    /* "CHIRP" has come: s_line starts there */
-static int      s_skip;      /* the rest of a line that was too long: dropped to its end */
-static unsigned s_last_ms;   /* when the last byte came */
+static int      s_skip;      /* the rest of a line thrown away: dropped to its end */
 
-/* One byte off the console. A line counts from its first "CHIRP": stray bytes
- * in front are dropped and do not spoil it. A line longer than CHIRP_LINE_MAX
- * from there is thrown away whole, through its line ending, so no part of it
- * is read as a command and it gets no answer. A line whose bytes stop for
- * LINE_IDLE_MS is given up. CR, LF and CRLF each end a line. */
-static void feed(char c, unsigned now_ms)
+/* One byte off the console, with uart_getc()'s flags. A line counts from its
+ * first "CHIRP": stray bytes in front are dropped and do not spoil it. A line
+ * longer than CHIRP_LINE_MAX from there, or one that lost bytes (a UART error
+ * or a full receive ring), is thrown away whole, through its line ending, so
+ * no part of it is read as a command and it gets no answer. A line whose
+ * bytes stopped for UART_IDLE_MS is given up wherever it had got to, over the
+ * limit too. CR, LF and CRLF each end a line. */
+static void feed(int e)
 {
-  if (s_marked && !s_skip && (unsigned)(now_ms - s_last_ms) >= LINE_IDLE_MS) {
+  char c = (char)(e & 0xFF);
+
+  if ((e & UART_RX_PAUSED) && (s_marked || s_skip)) {
     s_len = 0u;                          /* the line stopped coming: it will not end now */
-    s_marked = 0;
+    s_marked = s_skip = 0;
   }
-  s_last_ms = now_ms;
+  if (e & UART_RX_LOST) {
+    s_len = 0u;                          /* bytes of this line are gone */
+    s_marked = 0;
+    s_skip = 1;
+  }
   if (c == '\r' || c == '\n') {
     if (s_marked && !s_skip) {
       s_line[s_len] = '\0';
@@ -267,6 +268,9 @@ void chirp_prov_init(void)
 {
   unsigned len = 0;
 
+  /* The store first, so the boot line says the id the board answers to. */
+  int loaded = cfg_load();
+
   uart_line("");
   uart_puts("CHIRP. chirpwba-demo boot hw=");
   put_hwid();
@@ -274,7 +278,6 @@ void chirp_prov_init(void)
   uart_put_hex(cfg_page_addr(), 8);
   uart_line("");
 
-  int loaded = cfg_load();
   if (loaded == 0) {
     const char *json = cfg_json(&len);
     summarize(json, len);
@@ -286,8 +289,8 @@ void chirp_prov_init(void)
   uart_line("CHIRP. ready (send CHIRP? / CHIRP+ <json> / CHIRP~ dfu)");
 }
 
-void chirp_prov_poll(unsigned now_ms)
+void chirp_prov_poll(void)
 {
-  int c;
-  while ((c = uart_getc()) >= 0) { feed((char)c, now_ms); }
+  int e;
+  while ((e = uart_getc()) >= 0) { feed(e); }
 }

@@ -53,7 +53,7 @@ For browser flashing, connect user USB-C (CN9) as well. The board must be in its
 
 On Windows, browser access to the ROM bootloader may require a WinUSB driver. If the boot-pin route does not work, use the ST-LINK command above. These images require a compatible non-secure flash configuration; check `TZEN=0` and `BOOT_LOCK=0` in STM32CubeProgrammer before flashing.
 
-The last 8 KB flash page at `0x081FE000` stores settings. An app write that leaves that page alone preserves them; a full-chip erase does not.
+The last two 8 KB flash pages, `0x081FC000` to `0x081FFFFF`, store settings. An app write that leaves those pages alone preserves them; a full-chip erase does not.
 
 ## Set up Thread
 
@@ -111,7 +111,7 @@ Keep sensor initialization outside the frame builder. Change `chirp_frame_payloa
 
 ## Security notes
 
-Settings and credentials are stored unencrypted at `0x081FE000`. ST-LINK, the ROM bootloader and USB setup allow reading or replacing them. Protect debug and setup access and use separate device credentials before deployment.
+Settings and credentials are stored unencrypted at `0x081FC000` to `0x081FFFFF`. ST-LINK, the ROM bootloader and USB setup allow reading or replacing them. Protect debug and setup access and use separate device credentials before deployment.
 
 Thread encrypts the local radio link; the UDP route beyond it is unencrypted. Signing does not encrypt the payload.
 
@@ -123,7 +123,7 @@ Thread encrypts the local radio link; the UDP route beyond it is unencrypted. Si
 | DNS fails | Check the border router’s DNS64/NAT64 and internet connection. |
 | `missing-field` | A first push needs the network and credential. |
 | `overrun` | Close competing serial tools and resend the whole line. |
-| `too-long` | Keep the command below the 4160-byte line-buffer size. |
+| `too-long` | Keep the line to 4096 bytes or fewer. |
 | No serial answer | Use CN15 at 115200 baud. |
 | Stored key is unusable | Send a valid signing key; confirm acceptance on the device page. |
 | Reports sent but no reading appears | UDP has no delivery acknowledgement. Check the device ID, credential, and rejected-message count. |

@@ -35,6 +35,9 @@
 #define SYSCLK_HZ       16000000u
 #define VCP_BAUD        115200u
 
+/* Milliseconds since start, counted by SysTick (main.c). */
+unsigned millis(void);
+
 /* System memory (ROM bootloader) — stm32wba65xx.h: SYSTEM_FLASH_BASE_NS */
 #define SYSMEM_BASE     SYSTEM_FLASH_BASE_NS   /* 0x0BF90000 */
 

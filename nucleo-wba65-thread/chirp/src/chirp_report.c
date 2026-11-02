@@ -233,16 +233,20 @@ static void chirp_report_task(void)
   LL_UNLOCK();
 }
 
-static void copy_str(const char *json, unsigned len, const char *key,
-                     char *dst, unsigned dstsz)
+/* A string field of the record into dst, decoded: 1 = copied, 0 = absent,
+ * -1 = there but unusable (longer than dst once decoded, as an older image
+ * may have stored it). The record escapes " and \ in a credential, so only
+ * the decoded length says whether it fits. dst is "" unless copied. */
+static int copy_str(const char *json, unsigned len, const char *key,
+                    char *dst, unsigned dstsz)
 {
   js_val v;
 
-  /* A value too long for dst (stored by an older image) is not copied cut
-   * short; dst keeps what it holds. Unescaping never lengthens a string. */
-  if (js_obj_get(json, len, key, &v) == 1 && v.t == JS_STR && v.n < dstsz) {
-    (void)js_str_copy(&v, dst, dstsz);
-  }
+  dst[0] = '\0';
+  if (js_obj_get(json, len, key, &v) != 1) { return 0; }
+  if (v.t == JS_STR && js_str_copy(&v, dst, dstsz) >= 0) { return 1; }
+  dst[0] = '\0';                          /* nothing cut short is kept */
+  return -1;
 }
 
 void chirp_report_setup(otInstance *inst)
@@ -254,43 +258,40 @@ void chirp_report_setup(otInstance *inst)
 void chirp_report_config(const char *json, unsigned len)
 {
   static const char def[] = CHIRP_REPORT_DEFAULT_HOST;
+  char     probe[CHIRP_SIGN_HEX_LEN + 1];
   unsigned i;
+  int      unusable = 0;
 
-  /* Load the merged config, starting with the default host. */
-  for (i = 0u; (s_host[i] = def[i]) != '\0'; i++) { }
-
-  copy_str(json, len, "host", s_host, sizeof s_host);
+  /* Load the merged config: its host, or the default for none or "". */
+  if (copy_str(json, len, "host", s_host, sizeof s_host) != 1 || s_host[0] == '\0') {
+    for (i = 0u; (s_host[i] = def[i]) != '\0'; i++) { }
+  }
   chirp_hwid_config(json, len);           /* the id the announce uses too */
 
   /* The credential: "claim:" first, then the code after it, or the token. */
   for (i = 0u; (s_cred[i] = CLAIM_PREFIX[i]) != '\0'; i++) { }
   s_bare = s_cred + i;
-  s_cred[i] = '\0';
-  copy_str(json, len, "claim", s_cred + i, sizeof s_cred - i);
+  unusable |= copy_str(json, len, "claim", s_cred + i, sizeof s_cred - i) < 0;
   if (s_cred[i] == '\0') {
     s_bare = s_cred;                      /* no claim: the token, or nothing */
-    s_cred[0] = '\0';
-    copy_str(json, len, "token", s_cred, CHIRP_CRED_MAX + 1u);
+    unusable |= copy_str(json, len, "token", s_cred, CHIRP_CRED_MAX + 1u) < 0;
   }
 
   /* Never at Open: with no credential there is nothing to send with. */
   if (s_cred[0] == '\0') {
     s_configured = 0;
     s_key_b64[0] = '\0';
-    board_serial_print("CHIRP. report: no credential stored; nothing is sent\r\n");
+    board_serial_print(unusable ? "CHIRP. report: the stored credential is unusable; nothing is sent\r\n"
+                                : "CHIRP. report: no credential stored; nothing is sent\r\n");
     return;
   }
 
-  s_key_b64[0] = '\0';
-  copy_str(json, len, "key", s_key_b64, sizeof s_key_b64);
-  if (s_key_b64[0] != '\0') {
-    char probe[CHIRP_SIGN_HEX_LEN + 1];
-    if (chirp_sign_hex(probe, sizeof probe, s_key_b64, sizeof s_key_b64,
-                       (const unsigned char *)"", 0u) != 0) {
-      /* An unusable stored key leaves reports unsigned. */
-      board_serial_print("CHIRP. stored signing key is unusable; reporting stays unsigned\r\n");
-      s_key_b64[0] = '\0';
-    }
+  /* An unusable stored key leaves reports unsigned. */
+  if (copy_str(json, len, "key", s_key_b64, sizeof s_key_b64) < 0 ||
+      (s_key_b64[0] != '\0' && chirp_sign_hex(probe, sizeof probe, s_key_b64, sizeof s_key_b64,
+                                              (const unsigned char *)"", 0u) != 0)) {
+    board_serial_print("CHIRP. stored signing key is unusable; reporting stays unsigned\r\n");
+    s_key_b64[0] = '\0';
   }
 
   s_configured = 1;

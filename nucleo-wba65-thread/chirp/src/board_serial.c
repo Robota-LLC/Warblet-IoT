@@ -1,6 +1,7 @@
 /* Receive USART1 bytes with GPDMA1 channel 7.
  * Interrupt callbacks copy bytes to a ring; the scheduler assembles complete lines.
- * Dispatch CHIRP lines to provisioning and other lines to OpenThread CLI. */
+ * Dispatch CHIRP lines to provisioning and other lines to OpenThread CLI,
+ * never a line that may hold part of a push. */
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -32,10 +33,12 @@ void __real_otPlatUartReceived(const uint8_t *aBuf, uint16_t aBufLength);
 #define OUT_BUDGET   1024u
 
 /* Interrupt-to-task ring; it covers one scheduler round trip, not a whole line.
- * Each entry is a byte, and RX_PAUSED when the bytes had stopped for
- * BOARD_SERIAL_IDLE_MS before it came. */
+ * Each entry is a byte, RX_PAUSED when the bytes had stopped for
+ * BOARD_SERIAL_IDLE_MS before it came, and RX_LOST when bytes were lost just
+ * before it (a full ring or a UART error). */
 #define RX_RING   1024u
 #define RX_PAUSED 0x100u
+#define RX_LOST   0x200u
 
 /* Scheduler task id above ST's CFG_TASK_NBR. chirp_prov.c owns 30 and 31,
  * chirp_report.c owns 28. */
@@ -53,12 +56,13 @@ static void (*s_on_chirp_line)(char *line, unsigned len);
 static char        s_line[BOARD_SERIAL_LINE_MAX + 3u];
 static unsigned    s_line_len;
 static const char *s_line_bad;      /* NULL, or why this line is a write-off */
+static int         s_line_dropped;  /* it follows a setup line given up on a pause */
 
 /* Interrupt -> task ring. head is interrupt-owned, tail is task-owned. */
 static volatile uint16_t s_ring[RX_RING];
 static volatile uint32_t s_ring_head;
 static volatile uint32_t s_ring_tail;
-static volatile uint8_t  s_ring_lost;
+static volatile uint8_t  s_ring_lost;   /* the next byte in carries RX_LOST */
 static volatile uint32_t s_rx_last_ms;  /* HAL_GetTick() when the last bytes came */
 
 /* DMA reception buffer; the callbacks copy each new region into the ring.
@@ -138,6 +142,15 @@ static int starts_with(const char *s, const char *prefix)
   return 1;
 }
 
+/* A push can hold secrets; one with stray bytes in front is still never echoed. */
+static int holds_push(const char *s, unsigned n)
+{
+  for (unsigned i = 0u; i + 6u <= n; i++) {
+    if (starts_with(s + i, "CHIRP+")) { return 1; }
+  }
+  return 0;
+}
+
 /* Hand a non-CHIRP line to ot-cli as ST's own path would: echoed, CRLF restored, one call. */
 static void forward_to_cli(unsigned n)
 {
@@ -159,11 +172,13 @@ static void forward_to_cli(unsigned n)
 /* A terminator arrived. Dispatch the whole line, exactly once, and reset. */
 static void dispatch_line(void)
 {
-  unsigned    n   = s_line_len;
-  const char *bad = s_line_bad;
+  unsigned    n       = s_line_len;
+  const char *bad     = s_line_bad;
+  int         dropped = s_line_dropped;
 
-  s_line_len = 0u;
-  s_line_bad = NULL;
+  s_line_len     = 0u;
+  s_line_bad     = NULL;
+  s_line_dropped = 0;
 
   if (bad != NULL) {
     /* A damaged line is not dispatched, and no part of it is read as a
@@ -176,6 +191,10 @@ static void dispatch_line(void)
   if (n == 0u) { return; }
 
   s_line[n] = '\0';
+
+  /* The rest of a setup line given up on a pause, or a push with bytes in
+   * front of it: dropped, not echoed, not handed to the CLI, no answer. */
+  if (!is_chirp_line(s_line, n) && (dropped || holds_push(s_line, n))) { return; }
 
   /* Hold the recursive link-layer mutex while handing a line to OpenThread CLI. */
   LL_LOCK();
@@ -193,11 +212,6 @@ static void dispatch_line(void)
  * line never reaches either speaker. */
 static void rx_task(void)
 {
-  if (s_ring_lost) {
-    s_ring_lost = 0u;
-    s_line_bad  = "overrun";            /* this line is a write-off; say so */
-  }
-
   while (s_ring_tail != s_ring_head) {
     uint16_t e    = s_ring[s_ring_tail];
     char     c    = (char)(e & 0xFFu);
@@ -205,11 +219,16 @@ static void rx_task(void)
 
     s_ring_tail = (next == RX_RING) ? 0u : next;
 
-    /* A setup line whose bytes stopped will not end now: it is given up, and
-     * what follows is not joined to it. A line already over the limit still
-     * waits for its line ending. */
-    if ((e & RX_PAUSED) != 0u && s_line_bad == NULL && is_chirp_line(s_line, s_line_len)) {
-      s_line_len = 0u;
+    /* A setup line whose bytes stopped will not end now: it is given up
+     * wherever it had got to, over the limit or damaged too. What follows,
+     * to the next line ending, is the rest of it: dropped, unless it starts
+     * with CHIRP, so a fresh probe is read at once. */
+    if ((e & RX_PAUSED) != 0u && (s_line_dropped || is_chirp_line(s_line, s_line_len))) {
+      s_line_len     = 0u;
+      s_line_bad     = NULL;
+      s_line_dropped = 1;
+    } else if ((e & RX_LOST) != 0u) {
+      s_line_bad = "overrun";            /* this line lost bytes; say so */
     }
 
     if (c == '\r' || c == '\n') { dispatch_line(); continue; }
@@ -226,8 +245,9 @@ static void ring_push(uint16_t c)
   uint32_t next = head + 1u;
 
   if (next == RX_RING) { next = 0u; }
+  if (s_ring_lost)     { c |= RX_LOST; }
 
-  if (next != s_ring_tail) { s_ring[head] = c; s_ring_head = next; }
+  if (next != s_ring_tail) { s_ring[head] = c; s_ring_head = next; s_ring_lost = 0u; }
   else                     { s_ring_lost = 1u; }
 }
 
@@ -252,7 +272,8 @@ static void rx_event(UART_HandleTypeDef *huart, uint16_t pos)
   UTIL_SEQ_SetTask(SERIAL_TASK_RX, CFG_SEQ_PRIO_1);
 }
 
-/* Mark a UART-damaged line for rejection, then restart reception. */
+/* Mark a UART-damaged line for rejection (the next byte in carries RX_LOST),
+ * then restart reception. */
 static void rx_error(UART_HandleTypeDef *huart)
 {
   s_ring_lost = 1u;
@@ -284,6 +305,7 @@ void board_serial_begin(void (*on_chirp_line)(char *line, unsigned len))
   s_ring_lost = 0u;
   s_line_len  = 0u;
   s_line_bad  = NULL;
+  s_line_dropped = 0;
 
   /* Replace ST's 1-byte interrupt receive with DMA, which is immune to
    * radio-interrupt latency. */
@@ -340,8 +362,9 @@ void __wrap_otPlatUartReceived(const uint8_t *aBuf, uint16_t aBufLength)
   }
 
   /* Not our own task, so the assembler is idle; start clean. */
-  s_line_len = 0u;
-  s_line_bad = NULL;
+  s_line_len     = 0u;
+  s_line_bad     = NULL;
+  s_line_dropped = 0;
 
   for (i = 0; i < aBufLength; i++) {
     uint8_t c = aBuf[i];

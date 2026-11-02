@@ -11,7 +11,7 @@
 #define CHIRP_LINE_MAX 4096u
 
 void chirp_prov_init(void);              /* banner + summary of any stored config */
-void chirp_prov_poll(unsigned now_ms);   /* drain the UART, act on complete lines  */
+void chirp_prov_poll(void);              /* drain the UART, act on complete lines  */
 
 /* Room for an id and its NUL. */
 #define CHIRP_HWID_SIZE (CHIRP_HWID_LEN_MAX + 1u)

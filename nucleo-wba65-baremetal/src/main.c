@@ -17,7 +17,7 @@ void SysTick_Handler(void)
   s_ms++;
 }
 
-static unsigned millis(void)
+unsigned millis(void)
 {
   return s_ms;
 }
@@ -77,7 +77,7 @@ int main(void)
   for (;;) {
     unsigned now = millis();
 
-    chirp_prov_poll(now);
+    chirp_prov_poll();
     chirp_send_tick(now);
 
     if ((now - last_blink) >= BLINK_HALF_MS) {   /* ~1 Hz, 50% duty */

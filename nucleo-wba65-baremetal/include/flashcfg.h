@@ -16,7 +16,8 @@ const char *cfg_json(unsigned *len);
 
 /* 0 = stored and read back, -1 = not stored (caller answers err store-failed):
  * the record held before is still the one the next start reads. A successful
- * store refreshes the RAM copy. Call cfg_load() once first. */
+ * store refreshes the RAM copy. Refused (-1) until cfg_load() has run once:
+ * before that, page 0 may hold the only record. */
 int cfg_store(const char *json, unsigned len);
 
 /* The page holding the record now, or the first page when there is none (for logging). */

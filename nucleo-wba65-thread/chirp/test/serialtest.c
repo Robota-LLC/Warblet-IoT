@@ -4,8 +4,11 @@
  *     records any overrun);
  *   - the line rules of CHIRP-PROV v1.8: a line over the limit is thrown away
  *     whole and gets no answer, a setup line whose bytes stop for 1.5 s is
- *     given up, and CR, LF and CRLF each end a line. A CLI line typed by a
- *     person is never timed.
+ *     given up wherever it is, and CR, LF and CRLF each end a line. A CLI
+ *     line typed by a person is never timed;
+ *   - no secret reaches the console or ot-cli: not the rest of a setup line
+ *     given up on a pause, not a push with stray bytes in front;
+ *   - bytes a full ring lost damage the line they were in.
  * Run with make test. */
 
 #include <stdarg.h>
@@ -268,11 +271,187 @@ static void test_lines(void)
   expect(chirp_lines == 0u && strstr(st_wire, "CHIRP=") == NULL, "a line an overrun damaged is dropped, unanswered");
 }
 
+/* Does any 4 bytes of the secret reach the console or ot-cli? */
+static int leaks(const char *secret)
+{
+  char piece[5];
+
+  arcUartProcess();
+  st_wire[st_wire_len] = '\0';
+  for (size_t i = 0u; i + 4u <= strlen(secret); i++) {
+    memcpy(piece, secret + i, 4u);
+    piece[4] = '\0';
+    if (strstr(st_wire, piece) != NULL || strstr(cli_got, piece) != NULL) { return 1; }
+  }
+  return 0;
+}
+
+/* After any of the cases below, the console works as before: a probe is
+ * answered and a CLI command reaches ot-cli. */
+static void then_console_works(const char *what)
+{
+  char why[160];
+
+  reset_seen();
+  receive_text("CHIRP?\r\n");
+  arcUartProcess();
+  snprintf(why, sizeof why, "  ... then a fresh probe is answered (%s)", what);
+  expect(chirp_lines == 1u && strcmp(chirp_last, "CHIRP?") == 0 && st_wire_len == sizeof ANNOUNCE - 1u, why);
+  reset_seen();
+  receive_text("state\r\n");
+  snprintf(why, sizeof why, "  ... and a CLI command reaches ot-cli (%s)", what);
+  expect(strcmp(cli_got, "state\r\n") == 0, why);
+}
+
+/* A setup line stopped for 1.5 s inside a secret, then the rest of it. */
+static void stall_inside(const char *push, const char *secret, size_t into, const char *what)
+{
+  const char *at = strstr(push, secret);
+  size_t      cut = (size_t)(at - push) + into;
+  char        why[160];
+
+  reset_seen();
+  receive(push, (unsigned)cut);
+  tick += BOARD_SERIAL_IDLE_MS;
+  receive_text(push + cut);
+  receive_text("\r\n");
+  snprintf(why, sizeof why, "a setup line stopped inside %s: no byte of it reaches the console or ot-cli", what);
+  expect(!leaks(secret) && cli_len == 0u, why);
+  then_console_works(what);
+}
+
+static void test_secrets(void)
+{
+  static const char tok[]  = "tok-S3CRET-0123456789";
+  static const char key[]  = "00112233445566778899aabbccddeeff";
+  static const char code[] = "CHIRP-SETUP-4711-ABCD";
+  static const char ds[]   = "0e080000000000010000000300001835060004001fffe0020811111111222222220708fd";
+  char push[512];
+
+  puts("\n--- no secret reaches the console or ot-cli ---");
+
+  snprintf(push, sizeof push, "CHIRP+ {\"thread\":{\"dataset\":\"%s\"},\"token\":\"%s\"}", ds, tok);
+  stall_inside(push, tok, 7u, "a token");
+  snprintf(push, sizeof push, "CHIRP+ {\"thread\":{\"name\":\"lab\",\"key\":\"%s\"},\"token\":\"t\"}", key);
+  stall_inside(push, key, 10u, "a network key");
+  snprintf(push, sizeof push, "CHIRP+ {\"thread\":{\"dataset\":\"%s\"},\"claim\":\"%s\"}", ds, code);
+  stall_inside(push, code, 8u, "a setup code");
+  snprintf(push, sizeof push, "CHIRP+ {\"thread\":{\"dataset\":\"%s\"},\"token\":\"t\"}", ds);
+  stall_inside(push, ds, 21u, "a dataset");
+
+  /* Split just before a setup code, the rest starts with CHIRP: it is read
+   * as a line of its own, so it goes to the responder (chirp_prov.c answers
+   * it without a byte of it), never to ot-cli. */
+  snprintf(push, sizeof push, "CHIRP+ {\"thread\":{\"dataset\":\"%s\"},\"claim\":\"%s\"}", ds, code);
+  reset_seen();
+  receive(push, (unsigned)(strstr(push, code) - push));
+  tick += BOARD_SERIAL_IDLE_MS;
+  receive_text(strstr(push, code));
+  receive_text("\r\n");
+  expect(chirp_lines == 1u && strncmp(chirp_last, code, sizeof code - 1u) == 0 && cli_len == 0u && !leaks(code),
+         "the rest of a setup line that starts with CHIRP goes to the responder, not to ot-cli");
+  then_console_works("the rest started with CHIRP");
+
+  /* Two pauses inside one token. */
+  snprintf(push, sizeof push, "CHIRP+ {\"token\":\"%s\"}", tok);
+  reset_seen();
+  receive(push, 20u);
+  tick += BOARD_SERIAL_IDLE_MS;
+  receive(push + 20, 5u);
+  tick += BOARD_SERIAL_IDLE_MS;
+  receive_text(push + 25);
+  receive_text("\r\n");
+  expect(!leaks(tok) && cli_len == 0u, "a token stopped twice: no byte of it reaches the console or ot-cli");
+  then_console_works("two pauses");
+
+  /* A whole push with a stray byte in front, or CHIRP+ further in. */
+  reset_seen();
+  snprintf(push, sizeof push, "\x5a" "CHIRP+ {\"thread\":{\"dataset\":\"%s\"},\"token\":\"%s\"}\r\n", ds, tok);
+  receive_text(push);
+  arcUartProcess();
+  expect(!leaks(tok) && !leaks(ds) && cli_len == 0u && chirp_lines == 0u && st_wire_len == 0u,
+         "a push with a stray byte in front: not echoed, not handed to ot-cli, no answer");
+  then_console_works("a stray byte in front");
+  reset_seen();
+  snprintf(push, sizeof push, "state CHIRP+ {\"token\":\"%s\"}\r\n", tok);
+  receive_text(push);
+  arcUartProcess();
+  expect(!leaks(tok) && cli_len == 0u && st_wire_len == 0u, "a line holding CHIRP+ further in is dropped the same way");
+  then_console_works("CHIRP+ further in");
+}
+
+/* A setup line idle for 1.5 s is given up wherever it is, so the probe the
+ * page sends next is read alone: answered, never joined into bad-json. */
+static void test_idle_anywhere(void)
+{
+  static char long_line[BOARD_SERIAL_LINE_MAX + 64];
+  const char *push = "CHIRP+ {\"token\":\"tok\",\"hwid\":\"board-1\"}";
+  size_t      cuts[] = { 5u, 6u, 8u, 11u, 19u, 27u, strlen(push) };
+  char        why[160];
+
+  puts("\n--- a setup line idle for 1.5 s is given up wherever it is ---");
+  for (size_t i = 0u; i < sizeof cuts / sizeof cuts[0]; i++) {
+    reset_seen();
+    receive(push, (unsigned)cuts[i]);
+    tick += BOARD_SERIAL_IDLE_MS;
+    receive_text("CHIRP?\r\n");
+    snprintf(why, sizeof why, "stopped after %u bytes: the probe after it is read alone", (unsigned)cuts[i]);
+    expect(chirp_lines == 1u && strcmp(chirp_last, "CHIRP?") == 0, why);
+  }
+
+  /* Over the limit. */
+  reset_seen();
+  memcpy(long_line, "CHIRP+ ", 7u);
+  memset(long_line + 7, 'j', BOARD_SERIAL_LINE_MAX);
+  receive(long_line, BOARD_SERIAL_LINE_MAX + 7u);
+  tick += BOARD_SERIAL_IDLE_MS;
+  receive_text("CHIRP?\r\n");
+  expect(chirp_lines == 1u && strcmp(chirp_last, "CHIRP?") == 0,
+         "stopped over the limit: the probe after it is read alone");
+
+  /* Damaged by an overrun. */
+  reset_seen();
+  receive_text("CHIRP+ {\"hw");
+  s_ring_lost = 1u;
+  receive_text("id\":");
+  tick += BOARD_SERIAL_IDLE_MS;
+  receive_text("CHIRP?\r\n");
+  expect(chirp_lines == 1u && strcmp(chirp_last, "CHIRP?") == 0,
+         "stopped after an overrun damaged it: the probe after it is read alone");
+}
+
+/* Bytes the ring had no room for damage the line they were in, not the one
+ * the scheduler happened to be assembling when it next ran. */
+static void test_ring_full(void)
+{
+  static char push[RX_RING + 600];
+  unsigned    n, at;
+
+  puts("\n--- a full ring ---");
+  reset_seen();
+  n = (unsigned)sprintf(push, "CHIRP?\r\nCHIRP+ {\"thread\":{\"dataset\":\"");
+  for (; n < RX_RING + 400u; n++) { push[n] = "0123456789abcdef"[n % 16u]; }
+  n += (unsigned)sprintf(push + n, "\"},\"token\":\"t\"}\r\n");
+
+  /* The scheduler is held up: the DMA events come, the task does not run. */
+  for (at = 0u; at < RX_RING + 200u; at += 200u) {
+    memcpy(s_dma_buf, push + at, 200u);
+    rx_event(oTCLIuart, 200u);
+  }
+  rx_task();
+  receive(push + at, n - at);
+  expect(chirp_lines == 1u && strcmp(chirp_last, "CHIRP?") == 0,
+         "a probe that came whole is answered; the push that lost bytes is not read");
+}
+
 int main(void)
 {
   board_serial_begin(on_line);
   test_burst();
   test_lines();
+  test_secrets();
+  test_idle_anywhere();
+  test_ring_full();
 
   printf("\nserialtest: %d passed, %d failed\n", passes, fails);
   printf("%s (%d failure%s)\n", fails ? "FAILED" : "PASSED", fails, fails == 1 ? "" : "s");

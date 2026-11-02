@@ -22,6 +22,10 @@ void SVC_Handler(void)            __attribute__((weak, alias("_default_isr")));
 void DebugMon_Handler(void)       __attribute__((weak, alias("_default_isr")));
 void PendSV_Handler(void)         __attribute__((weak, alias("_default_isr")));
 void SysTick_Handler(void);
+void USART1_IRQHandler(void);     /* uart.c: console receive */
+
+/* stm32wba65xx.h: USART1_IRQn = 46. */
+#define USART1_IRQ 46
 
 void _default_isr(void);
 void _default_isr(void) { Default_Handler(); }
@@ -52,8 +56,10 @@ const vector_t g_vectors[16 + DEV_IRQS] = {
   0,
   PendSV_Handler,
   SysTick_Handler,
-  /* No device IRQs are used (RX is polled); all park here. */
-  [16 ... (16 + DEV_IRQS - 1)] = _default_isr,
+  /* One device IRQ is used, the console's receive; the rest park here. */
+  [16 ... (16 + USART1_IRQ - 1)]               = _default_isr,
+  [16 + USART1_IRQ]                            = USART1_IRQHandler,
+  [(16 + USART1_IRQ + 1) ... (16 + DEV_IRQS - 1)] = _default_isr,
 };
 
 void Reset_Handler(void)

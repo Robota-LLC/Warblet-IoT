@@ -4,17 +4,21 @@
  *     byte at a time as a console line: the answer, whether it is stored, and
  *     the settings held after, read back as the next start reads them;
  *   - the rules behind them one by one: the refusals, the Thread object, the
- *     id, the credential, the longest record;
+ *     id, the credential (quotation marks and backslashes at its limit too:
+ *     stored, read back, sent), the longest record;
  *   - the announce: v1.8's line, with this demo's slug, fw and capabilities
  *     as demo.json declares them;
- *   - the store: two pages; a save whose flash fails at any step, or loses
- *     power at any step, and the newest valid record winning at start;
- *   - the line: one over the limit, a line that stops, stray bytes in front;
- *   - no request without a credential;
+ *   - the store: two pages; no save before it has been read; a save whose
+ *     flash fails at any step, or loses power at any step, and the newest
+ *     valid record winning at start;
+ *   - the line: one over the limit, a line idle for 1.5 s given up wherever
+ *     it is, stray bytes in front;
+ *   - no request without a credential, and no Wi-Fi name on the console;
  *   - JSON, SHA-256, HMAC and the signed input.
  * Run with make test VECTORS=<path to chirp-prov-v1.8.json>; the vectors live
- * with Warblet's checks, not in this folder. What this cannot show: a real
- * start, real flash and its ECC, and the console itself. Those are the bench's. */
+ * with Warblet's checks, not in this folder. tools/boottest.c runs the real
+ * start and the UART on a simulated chip. What neither can show: real flash
+ * and its ECC, and the console itself. Those are the bench's. */
 
 #include <limits.h>
 #include <stdio.h>
@@ -163,7 +167,7 @@ int cfg_flash_write(unsigned addr, const unsigned char qw[16])
 
 #include "../src/chirp_prov.c"
 
-static unsigned clock_ms = 1000u;
+static unsigned clock_ms = 1000u, rx_last_ms;
 
 /* A real start: RAM forgotten, the store read, the credentials loaded. */
 static void start(void)
@@ -174,13 +178,19 @@ static void start(void)
   chirp_send_reload();
 }
 
+/* One byte off the wire gap_ms after the last, as uart.c's interrupt hands it
+ * on: flagged UART_RX_PAUSED when the line had been quiet for UART_IDLE_MS. */
+static void send_byte(unsigned char c, unsigned gap_ms)
+{
+  clock_ms += gap_ms;
+  rx = c | ((clock_ms - rx_last_ms >= UART_IDLE_MS) ? UART_RX_PAUSED : 0);
+  rx_last_ms = clock_ms;
+  chirp_prov_poll();
+}
+
 static void send_text(const char *text, unsigned gap_ms)
 {
-  for (const char *c = text; *c != '\0'; c++) {
-    clock_ms += gap_ms;
-    rx = (unsigned char)*c;
-    chirp_prov_poll(clock_ms);
-  }
+  for (const char *c = text; *c != '\0'; c++) { send_byte((unsigned char)*c, gap_ms); }
 }
 
 /* The first line the firmware printed for a console line ("" for none). */
@@ -437,6 +447,50 @@ static void expect_held(const char *record, const char *json, const char *want, 
   check(strcmp(got, "CHIRP= ok") == 0 && same_record(held, want), why, detail);
 }
 
+/* The next report the board prints: the console from one due tick. */
+static unsigned send_ms;
+static const char *report(void)
+{
+  chirp_send_tick(send_ms);
+  send_ms += 30000u;
+  said_len = 0u;
+  said[0] = '\0';
+  chirp_send_tick(send_ms);
+  return said;
+}
+
+/* A credential of 63 " and \, its limit, which the record stores escaped at
+ * twice the length; and 40 quotation marks. Each is stored, read back at the
+ * next start, and sent as it is: after that start, and after a push with no
+ * restart. */
+static void test_escaped_credentials(void)
+{
+  static const struct { const char *field, *header; unsigned n; char mix; } cases[] = {
+    { "token", "X-Chirp-Token", 63u, 1 },
+    { "claim", "X-Chirp-Claim", 63u, 1 },
+    { "token", "X-Chirp-Token", 40u, 0 },
+  };
+  char raw[64], json[128], line[256], header[128], why[160];
+
+  for (unsigned c = 0u; c < sizeof cases / sizeof cases[0]; c++) {
+    for (unsigned i = 0u; i < cases[c].n; i++) {
+      raw[i] = (cases[c].mix && (i & 1u)) ? '\\' : '"';
+      json[2u * i] = '\\';
+      json[2u * i + 1u] = raw[i];
+    }
+    raw[cases[c].n] = json[2u * cases[c].n] = '\0';
+    snprintf(line, sizeof line, "{\"%s\":\"%s\"}", cases[c].field, json);
+    snprintf(header, sizeof header, "CHIRP^ %s: %s\r\n", cases[c].header, raw);
+    snprintf(why, sizeof why, "a %s of %u %s: stored, and the next start reads every byte", cases[c].field,
+             cases[c].n, cases[c].mix ? "quotes and backslashes" : "quotation marks");
+    expect_held("{\"token\":\"tok\"}", line, line, why);
+    check(strstr(report(), header) != NULL, "  ... and the report after that start sends it as it is", said);
+    board_with("{\"token\":\"tok\"}");
+    (void)push(line);
+    check(strstr(report(), header) != NULL, "  ... and so does the report after the push, with no restart", said);
+  }
+}
+
 static void test_rules(void)
 {
   const char *T = "{\"token\":\"tok\"}";
@@ -511,6 +565,7 @@ static void test_rules(void)
   expect_held("{\"token\":\"tok\",\"host\":\"core.example.com\"}", "{\"host\":\"\"}", "{\"token\":\"tok\"}",
               "the empty host is Warblet's own: the stored one goes");
   expect_held(T, "{\"token\":\"t\\\"k\"}", "{\"token\":\"t\\\"k\"}", "a quote in a token is kept");
+  test_escaped_credentials();
 
   puts("\n--- the signing key ---");
   expect(T, "{\"key\":\"" KEY_A "\"}", "CHIRP= ok", "44 characters of standard base64");
@@ -782,6 +837,22 @@ static int save_steps(void)
   return steps;
 }
 
+/* Before anything has read the store, a save is refused: it would erase the
+ * first page, which may hold the only record. Runs first, before anything
+ * else in this program calls cfg_load(). */
+static void test_store_first(void)
+{
+  static unsigned char before[2][CFG_PAGE_SIZE];
+
+  puts("--- the store refuses a save before it has been read ---");
+  flash_blank();
+  put_record(0, 41u, OLD);
+  memcpy(before, flash_mem, sizeof before);
+  check(cfg_store(NEW, sizeof NEW - 1u) == -1, "a save before the first load is refused", NULL);
+  check(memcmp(before, flash_mem, sizeof before) == 0, "  ... and the flash is untouched", NULL);
+  check(strcmp(reads(), OLD) == 0, "  ... so the next start reads the record it held", NULL);
+}
+
 static void test_store(void)
 {
   int  total, k, kind, mode, good;
@@ -960,6 +1031,40 @@ static void test_line(void)
   send_text("RP?\r\n", 1u);
   check(strncmp(said, "CHIRP! ", 7) == 0, "a pause before \"CHIRP\" is complete is not a stopped line", said);
 
+  /* Idle for 1.5 s, a line is given up wherever it is, over the limit too:
+   * the probe the page sends next is read alone, never joined into bad-json. */
+  {
+    const char *stalled = "zzCHIRP+ {\"token\":\"tok\",\"hwid\":\"board-1\"}";
+    size_t      cuts[] = { 7u, 8u, 10u, 13u, 21u, 29u, strlen(stalled) };
+    char        why[160];
+
+    for (size_t i = 0u; i <= sizeof cuts / sizeof cuts[0]; i++) {
+      board_with(OLD);
+      if (i < sizeof cuts / sizeof cuts[0]) {
+        snprintf(line, sizeof line, "%.*s", (int)cuts[i], stalled);
+        snprintf(why, sizeof why, "stopped after %u bytes: the probe after it is read alone", (unsigned)cuts[i]);
+      } else {
+        memcpy(line, "CHIRP+ ", 7u);
+        memset(line + 7, 'j', CHIRP_LINE_MAX);
+        line[CHIRP_LINE_MAX + 7u] = '\0';
+        snprintf(why, sizeof why, "stopped over the limit: the probe after it is read alone");
+      }
+      send_text(line, 1u);
+      clock_ms += 1500u;
+      check(strncmp(answer_to("CHIRP?\r\n"), "CHIRP! ", 7) == 0 && strstr(said, "bad-json") == NULL, why, said);
+    }
+  }
+
+  /* Given up just before its setup code, the rest of a line starts with
+   * CHIRP: it is read, and the answer holds nothing of it. */
+  board_with(OLD);
+  said_len = 0u; said[0] = '\0';
+  send_text("CHIRP+ {\"claim\":\"", 1u);
+  clock_ms += 1500u;
+  send_text("CHIRP-SETUP-4711-ABCD\"}\r\n", 1u);
+  check(strcmp(said, "CHIRP= err unsupported\r\n") == 0 && strcmp(held_after_restart(), OLD) == 0,
+        "the rest of a setup line given up before its code: answered with nothing of itself", said);
+
   /* Stray bytes in front of a command are dropped, and not kept. */
   memset(line, 'z', 200u);
   line[200] = '\0';
@@ -986,11 +1091,7 @@ static void test_line(void)
     board_with("{\"token\":\"tok-1\"}");
     said_len = 0u;
     said[0] = '\0';
-    for (unsigned i = 0u; i < sizeof raw - 1u; i++) {
-      clock_ms++;
-      rx = (unsigned char)raw[i];
-      chirp_prov_poll(clock_ms);
-    }
+    for (unsigned i = 0u; i < sizeof raw - 1u; i++) { send_byte((unsigned char)raw[i], 1u); }
     check(strncmp(said, "CHIRP= err bad-json", 19) == 0 && strstr(cfg_json(&len), "tok-1") != NULL,
           "a raw NUL in a push: bad-json, and nothing stored", said);
   }
@@ -1090,9 +1191,20 @@ static void check_summary(void)
   board_with(full);
   said_len = 0u; said[0] = '\0';
   chirp_prov_init();
-  check(strstr(said, " thread=chirp-lab") != NULL && strstr(said, " ch=15") != NULL &&
+  check(strstr(said, " thread=named") != NULL && strstr(said, "chirp-lab") == NULL &&
+        strstr(said, " ch=15") != NULL &&
         strstr(said, TKEY) == NULL && strstr(said, " key=sha256:") != NULL,
-        "the boot summary names the network and fingerprints its key", said);
+        "the boot summary says a Thread network is named, not its name, and fingerprints its key", said);
+
+  /* This board has no Wi-Fi; the page still sends it a real network's name. */
+  board_with("{\"ssid\":\"home-net-5G\",\"pass\":\"pw\",\"token\":\"tok\"}");
+  said_len = 0u; said[0] = '\0';
+  chirp_prov_init();
+  check(strstr(said, "home-net-5G") == NULL && strstr(said, "ssid") == NULL,
+        "the boot summary prints no Wi-Fi network name", said);
+  (void)push("{\"ssid\":\"cafe-guest\",\"pass\":\"\"}");
+  check(strncmp(said, "CHIRP= ok", 9) == 0 && strstr(said, "cafe-guest") == NULL && strstr(said, "ssid") == NULL,
+        "  ... and neither does the answer to a push that sets one", said);
 }
 
 /* js_num_int must refuse, not wrap, a number past LONG_MAX. */
@@ -1273,6 +1385,7 @@ static void test_sign(void)
 
 int main(int argc, char **argv)
 {
+  test_store_first();
   test_vectors(argc > 1 ? argv[1] : NULL);
   test_rules();
   test_announce();

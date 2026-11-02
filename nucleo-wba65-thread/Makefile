@@ -169,7 +169,9 @@ all: $(BUILD)/$(TARGET).bin size
 # flashcfg.c against a flash of its own that can fail or lose power at any
 # step. serialtest runs board_serial.c against stub ST headers and a model of
 # ST's CLI output buffer; hwidtest holds the announce to the id the reports
-# use and to demo.json. VECTORS is the path to Warblet's shared CHIRP-PROV
+# use and to demo.json; boottest runs the real start, chirp_prov.c,
+# chirp_report.c and board_serial.c together on stand-ins for OpenThread and
+# ST's scheduler (chirp/test/stub). VECTORS is the path to Warblet's shared CHIRP-PROV
 # vectors (chirp-prov-v1.8.json); without it those checks are skipped.
 HOSTCC  ?= gcc
 VECTORS ?=
@@ -193,6 +195,12 @@ test:
 	@"$(HOSTCC)" -std=c11 -Wall -Wextra -Ichirp/inc -DCHIRP_FW='"$(FW_VERSION)"' \
 	   -o $(BUILD)/hwidtest$(HOSTEXE) chirp/test/hwidtest.c chirp/src/chirp_hwid.c chirp/src/json.c
 	@$(BUILD)/hwidtest$(HOSTEXE)
+	@"$(HOSTCC)" -std=c11 -Wall -Wextra -Ichirp/inc -Ichirp/test -Ichirp/test/stub -DCFG_FAKE_FLASH \
+	   -DCHIRP_FW='"$(FW_VERSION)"' -o $(BUILD)/boottest$(HOSTEXE) \
+	   chirp/test/boottest.c chirp/src/chirp_prov.c chirp/src/chirp_report.c chirp/src/board_serial.c \
+	   chirp/src/chirp_hwid.c chirp/src/chirpval.c chirp/src/json.c chirp/src/flashcfg.c \
+	   chirp/src/chirp_ds.c chirp/src/chirp_frame.c chirp/src/chirp_sign.c chirp/test/sha256_host.c
+	@$(BUILD)/boottest$(HOSTEXE)
 
 $(BUILD)/%.o: %.c
 	@mkdir -p $(dir $@)
