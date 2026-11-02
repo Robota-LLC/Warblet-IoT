@@ -487,7 +487,9 @@ static void test_rules(void)
                 "the die id it already answers to keeps the key");
     board_with(signed_cfg);
     push("{\"hwid\":\"\"}");
-    verdict(strcmp(chirp_hwid(), DIE_ID) == 0, "an empty id puts the board back on its own id at once", chirp_hwid());
+    verdict(strcmp(chirp_hwid(), "curious-otter-1a2b") == 0,
+            "an empty id is missing-field: the board keeps its id, and the page pushes its own id to go back",
+            chirp_hwid());
   }
 
   puts("\n--- the Thread object ---");

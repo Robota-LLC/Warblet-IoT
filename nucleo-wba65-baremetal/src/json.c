@@ -297,7 +297,7 @@ int js_str_copy(const js_val *v, char *dst, unsigned dstsz)
       case 'u': {
         if (i + 4u > v->n) { return -1; }
         int cp = hex4(v->p + i);
-        if (cp < 0) { return -1; }
+        if (cp <= 0) { return -1; }   /* not hex, or a NUL, which would cut a C string short */
         i += 4u;
         /* BMP only, and surrogates are rejected rather than silently mangled. */
         if (cp >= 0xD800 && cp <= 0xDFFF) { return -1; }

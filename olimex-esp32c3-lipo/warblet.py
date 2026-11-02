@@ -434,7 +434,7 @@ def valid_hwid(value):
 def fits(name, value):
     # True when a pushed text is within the contract's bounds: an ssid of 1 to
     # 32 bytes, a pass of up to 64, a claim or token of 1 to 63 printable ASCII
-    # characters, a
+    # characters without the space, a
     # host of up to 63 letters, digits, . and -, an id in the platform's
     # grammar, and a key that will sign.
     if name == "ssid":
@@ -442,7 +442,7 @@ def fits(name, value):
     if name == "pass":
         return len(value.encode()) <= 64
     if name in ("claim", "token"):
-        return 0 < len(value) <= 63 and all(" " <= c <= "~" for c in value)
+        return 0 < len(value) <= 63 and all("!" <= c <= "~" for c in value)
     if name == "host":
         return len(value) <= 63 and all(c in HOST_CHARS for c in value)
     if name == "hwid":
@@ -470,12 +470,15 @@ def _merged(body, settings):
     # reason it is refused), in the contract's order: not one JSON object; a
     # field this firmware does not act on (the first by name, so every board
     # names the same one); a bad value; then, in apply_config_push(), an
-    # incomplete result. The settings themselves are never changed.
+    # incomplete result. The settings themselves are never changed. A NUL,
+    # raw or sent as \u0000, is bad-json wherever it is: a C string ends there.
+    if "\x00" in body:
+        return None, "bad-json"
     try:
         push = json.loads(body)
     except ValueError:
         return None, "bad-json"
-    if not isinstance(push, dict):
+    if not isinstance(push, dict) or _has_nul(push):
         return None, "bad-json"
     unknown = [name for name in push if name not in FIELDS]
     if unknown:
@@ -519,6 +522,17 @@ def _merged(body, settings):
     if _new_device(push, settings) and "key" not in push:
         candidate.pop("key", None)
     return candidate, None
+
+
+def _has_nul(value):
+    # True when a name or a text anywhere in the parsed push holds a NUL.
+    if isinstance(value, str):
+        return "\x00" in value
+    if isinstance(value, dict):
+        return any(_has_nul(k) or _has_nul(v) for k, v in value.items())
+    if isinstance(value, list):
+        return any(_has_nul(x) for x in value)
+    return False
 
 
 def _new_device(push, settings):
@@ -572,7 +586,8 @@ def wait(seconds):
 # ---- Wi-Fi -----------------------------------------------------------------
 
 def networks(settings):
-    # Return (ssid, password) pairs in order, without repeating the first network.
+    # Return (ssid, password) pairs in order, each pair once. One name with
+    # two passwords is two networks to try: only an identical pair is dropped.
     pairs = []
     primary = settings.get("ssid")
     if primary:
@@ -580,9 +595,9 @@ def networks(settings):
     for entry in settings.get("aps") or []:
         if not isinstance(entry, dict):
             continue
-        ssid = entry.get("ssid")
-        if ssid and ssid not in [name for name, _ in pairs]:
-            pairs.append((ssid, entry.get("pass") or ""))
+        pair = (entry.get("ssid"), entry.get("pass") or "")
+        if pair[0] and pair not in pairs:
+            pairs.append(pair)
     return pairs
 
 

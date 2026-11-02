@@ -169,10 +169,11 @@ def fits(name, value):
 
 
 def networks():
-    """(name, password) for each stored network, first network first."""
+    """(name, password) for each stored network, first network first, each
+    pair once: one name with two passwords is two networks to try."""
     pairs = [(config["ssid"], config.get("pass") or "")]
     for ap in config.get("aps") or []:
-        if ap["ssid"] not in [name for name, _ in pairs]:
+        if (ap["ssid"], ap.get("pass") or "") not in pairs:
             pairs.append((ap["ssid"], ap.get("pass") or ""))
     return pairs
 
@@ -261,13 +262,27 @@ def _handle(raw):
             machine.reset()
 
 
+def _has_nul(value):
+    """True when a name or a text anywhere in the parsed push holds a NUL."""
+    if isinstance(value, str):
+        return "\x00" in value
+    if isinstance(value, dict):
+        return any(_has_nul(k) or _has_nul(v) for k, v in value.items())
+    if isinstance(value, list):
+        return any(_has_nul(x) for x in value)
+    return False
+
+
 def _apply(body):
-    """Check a settings push and save it. Returns the CHIRP-PROV answer."""
+    """Check a settings push and save it. Returns the CHIRP-PROV answer. A NUL,
+    raw or sent as \\u0000, is bad-json wherever it is."""
+    if "\x00" in body:
+        return "err bad-json"
     try:
         push = json.loads(body)
     except ValueError:
         return "err bad-json"
-    if not isinstance(push, dict):
+    if not isinstance(push, dict) or _has_nul(push):
         return "err bad-json"
     # Open: no credential, no key, and no host but its own. Any field this
     # firmware does not use is refused by name (the first in A-Z order).

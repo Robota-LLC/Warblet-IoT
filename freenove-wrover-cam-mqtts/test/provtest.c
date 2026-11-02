@@ -261,19 +261,53 @@ static bool same_settings(const chirp_config_t *a, const chirp_config_t *b)
     return same;
 }
 
-/* Settings from a vector's "stored": taken as a push onto nothing. */
-static bool settings_from(const cJSON *stored, chirp_config_t *out)
+/* Settings from a vector's "stored" or "after", field by field, straight
+ * from the vector: never through the merge under test, so a merge bug cannot
+ * agree with itself. */
+static bool settings_from(const cJSON *v, chirp_config_t *out)
 {
     memset(out, 0, sizeof(*out));
-    if (cJSON_GetArraySize(stored) == 0) {
-        return true;
+    for (const cJSON *it = v->child; it != NULL; it = it->next) {
+        const char *k = it->string;
+        if (strcmp(k, "aps") == 0) {
+            const cJSON *ap = NULL;
+            cJSON_ArrayForEach(ap, it) {
+                const cJSON *s = cJSON_GetObjectItemCaseSensitive(ap, "ssid");
+                const cJSON *w = cJSON_GetObjectItemCaseSensitive(ap, "pass");
+                if (out->ap_count >= CHIRP_MAX_APS || !cJSON_IsString(s) || !cJSON_IsString(w)) {
+                    return false;
+                }
+                strlcpy(out->aps[out->ap_count].ssid, s->valuestring, sizeof(out->aps[0].ssid));
+                strlcpy(out->aps[out->ap_count].pass, w->valuestring, sizeof(out->aps[0].pass));
+                out->ap_count++;
+            }
+            continue;
+        }
+        if (!cJSON_IsString(it)) {
+            return false;
+        }
+        const char *s = it->valuestring;
+        size_t n = 0;
+        if (strcmp(k, "ssid") == 0) {
+            strlcpy(out->ssid, s, sizeof(out->ssid));
+        } else if (strcmp(k, "pass") == 0) {
+            strlcpy(out->pass, s, sizeof(out->pass));
+        } else if (strcmp(k, "token") == 0) {
+            strlcpy(out->cred, s, sizeof(out->cred));
+            out->cred_kind = CHIRP_CRED_TOKEN;
+        } else if (strcmp(k, "hwid") == 0) {
+            strlcpy(out->hwid, s, sizeof(out->hwid));
+        } else if (strcmp(k, "host") == 0) {
+            strlcpy(out->host, s, sizeof(out->host));
+        } else if (strcmp(k, "key") == 0 &&
+                   mbedtls_base64_decode(out->key, sizeof(out->key), &n, (const unsigned char *)s, strlen(s)) == 0 &&
+                   n == sizeof(out->key)) {
+            out->has_key = true;
+        } else {
+            return false;
+        }
     }
-    char *text = cJSON_PrintUnformatted(stored);
-    chirp_config_t none = {0};
-    char field[33];
-    const char *refused = merge_push(text, &none, out, field);
-    free(text);
-    return refused == NULL;
+    return true;
 }
 
 static char *read_file(const char *path)
@@ -326,9 +360,7 @@ static void test_vectors(const char *path)
         bool stores = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(v, "stores"));
         chirp_config_t stored, after, held;
         check(settings_from(cJSON_GetObjectItemCaseSensitive(v, "stored"), &stored), "the stored settings load", name);
-        check(settings_from(cJSON_GetObjectItemCaseSensitive(v, "after"), &after) ||
-                  cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(v, "after")) == 0,
-              "the settings after load", name);
+        check(settings_from(cJSON_GetObjectItemCaseSensitive(v, "after"), &after), "the settings after load", name);
 
         memset(&nvs, 0, sizeof(nvs));
         power_on();
@@ -569,6 +601,47 @@ static void test_line(void)
     check(s_len <= JUNK_KEPT, "stray bytes before CHIRP are not kept", NULL);
     check(strncmp(answer_to("\x5a\xa6" "CHIRP?\r\n"), "CHIRP! ", 7) == 0, "a probe after stray bytes is answered",
           said);
+
+    /* A raw NUL in a push: the line is refused whole and nothing is stored,
+     * even where the text before it is a whole push of its own. The vectors'
+     * raw NUL reaches this test cut short (cJSON's strings end at it), so it
+     * is fed here, byte by byte. */
+    static const char raw[] = "CHIRP+ {\"token\":\"tok-2\"}\0 and the rest\r\n";
+    memset(&nvs, 0, sizeof(nvs));
+    power_on();
+    check(chirp_store_save(&base) == ESP_OK, "the settings before save", NULL);
+    s_config = base;
+    said_len = 0;
+    said[0] = '\0';
+    for (size_t i = 0; i < sizeof(raw) - 1; i++) {
+        feed(raw[i], ++clock_ms);
+    }
+    chirp_config_t held;
+    chirp_store_load(&held);
+    check(strncmp(said, "CHIRP= err bad-json", 19) == 0 && same_settings(&held, &base),
+          "a raw NUL in a push: bad-json, and nothing stored", said);
+}
+
+static void test_networks(void)
+{
+    /* One name with two passwords is two networks to try, in order; only an
+     * identical pair is dropped. */
+    chirp_config_t c = {0};
+    strlcpy(c.ssid, "lab", sizeof(c.ssid));
+    strlcpy(c.pass, "old", sizeof(c.pass));
+    c.ap_count = 3;
+    strlcpy(c.aps[0].ssid, "lab", sizeof(c.aps[0].ssid));
+    strlcpy(c.aps[0].pass, "old", sizeof(c.aps[0].pass));
+    strlcpy(c.aps[1].ssid, "lab", sizeof(c.aps[1].ssid));
+    strlcpy(c.aps[1].pass, "new", sizeof(c.aps[1].pass));
+    strlcpy(c.aps[2].ssid, "lab", sizeof(c.aps[2].ssid));
+    strlcpy(c.aps[2].pass, "old", sizeof(c.aps[2].pass));
+    const char *s0 = NULL, *p0 = NULL, *s1 = NULL, *p1 = NULL, *s2 = NULL, *p2 = NULL;
+    bool first = chirp_config_network(&c, 0, &s0, &p0);
+    bool second = chirp_config_network(&c, 1, &s1, &p1);
+    bool third = chirp_config_network(&c, 2, &s2, &p2);
+    check(first && second && !third && strcmp(p0, "old") == 0 && strcmp(s1, "lab") == 0 && strcmp(p1, "new") == 0,
+          "one name with two passwords: both tried, the first password first, the repeat once", NULL);
 }
 
 int main(int argc, char **argv)
@@ -582,6 +655,7 @@ int main(int argc, char **argv)
     test_announce();
     test_store();
     test_line();
+    test_networks();
     printf("provtest: %d passed, %d failed\n", passes, fails);
     return fails ? 1 : 0;
 }

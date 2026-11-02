@@ -96,8 +96,9 @@ static int is_b64(char c)  { return is_alnum(c) || c == '+' || c == '/'; }
 /* A field name a refusal can carry on the line. */
 static int is_name(char c) { return is_alnum(c) || c == '_' || c == '.' || c == '-'; }
 
-/* A claim code or token is printable ASCII, so as many bytes as characters. */
-static int is_printable(char c) { return c >= 0x20 && c <= 0x7E; }
+/* A claim code or token is printable ASCII without the space, so as many
+ * bytes as characters, and never two fields of a space-separated frame. */
+static int is_printable(char c) { return c >= 0x21 && c <= 0x7E; }
 
 static int all(const char *s, int (*ok)(char))
 {
@@ -121,6 +122,20 @@ static int take_text(const js_val *v, char *dst, unsigned dstsz)
   dst[0] = '\0';
   return 0;
 }
+
+#if CHIRP_TAKES_WIFI
+/* A network's name or password into dst: it fits, and holds any character but
+ * NUL, which js_str_copy() refuses (CHIRP-PROV v1.8): a tab or another control
+ * character, sent escaped, is kept, and put_text() writes it back escaped. */
+static int take_net_text(const js_val *v, char *dst, unsigned dstsz)
+{
+  int n;
+
+  if (v->t == JS_STR && (n = js_str_copy(v, dst, dstsz)) >= 0 && (unsigned)n == text_len(dst)) { return 1; }
+  dst[0] = '\0';
+  return 0;
+}
+#endif
 
 /* Hex digits into dst: exactly want of them, or with want 0 an even number. */
 static int take_hex(const js_val *v, char *dst, unsigned dstsz, unsigned want)
@@ -175,10 +190,10 @@ static int take_networks(const js_val *list, settings *s)
     if (n == CHIRP_APS_MAX || entry.t != JS_OBJ) { return 0; }
     while ((r = js_obj_next(entry.p, entry.n, &at, &k, &v)) == 1) {
       if (field_name(&k, name) && text_eq(name, "ssid") && !got_ssid) {
-        got_ssid = take_text(&v, s->aps[n].ssid, sizeof s->aps[n].ssid) && s->aps[n].ssid[0] != '\0';
+        got_ssid = take_net_text(&v, s->aps[n].ssid, sizeof s->aps[n].ssid) && s->aps[n].ssid[0] != '\0';
         if (!got_ssid) { return 0; }
       } else if (field_name(&k, name) && text_eq(name, "pass") && !got_pass) {
-        got_pass = take_text(&v, s->aps[n].pass, sizeof s->aps[n].pass);
+        got_pass = take_net_text(&v, s->aps[n].pass, sizeof s->aps[n].pass);
         if (!got_pass) { return 0; }
       } else {
         return 0;                          /* anything else, or a name twice */
@@ -245,8 +260,9 @@ static const char *take_field(const char *name, const js_val *v, settings *s)
     return BAD;
   }
   if (text_eq(name, "hwid")) {
-    /* "" is no id: the board answers to its own. */
-    if (take_text(v, s->hwid, sizeof s->hwid) && all(s->hwid, is_id)) { return 0; }
+    /* "" is no id, so the result is incomplete, on this board with an id of
+     * its own too: the page puts a board back on that id by pushing it. */
+    if (take_text(v, s->hwid, sizeof s->hwid) && all(s->hwid, is_id)) { return s->hwid[0] != '\0' ? 0 : MISSING; }
     s->hwid[0] = '\0';
     return BAD;
   }
@@ -261,11 +277,11 @@ static const char *take_field(const char *name, const js_val *v, settings *s)
 #if CHIRP_TAKES_WIFI
   if (text_eq(name, "ssid")) {
     /* 1 to 32 bytes: an empty one names no network. */
-    if (take_text(v, s->ssid, sizeof s->ssid) && s->ssid[0] != '\0') { return 0; }
+    if (take_net_text(v, s->ssid, sizeof s->ssid) && s->ssid[0] != '\0') { return 0; }
     s->ssid[0] = '\0';
     return BAD;
   }
-  if (text_eq(name, "pass")) { return take_text(v, s->pass, sizeof s->pass) ? 0 : BAD; }
+  if (text_eq(name, "pass")) { return take_net_text(v, s->pass, sizeof s->pass) ? 0 : BAD; }
   if (text_eq(name, "aps"))  { return take_networks(v, s) ? 0 : BAD; }
 #endif
   return BAD;
@@ -390,14 +406,28 @@ static void put(writer *w, const char *s)
   }
 }
 
-/* A string, as JSON: in quotes, with a backslash before each " and \. Nothing
- * else needs one, since no control character gets this far. */
+/* A string, as JSON: in quotes, a backslash before each " and \, and a
+ * control character (only a network's name or password holds one) escaped,
+ * so the record reads back as it was. */
 static void put_text(writer *w, const char *s)
 {
+  static const char hex[] = "0123456789abcdef";
+
   put(w, "\"");
   for (; *s != '\0'; s++) {
-    char c[3] = { '\\', *s, '\0' };
-    put(w, (*s == '"' || *s == '\\') ? c : c + 1);
+    unsigned char b = (unsigned char)*s;
+    char          c[7] = { '\\', *s, '\0' };
+    if (b < 0x20u) {
+      const char *shortcut = b == '\b' ? "b" : b == '\f' ? "f" : b == '\n' ? "n" : b == '\r' ? "r" : b == '\t' ? "t" : 0;
+      if (shortcut != 0) {
+        c[1] = shortcut[0];
+      } else {
+        c[1] = 'u'; c[2] = '0'; c[3] = '0'; c[4] = hex[b >> 4]; c[5] = hex[b & 15u]; c[6] = '\0';
+      }
+      put(w, c);
+    } else {
+      put(w, (*s == '"' || *s == '\\') ? c : c + 1);
+    }
   }
   put(w, "\"");
 }

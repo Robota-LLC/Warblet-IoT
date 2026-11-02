@@ -481,7 +481,8 @@ static void test_rules(void)
   expect(NULL, "{\"host\":\"h\"}", "CHIRP= err missing-field", "no credential");
   expect(NULL, "{\"ssid\":\"s\",\"pass\":\"p\"}", "CHIRP= err missing-field", "networks without a credential");
   expect(NULL, "{\"key\":\"" KEY_A "\"}", "CHIRP= err missing-field", "a key without a credential");
-  expect(NULL, "{\"hwid\":\"\",\"token\":\"t\"}", "CHIRP= ok", "an empty id: the board's own");
+  expect(NULL, "{\"hwid\":\"\",\"token\":\"t\"}", "CHIRP= err missing-field",
+         "an empty id is no id: incomplete, on this board with an id of its own too");
 
   puts("\n--- the id ---");
   expect(T, "{\"hwid\":\"example-board-0000\"}", "CHIRP= ok", "a portal id");
@@ -536,8 +537,8 @@ static void test_rules(void)
     expect_held("{\"token\":\"T\",\"key\":\"" KEY_A "\"}", "{\"token\":\"T2\",\"hwid\":\"" DIE_ID "\"}",
                 "{\"token\":\"T2\",\"hwid\":\"" DIE_ID "\",\"key\":\"" KEY_A "\"}",
                 "the die id it already answers to keeps the key");
-    expect_held(signed_cfg, "{\"hwid\":\"\"}", "{\"token\":\"T\",\"key\":\"" KEY_A "\"}",
-                "an empty id starts nothing: the key stays (the contract's words)");
+    expect(signed_cfg, "{\"hwid\":\"\"}", "CHIRP= err missing-field",
+           "an empty id is missing-field: nothing changes, the id and the key stay");
   }
 
   puts("\n--- networks, kept unused ---");
@@ -975,6 +976,24 @@ static void test_line(void)
     check(count == 3, "CR, LF and CRLF each end a line, once", said);
   }
   check(strcmp(answer_to("CHIRP?  \t\r\n"), "") != 0, "trailing spaces after a probe are not part of it", first_line);
+
+  /* A raw NUL in a push, even after a whole push of its own: refused, and
+   * nothing stored. The line goes on by its length, so the JSON reader sees
+   * the NUL rather than a C string cut short at it. */
+  {
+    static const char raw[] = "CHIRP+ {\"token\":\"tok-2\"}\0 and the rest\r\n";
+    unsigned          len = 0u;
+    board_with("{\"token\":\"tok-1\"}");
+    said_len = 0u;
+    said[0] = '\0';
+    for (unsigned i = 0u; i < sizeof raw - 1u; i++) {
+      clock_ms++;
+      rx = (unsigned char)raw[i];
+      chirp_prov_poll(clock_ms);
+    }
+    check(strncmp(said, "CHIRP= err bad-json", 19) == 0 && strstr(cfg_json(&len), "tok-1") != NULL,
+          "a raw NUL in a push: bad-json, and nothing stored", said);
+  }
 }
 
 /* ---- no request without a credential ------------------------------------------------- */

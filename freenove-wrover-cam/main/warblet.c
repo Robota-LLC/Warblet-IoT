@@ -106,10 +106,14 @@ bool chirp_config_network(const chirp_config_t *config, size_t i, const char **s
         }
         seen = 1;
     }
+    /* Each (name, password) pair once: one name with two passwords is two
+     * networks to try (CHIRP-PROV v1.8). */
     for (size_t a = 0; a < config->ap_count; a++) {
-        bool repeat = config->ssid[0] != '\0' && strcmp(config->aps[a].ssid, config->ssid) == 0;
+        bool repeat = config->ssid[0] != '\0' && strcmp(config->aps[a].ssid, config->ssid) == 0 &&
+                      strcmp(config->aps[a].pass, config->pass) == 0;
         for (size_t b = 0; b < a && !repeat; b++) {
-            repeat = strcmp(config->aps[b].ssid, config->aps[a].ssid) == 0;
+            repeat = strcmp(config->aps[b].ssid, config->aps[a].ssid) == 0 &&
+                     strcmp(config->aps[b].pass, config->aps[a].pass) == 0;
         }
         if (repeat) {
             continue;
@@ -272,13 +276,15 @@ static bool nameable(const char *name)
 }
 
 /* A text value into a fixed field: a string that fits, with no control
- * character (these values reach request headers and the console). */
-static bool take_text(const cJSON *item, char *dst, size_t size)
+ * character (these values reach request headers and the console), or, for a
+ * network's name and password, any character but NUL, which merge_push()
+ * has already refused (CHIRP-PROV v1.8). */
+static bool take_text_any(const cJSON *item, char *dst, size_t size, bool controls)
 {
     if (!cJSON_IsString(item) || item->valuestring == NULL || strlen(item->valuestring) >= size) {
         return false;
     }
-    for (const unsigned char *c = (const unsigned char *)item->valuestring; *c != '\0'; c++) {
+    for (const unsigned char *c = (const unsigned char *)item->valuestring; *c != '\0' && !controls; c++) {
         if (*c < 0x20 || *c == 0x7f) {
             return false;
         }
@@ -287,11 +293,53 @@ static bool take_text(const cJSON *item, char *dst, size_t size)
     return true;
 }
 
+static bool take_text(const cJSON *item, char *dst, size_t size)
+{
+    return take_text_any(item, dst, size, false);
+}
+
+/* True when the JSON text holds a NUL as an escape (\u0000). A backslash
+ * escapes the one character after it, so "\\u0000", an escaped backslash
+ * and then u0000, is text, not a NUL. */
+static bool escaped_nul(const char *s)
+{
+    for (; *s != '\0'; s++) {
+        if (*s != '\\') {
+            continue;
+        }
+        if (*++s == '\0') {
+            return false;
+        }
+        if (*s == 'u' && strncmp(s + 1, "0000", 4) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* The key format, as written: exactly 44 characters, 43 of the standard
+ * base64 alphabet and one '='. Checked before decoding, since the decoder
+ * skips spaces and line breaks. */
+static bool key_text(const char *s)
+{
+    if (strlen(s) != 44 || s[43] != '=') {
+        return false;
+    }
+    for (size_t i = 0; i < 43; i++) {
+        char c = s[i];
+        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' ||
+              c == '/')) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /* A setup code or token: printable ASCII, so as many bytes as characters. */
 static bool printable_ascii(const char *s)
 {
     for (; *s != '\0'; s++) {
-        if (*s < 0x20 || *s > 0x7e) {
+        if (*s < 0x21 || *s > 0x7e) {  /* no space either (CHIRP-PROV v1.8) */
             return false;
         }
     }
@@ -338,9 +386,9 @@ static bool take_networks(const cJSON *list, chirp_config_t *out)
             return false;
         }
         chirp_ap_t *ap = &out->aps[out->ap_count];
-        if (!take_text(cJSON_GetObjectItemCaseSensitive(entry, "ssid"), ap->ssid, sizeof(ap->ssid)) ||
+        if (!take_text_any(cJSON_GetObjectItemCaseSensitive(entry, "ssid"), ap->ssid, sizeof(ap->ssid), true) ||
             ap->ssid[0] == '\0' ||
-            !take_text(cJSON_GetObjectItemCaseSensitive(entry, "pass"), ap->pass, sizeof(ap->pass))) {
+            !take_text_any(cJSON_GetObjectItemCaseSensitive(entry, "pass"), ap->pass, sizeof(ap->pass), true)) {
             return false;
         }
         out->ap_count++;
@@ -355,6 +403,11 @@ static const char *merge_push(const char *json, const chirp_config_t *stored, ch
                               char field[33])
 {
     field[0] = '\0';
+    /* A NUL anywhere, here sent as \u0000, is bad-json: the checks below read
+     * C strings, which would end there (a raw one never reaches this far). */
+    if (escaped_nul(json)) {
+        return "bad-json";
+    }
     cJSON *root = cJSON_ParseWithOpts(json, NULL, true);
     if (root == NULL || !cJSON_IsObject(root)) {
         cJSON_Delete(root);
@@ -392,10 +445,10 @@ static const char *merge_push(const char *json, const chirp_config_t *stored, ch
     for (const cJSON *it = root->child; it != NULL && good; it = it->next) {
         const char *k = it->string;
         if (strcmp(k, "ssid") == 0) {
-            good = take_text(it, out->ssid, sizeof(out->ssid)) && out->ssid[0] != '\0';
+            good = take_text_any(it, out->ssid, sizeof(out->ssid), true) && out->ssid[0] != '\0';
             pushed_ssid = true;
         } else if (strcmp(k, "pass") == 0) {
-            good = take_text(it, out->pass, sizeof(out->pass));
+            good = take_text_any(it, out->pass, sizeof(out->pass), true);
             pushed_pass = true;
         } else if (strcmp(k, "aps") == 0) {
             good = take_networks(it, out);
@@ -412,7 +465,7 @@ static const char *merge_push(const char *json, const chirp_config_t *stored, ch
         } else if (strcmp(k, "key") == 0) {
             /* A key that will sign, never "". */
             size_t len = 0;
-            good = cJSON_IsString(it) && it->valuestring != NULL && it->valuestring[0] != '\0' &&
+            good = cJSON_IsString(it) && it->valuestring != NULL && key_text(it->valuestring) &&
                    mbedtls_base64_decode(out->key, sizeof(out->key), &len,
                                          (const unsigned char *)it->valuestring,
                                          strlen(it->valuestring)) == 0 &&
@@ -506,6 +559,7 @@ static char    s_line[CHIRP_LINE_MAX + 1];
 static size_t  s_len;
 static bool    s_marked;   /* "CHIRP" has come: s_line starts there */
 static bool    s_skip;     /* the rest of a line that was too long: dropped to its end */
+static bool    s_nul;      /* a raw NUL came in this line: it is refused at its end */
 static int64_t s_last_ms;  /* when the last byte came */
 
 static void handle_line(char *line)
@@ -534,16 +588,24 @@ static void feed(char c, int64_t now_ms)
 {
     if (s_marked && !s_skip && now_ms - s_last_ms >= LINE_IDLE_MS) {
         s_len = 0;  /* the line stopped coming: it will not end now */
-        s_marked = false;
+        s_marked = s_nul = false;
     }
     s_last_ms = now_ms;
     if (c == '\r' || c == '\n') {  /* the portal sends CRLF; a bare LF is fine too */
         if (s_marked && !s_skip) {
             s_line[s_len] = '\0';
-            handle_line(s_line);
+            if (!s_nul) {
+                handle_line(s_line);
+            } else if (strncmp(s_line, "CHIRP+", 6) == 0) {
+                emit("CHIRP= err bad-json");  /* a raw NUL: no part of it is read */
+            }
         }
         s_len = 0;
-        s_marked = s_skip = false;
+        s_marked = s_skip = s_nul = false;
+        return;
+    }
+    if (c == '\0') {
+        s_nul = s_nul || s_marked;  /* a C string would end here: the line goes whole */
         return;
     }
     if (s_skip) {
