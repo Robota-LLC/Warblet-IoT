@@ -4,6 +4,7 @@
 
 #include "camera.h"
 
+#include "driver/gpio.h"
 #include "esp_camera.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -83,8 +84,20 @@ esp_err_t camera_init(void)
 
     esp_err_t err = esp_camera_init(&cfg);
     if (err == ESP_ERR_NOT_SUPPORTED) {
-        ESP_LOGW(TAG, "this sensor has no JPEG encoder — capturing RGB565 and "
-                      "encoding in software instead");
+        /* Expected on this board's GC0308, which has no JPEG encoder: the
+         * driver has just said so, and this is not a fault. */
+        ESP_LOGI(TAG, "this sensor has no JPEG encoder, as expected for the GC0308: "
+                      "capture goes on in RGB565, each frame encoded in software");
+        /* esp32-camera's failed start (esp_camera_deinit) leaves two things
+         * behind: the GPIO interrupt service it installed for VSYNC, of which
+         * it removes only its own handler, and XCLK's pin, still reserved by
+         * the LEDC channel it set up, which it only stops. Started again over
+         * them, the driver logs an error for the service and a warning for the
+         * pin. Nothing else in this image uses the GPIO interrupt service, so
+         * it is uninstalled here, and gpio_reset_pin() releases the pin's
+         * reservation; the second start installs and reserves both again. */
+        gpio_uninstall_isr_service();
+        gpio_reset_pin(cfg.pin_xclk);
         cfg.pixel_format = PIXFORMAT_RGB565;
         err = esp_camera_init(&cfg);
         s_soft_jpeg = (err == ESP_OK);
