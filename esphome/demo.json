@@ -42,13 +42,11 @@
           }
         ]
       }
-    ]
+    ],
+    "capabilities": {"v": 1, "auth": [1], "keyProvisioning": [], "otaKeyRotation": false, "otaFirmwareUpdate": false, "transports": ["https"]}
   },
   "provision": {
     "host": "https.warbletiot.com",
-    "commands": [],
-    "knobs": {
-      "level": {"max": 1}
-    }
+    "commands": []
   }
 }
