@@ -120,7 +120,7 @@ NVS stores Wi-Fi passwords, the device token and signing key unencrypted. USB ac
 | Problem | Check |
 |---|---|
 | No networks stored | Send Wi-Fi settings and a device credential. |
-| JPEG format unsupported at startup | The driver tries RGB565 and software JPEG; check whether the next camera initialization succeeds. |
+| `JPEG format is not supported` at startup | Expected on a GC0308. The next line confirms that capture continues in RGB565 with software JPEG encoding. |
 | Camera fails to initialize | USB setup stays available, but the board does not join Wi-Fi and appears offline in Warblet. The console repeats the reason once a minute. Power off, check the ribbon seating and PSRAM settings, then restart. |
 | Capture fails | Power off, check the ribbon seating, then restart. Check PSRAM settings too. |
 | Picture is mirrored | Check `CAM_HMIRROR` for software-encoded frames. |

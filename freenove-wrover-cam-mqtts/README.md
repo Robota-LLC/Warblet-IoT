@@ -137,7 +137,7 @@ NVS stores Wi-Fi passwords, the device token and signing key unencrypted. USB ac
 | Problem | Check |
 |---|---|
 | No networks stored | Send Wi-Fi settings and a device credential. |
-| JPEG format unsupported at startup | The driver tries RGB565 and software JPEG; check whether the next camera initialization succeeds. |
+| `JPEG format is not supported` at startup | Expected on a GC0308. The next line confirms that capture continues in RGB565 with software JPEG encoding. |
 | Capture fails | The next capture retries automatically. For repeated failures, check ribbon seating, power and PSRAM settings. |
 | Camera probe fails | Power off, check ribbon seating, power and PSRAM settings, then restart. |
 | Camera stalled | Networking continues, but the timed-out driver is isolated until restart. Power off and check the camera connection before restarting. |

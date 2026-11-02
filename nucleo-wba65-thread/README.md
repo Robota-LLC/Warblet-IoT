@@ -77,6 +77,8 @@ A push with `claim` or a changed `hwid` (including letter case) starts a new dev
 
 A setup line that stalls for 1.5 seconds is dropped without an answer. The following line is also discarded through its ending; if your next CLI command gets no response, send it again.
 
+A network changed through the CLI lasts only until restart. At startup, the board restores the network from the settings saved through USB setup.
+
 The same console accepts OpenThread commands such as `state`. A connected node has a role such as `child` or `router`. `dataset active -x` shows the network dataset, including private credentials; do not share its output.
 
 ## Data and commands
@@ -128,6 +130,6 @@ Thread encrypts the local radio link; the UDP route beyond it is unencrypted. Si
 | `missing-field` | A first push needs the network and credential. |
 | `CHIRP. input line dropped (overrun)` | Close competing serial tools and resend the whole line; no setup answer is sent. |
 | `CHIRP. input line dropped (too-long)` | Keep the line to 4096 bytes or fewer; no setup answer is sent. |
-| No serial answer | Use CN15 at 115200 baud. |
+| No serial answer | Use CN15 at 115200 baud. A CLI command sent during the first 1.5 seconds after restart is discarded; wait, then type it again. |
 | Stored key is unusable | Send a valid signing key; confirm acceptance on the device page. |
 | Reports sent but no reading appears | UDP has no delivery acknowledgement. Check the device ID, credential, and rejected-message count. |
