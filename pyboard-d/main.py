@@ -1,20 +1,19 @@
-# Pyboard D SF2W chip-temperature reports over HTTP.
+# Pyboard D SF2W chip-temperature reports over plain HTTP.
 import struct
 import time
 
 import machine
 import pyb
-import ubinascii
-import uhashlib
 
-import chirp_prov
-import chirp_send
+import warblet        # USB setup, Wi-Fi, the clock and signing
+import warblet_http   # enables reports over plain HTTP; keep this import
 
 INTERVAL_S = 30      # seconds between readings
 RESTART_AFTER_ERROR_S = 10  # pause before restarting after an unexpected error
 
-# Demo identifier included in the USB announce.
+# What the setup page sees: this demo, and the release its files last changed in.
 DEMO_SLUG = "demo-pyboard-d"
+DEMO_VERSION = "v1.6.0"
 
 # SF2W RGB LED channels: 1 red, 2 green, 3 blue.
 LED_OK = 2
@@ -59,17 +58,6 @@ def read_temperature_c(adc):
     return float(adc.read_core_temp())
 
 
-def suggest_hwid():
-    """Suggest a pybd-xxxxxx ID from a hash of the full chip UID.
-    The configured hardware ID is used for reports; this short hash can collide."""
-    try:
-        h = uhashlib.sha256()
-        h.update(machine.unique_id())
-        return "pybd-" + ubinascii.hexlify(h.digest()[:3]).decode()
-    except Exception:
-        return "pybd-unknown"
-
-
 def encode_temperature(celsius):
     """Encode signed tenths of Celsius in two big-endian bytes. Clamp values to
     the int16 range and keep decoder.star consistent."""
@@ -80,37 +68,21 @@ def encode_temperature(celsius):
 def main():
     ok_led = open_led(LED_OK)
     err_led = open_led(LED_ERR)
-    chirp_prov.set_slug(DEMO_SLUG)
-    config = chirp_prov.load()
-
-    # Wait for USB setup. A successful config push restarts the board.
-    if not chirp_prov.ready(config):
-        print("chirp: not provisioned -- waiting on USB, warbletiot.com/flash")
-        print("chirp: suggested hwid for this board:", suggest_hwid())
-        while True:
-            chirp_prov.service(config, 1)
-
-    print("chirp: reporting as", config["hwid"],
-          "signed" if config.get("key") else "token only")
+    warblet.demo(DEMO_SLUG, DEMO_VERSION)
+    warblet.begin()       # the first time, waits here for USB setup
 
     adc = open_sensor()
     while True:
-        if chirp_prov.connect_wifi(config):
-            try:
-                celsius = read_temperature_c(adc)
-                code = chirp_send.send(config, encode_temperature(celsius))
-                if 200 <= code < 300:
-                    print("chirp: sent {:.1f} C".format(celsius))
-                    blink(ok_led)
-                else:
-                    print("chirp: ingest replied", code)
-                    blink(err_led)
-            except Exception as e:
-                print("chirp: send failed:", e)
-                blink(err_led)
+        if warblet.connected():
+            celsius = read_temperature_c(adc)
+            if warblet.send(encode_temperature(celsius)):
+                print("chirp: sent {:.1f} C".format(celsius))
+                blink(ok_led)
+            else:
+                blink(err_led)   # the console has said why
 
-        # Handle USB setup commands between reports.
-        chirp_prov.service(config, INTERVAL_S)
+        # Handle USB setup between reports.
+        warblet.wait(INTERVAL_S)
 
 
 try:
