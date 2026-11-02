@@ -15,7 +15,15 @@
  *     echoed once, by board_serial.c;
  *   - bytes still in the UART at the takeover (or a byte still being shifted
  *     in, or bytes that come while the DMA channel is set up) are flushed or
- *     dropped as a tail: nothing echoed, no overrun notice, no answer.
+ *     dropped as a tail: nothing echoed, no overrun notice, no answer;
+ *   - a takeover with our DMA receive already running (OpenThread's reset
+ *     runs board_serial_begin() again) does the same;
+ *   - if either abort in the takeover fails, the console says serial input
+ *     is dead and no receive is started;
+ *   - a framing error in a line ends the DMA receive as the HAL does, the
+ *     line is dropped and said so, and the receive starts again.
+ * The UART is modelled from the HAL's source (echo_hal.c): one data
+ * register, sticky error flags, a byte being shifted in.
  * Run with make test, after make fetch. */
 
 #include <stdio.h>
@@ -44,7 +52,8 @@ static const char *during_setup = "";
 HAL_StatusTypeDef HAL_DMA_Init(DMA_HandleTypeDef *h)
 {
   (void)h;
-  uart_holds(during_setup, (unsigned)strlen(during_setup));
+  hal_dma_channel_init(&huart1);
+  wire_in(&huart1, during_setup, (unsigned)strlen(during_setup));
   during_setup = "";
   return HAL_OK;
 }
@@ -152,7 +161,9 @@ int main(void)
          "the tail of a push a restart cut, before the takeover: ST takes no byte, nothing is echoed");
 
   /* The control: ST's receive armed for each byte as the HAL arms it when
-   * nothing is in the way, so its own callback runs. */
+   * nothing is in the way, so its own callback runs. What the lines above
+   * left in the UART is flushed first. */
+  (void)HAL_UART_AbortReceive(&huart1);
   clear_seen();
   for (const char *c = "ab\r"; *c != '\0'; c++) {
     hal_arm_it(&huart1, &otUartRX);
@@ -199,31 +210,31 @@ int main(void)
      * probe after the idle limit is answered. */
     static const struct {
       const char *why, *waiting, *setup;
-      unsigned    leaves;
+      char        shifting;
     } cases[] = {
-      {"bytes waiting in the UART at the takeover are flushed; the rest is dropped as a tail",
-       "\"token\":\"tok-WAIT", "", 0u},
+      {"bytes waiting in the UART at the takeover, and the overrun they caused, are flushed; the rest is "
+       "dropped as a tail", "\"token\":\"tok-WAIT", "", 0},
       {"a byte still being shifted in at the flush reaches the DMA first, and is dropped as a tail",
-       "\"token\":\"tok-WAIT", "", 1u},
+       "\"token\":\"tok-WAIT", "", 'I'},
       {"bytes that come while the DMA channel is set up are flushed before it starts: no overrun notice",
-       "", "\"tok-WAIT", 0u},
+       "", "\"tok-WAIT", 0},
     };
     for (unsigned i = 0u; i < sizeof cases / sizeof cases[0]; i++) {
       unsigned before;
       hal_uart_reset(&huart1);
-      flush_leaves = cases[i].leaves;
       clear_seen();
       wire_in(&huart1, cases[i].waiting, (unsigned)strlen(cases[i].waiting));   /* no receive armed: held */
+      if (cases[i].shifting != 0) { wire_starts(&huart1, cases[i].shifting); }
       during_setup = cases[i].setup;
       before = chirp_lines;
       board_serial_begin(on_line);
-      hal_dma_takes_waiting(&huart1);
+      wire_lands(&huart1);
       run_tasks();
       tick += 300u;                                                             /* within the idle limit */
       wire_in(&huart1, "ING-4242\"}\r\n", 12u);
       run_tasks();
       expect(!shown("tok-WAITING-4242") && wire_out_len == 0u && cli_len == 0u && chirp_lines == before &&
-                 uart_waiting_bytes() == 0u,
+                 uart_holds_nothing(&huart1),
              cases[i].why);
       tick += BOARD_SERIAL_IDLE_MS;
       clear_seen();
@@ -231,7 +242,76 @@ int main(void)
       run_tasks();
       expect(chirp_lines == before + 1u, "  ... and a probe after the idle limit is read");
     }
-    flush_leaves = 0u;
+  }
+
+  puts("--- a takeover with our DMA receive running ---");
+  {
+    /* OpenThread's reset runs board_serial_begin() again while our receive
+     * runs and a push is arriving: part of it read, a byte being shifted in. */
+    unsigned before = chirp_lines;
+    expect(hal_dma_running(&huart1), "our DMA receive runs before the second takeover");
+    clear_seen();
+    wire_in(&huart1, "CHIRP+ {\"token\":\"tok-RUNN", 25u);
+    wire_starts(&huart1, 'I');
+    board_serial_begin(on_line);
+    wire_lands(&huart1);
+    run_tasks();
+    tick += 300u;
+    wire_in(&huart1, "NG-6060\"}\r\n", 11u);
+    run_tasks();
+    expect(hal_dma_running(&huart1) && !shown("tok-RUNNING-6060") && wire_out_len == 0u && cli_len == 0u &&
+               chirp_lines == before && uart_holds_nothing(&huart1),
+           "the takeover again: our receive stopped and started again, the push's rest dropped, nothing said");
+    tick += BOARD_SERIAL_IDLE_MS;
+    wire_in(&huart1, "CHIRP?\r\n", 8u);
+    run_tasks();
+    expect(chirp_lines == before + 1u, "  ... and a probe after the idle limit is read");
+
+    /* Either abort in the takeover failing (the HAL's DMA abort timed out):
+     * the console says input is dead, and no receive is started. The first
+     * fails with our receive running, as only it can; the second is forced. */
+    for (unsigned which = 1u; which <= 2u; which++) {
+      unsigned dead, starts = hal_dma_starts;
+      before = chirp_lines;
+      clear_seen();
+      abort_fails = which;
+      board_serial_begin(on_line);
+      run_tasks();
+      dead = count(wire_out, "serial input is dead");
+      tick += BOARD_SERIAL_IDLE_MS;
+      wire_in(&huart1, "CHIRP?\r\n", 8u);
+      run_tasks();
+      expect(dead == 1u && hal_dma_starts == starts && !hal_dma_running(&huart1) && chirp_lines == before,
+             which == 1u ? "the first abort fails, with our receive running: input said to be dead, no receive "
+                           "started, nothing read"
+                         : "the second abort fails: input said to be dead, no receive started, nothing read");
+      abort_fails = 0u;
+      hal_uart_reset(&huart1);
+      board_serial_begin(on_line);
+      tick += BOARD_SERIAL_IDLE_MS;
+      wire_in(&huart1, "CHIRP?\r\n", 8u);
+      run_tasks();
+    }
+  }
+
+  puts("--- a line error after the takeover ---");
+  {
+    /* Noise on the line: a byte lands with a framing error in the middle of
+     * a probe. In DMA mode that is a blocking error: the HAL ends the
+     * receive and aborts the channel before the error callback, which marks
+     * the line and starts the receive again. */
+    unsigned before = chirp_lines;
+    clear_seen();
+    tick += BOARD_SERIAL_IDLE_MS;
+    wire_in_bad(&huart1, "CHIRP?\r\n", 8u, 5u);
+    run_tasks();
+    expect(chirp_lines == before && count(wire_out, "input line dropped (overrun)") == 1u && cli_len == 0u &&
+               hal_dma_running(&huart1),
+           "a framing error in a probe: the line dropped and said so, not answered; the receive runs again");
+    tick += BOARD_SERIAL_IDLE_MS;
+    wire_in(&huart1, "CHIRP?\r\n", 8u);
+    run_tasks();
+    expect(chirp_lines == before + 1u, "  ... and the next probe is read");
   }
 
   printf("\nechotest: %d passed, %d failed\n", passes, fails);

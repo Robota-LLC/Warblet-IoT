@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-typedef enum { HAL_OK = 0, HAL_ERROR = 1, HAL_BUSY = 2 } HAL_StatusTypeDef;
+typedef enum { HAL_OK = 0, HAL_ERROR = 1, HAL_BUSY = 2, HAL_TIMEOUT = 3 } HAL_StatusTypeDef;
 typedef enum { HAL_UART_STATE_RESET = 0x00, HAL_UART_STATE_READY = 0x20, HAL_UART_STATE_BUSY_RX = 0x22 } HAL_UART_StateTypeDef;
 #define HAL_UART_ERROR_NONE 0u
 

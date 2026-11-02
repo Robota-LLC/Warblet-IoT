@@ -383,8 +383,13 @@ void board_serial_begin(void (*on_chirp_line)(char *line, unsigned len))
   /* Stop any receive before the DMA channel is set up: ST's is never armed
    * (see __wrap_HAL_UART_Receive_IT), but ours is running when OpenThread's
    * reset runs this again. Receive is DMA from here, which is immune to
-   * radio-interrupt latency. */
-  (void)HAL_UART_AbortReceive(oTCLIuart);
+   * radio-interrupt latency. An abort that fails (its DMA abort timed out)
+   * returns with the receive as it was: input is dead, so say so and start
+   * nothing. */
+  if (HAL_UART_AbortReceive(oTCLIuart) != HAL_OK) {
+    board_serial_print("CHIRP. rx dma start failed; serial input is dead\r\n");
+    return;
+  }
 
   /* Mirrors ST's USART1_TX channel setup in stm32wbaxx_hal_msp.c, direction reversed. */
   s_rx_dma.Instance                   = GPDMA1_Channel7;
@@ -422,9 +427,10 @@ void board_serial_begin(void (*on_chirp_line)(char *line, unsigned len))
    * clears the idle flag itself. Done last, so bytes that came while the
    * channel was set up go too, with any overrun they caused. A byte still
    * being shifted in arrives after it: the first byte after the start, it is
-   * a tail and dropped through its line ending (rx_task()). */
-  (void)HAL_UART_AbortReceive(oTCLIuart);
-  if (HAL_UARTEx_ReceiveToIdle_DMA(oTCLIuart, s_dma_buf, sizeof s_dma_buf) != HAL_OK) {
+   * a tail and dropped through its line ending (rx_task()). An abort that
+   * fails is a start that fails: nothing is started. */
+  if (HAL_UART_AbortReceive(oTCLIuart) != HAL_OK ||
+      HAL_UARTEx_ReceiveToIdle_DMA(oTCLIuart, s_dma_buf, sizeof s_dma_buf) != HAL_OK) {
     board_serial_print("CHIRP. rx dma start failed; serial input is dead\r\n");
   }
 }
