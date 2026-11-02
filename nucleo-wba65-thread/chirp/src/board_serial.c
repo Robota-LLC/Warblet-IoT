@@ -57,7 +57,7 @@ static char        s_line[BOARD_SERIAL_LINE_MAX + 3u];
 static unsigned    s_line_len;
 static const char *s_line_bad;      /* NULL, or why this line is a write-off */
 static int         s_line_dropped;  /* it follows a setup line given up on a pause */
-static int         s_starting;      /* since board_serial_begin(), no pause and no line ending yet */
+static int         s_starting;      /* since board_serial_begin(), no byte yet */
 
 /* Interrupt -> task ring. head is interrupt-owned, tail is task-owned. */
 static volatile uint16_t s_ring[RX_RING];
@@ -182,7 +182,6 @@ static void dispatch_line(void)
   s_line_len     = 0u;
   s_line_bad     = NULL;
   s_line_dropped = 0;
-  s_starting     = 0;                   /* the line in progress at the start has ended */
 
   if (bad != NULL) {
     /* A damaged line is not dispatched, and no part of it is read as a
@@ -223,15 +222,20 @@ static void rx_task(void)
 
     s_ring_tail = (next == RX_RING) ? 0u : next;
 
-    /* The idle limit passed with nothing received since board_serial_begin():
-     * whatever was arriving across the restart has stopped, and the console
-     * is in its ordinary state, so a person's first command reaches the CLI. */
-    if (s_starting && (e & RX_PAUSED) != 0u) {
-      s_starting     = 0;
-      s_line_len     = 0u;
-      s_line_bad     = NULL;
-      s_line_dropped = 0;
-      e &= (uint16_t)~RX_PAUSED;
+    /* The first byte after board_serial_begin() decides, whatever it is. If
+     * the idle limit passed before it with nothing received, whatever was
+     * arriving across the restart has stopped, and the console is in its
+     * ordinary state, so a person's first command reaches the CLI. If not,
+     * it is the tail of that, and stays dropped: a later pause inside it
+     * follows the ordinary rule below. */
+    if (s_starting) {
+      s_starting = 0;
+      if ((e & RX_PAUSED) != 0u) {
+        s_line_len     = 0u;
+        s_line_bad     = NULL;
+        s_line_dropped = 0;
+        e &= (uint16_t)~RX_PAUSED;
+      }
     }
 
     /* A setup line whose bytes stopped will not end now: it is given up
@@ -345,14 +349,16 @@ void board_serial_begin(void (*on_chirp_line)(char *line, unsigned len))
 
   /* A start is a pause inside a line whose beginning was not seen: the board
    * may have restarted, or not been reading, while a push was arriving, and
-   * the host keeps sending its pieces. Bytes that come before the idle limit
-   * has passed with nothing arriving are the tail of whatever was arriving:
-   * dropped through their line ending, not echoed, not handed to the CLI, no
-   * answer. A line that starts with CHIRP is served as usual, so a fresh
-   * probe is answered at once. Once the idle limit passes with nothing
-   * received, the console is in its ordinary state. So a command a person
-   * types within the idle limit of a restart is dropped with the tail it
-   * cannot be told from; one typed after it reaches the CLI. */
+   * the host keeps sending its pieces. The first byte after the start
+   * decides. If it comes before the idle limit has passed, it and what
+   * follows are the tail of whatever was arriving: dropped through their
+   * line ending, not echoed, not handed to the CLI, no answer, and a pause
+   * inside the tail drops its rest the same way, by the ordinary rule. A
+   * line that starts with CHIRP is served as usual, so a fresh probe is
+   * answered at once. If the idle limit passes first, the console is in its
+   * ordinary state. So a command a person types within the idle limit of a
+   * restart is dropped with the tail it cannot be told from; one typed after
+   * it reaches the CLI. */
   s_line_dropped = 1;
   s_starting     = 1;
   s_rx_last_ms   = HAL_GetTick();

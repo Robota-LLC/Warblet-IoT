@@ -420,8 +420,8 @@ static void test_restart(void)
 {
   static const char push[] = "CHIRP+ {\"token\":\"tok-RESTART-SECRET-77\"}\r\n";
   const unsigned n = (unsigned)sizeof push - 1u;
-  unsigned k, bad = 0u, first_bad = 0u;
-  char why[200];
+  unsigned k, j, bad = 0u, first_bad = 0u, cases = 0u, first_split = 0u;
+  char why[240];
 
   puts("--- a push cut by a restart ---");
   for (k = 1u; k < n; k++) {
@@ -438,6 +438,31 @@ static void test_restart(void)
   }
   snprintf(why, sizeof why, "a push split at each of its %u positions across a restart, its tail within the idle "
            "limit: nothing to ot-cli, nothing echoed, no answer (%u wrong, the first at byte %u)", n - 1u, bad, first_bad);
+  expect(bad == 0u, why);
+
+  /* The tail in two pieces, the page stalling past the idle limit between
+   * them: the first byte after the start made it a tail, and a pause inside
+   * it follows the ordinary rule, dropped through its line ending. */
+  bad = first_bad = 0u;
+  for (k = 1u; k < n; k++) {
+    for (j = 1u; j < n - k; j++) {
+      restart_with(push, k);
+      tick += 300u;
+      reset_seen();
+      receive(push + k, j);
+      tick += BOARD_SERIAL_IDLE_MS;
+      receive(push + k + j, n - k - j);
+      arcUartProcess();
+      st_wire[st_wire_len] = '\0';
+      cases++;
+      if (cli_len != 0u || chirp_lines != 0u || st_wire_len != 0u || leaks("RESTART-SECRET-77")) {
+        if (bad++ == 0u) { first_bad = k; first_split = j; }
+      }
+    }
+  }
+  snprintf(why, sizeof why, "a push cut by a restart, its tail in two pieces with a pause past the idle limit "
+           "between, at every split: nothing to ot-cli, nothing echoed, no answer (%u of %u wrong, the first "
+           "cut at byte %u, the tail split at %u)", bad, cases, first_bad, first_split);
   expect(bad == 0u, why);
 
   /* After the tail: a probe is answered, and a command sent once the idle
