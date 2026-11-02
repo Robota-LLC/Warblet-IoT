@@ -229,33 +229,38 @@ $(BUILD)/%.o: %.s
 # ST never receives on the CLI UART, so it never echoes: the wrap above
 # refuses the one call ST's uart.c arms its receive with. This fails the build
 # if that stops holding:
-#   - an ST source the receive audit read has changed (its sha256 in
-#     tools/st_receive_audit.sha256): a register write or an inlined LL call
-#     leaves no symbol, so a changed source is audited again, by a person,
-#     before its new hash goes in that file;
+#   - a file make fetch placed that the image is built from is not the one
+#     the receive audit read: every ST source compiled (the startup file
+#     too), the three archives, and every ST header the compiler opened, for
+#     ST's objects and ours (the .d files list them), each pinned by sha256
+#     in tools/st_receive_audit.sha256 (tools/st_audit.sh). A register write
+#     or an inlined LL call leaves no symbol, so a changed, missing or
+#     unlisted file fails until a person has audited it again and run
+#     make st-audit-write;
 #   - ST's uart.o no longer arms its receive through that call;
 #   - an object or library other than board_serial.o and the HAL's own UART
-#     files (where these calls live and call each other; pinned above)
-#     reaches the UART's receive by any other call.
+#     files (where these calls live and call each other; what they compile
+#     from is pinned above) reaches the UART's receive by any other call.
 ST_AUDIT  := tools/st_receive_audit.sha256
-SHA256SUM ?= $(if $(shell command -v sha256sum 2>/dev/null),sha256sum,shasum -a 256)
+ST_SRCS   := $(filter-out chirp/%,$(SRCS) $(ASRCS))
 ST_UART_O := $(BUILD)/Middlewares/ST/STM32_WPAN/thread/openthread/platform/uart.o
 RX_OWN    := $(BUILD)/chirp/src/board_serial.o $(BUILD)/Drivers/STM32WBAxx_HAL_Driver/Src/stm32wbaxx_hal_uart.o \
              $(BUILD)/Drivers/STM32WBAxx_HAL_Driver/Src/stm32wbaxx_hal_uart_ex.o
 RX_OTHER  := HAL_UART_Receive|HAL_UART_Receive_DMA|HAL_UARTEx_ReceiveToIdle|HAL_UARTEx_ReceiveToIdle_IT|HAL_UARTEx_ReceiveToIdle_DMA|UART_Start_Receive_IT|UART_Start_Receive_DMA
-$(BUILD)/st_receive.ok: $(OBJS) $(LIBS) $(ST_AUDIT) $(shell sed 's/^[0-9a-f]*  //' $(ST_AUDIT))
-	@changed=$$($(SHA256SUM) -c $(ST_AUDIT) 2>&1 | grep -v ': OK$$'); \
-	  if [ -n "$$changed" ]; then \
-	    echo "ST sources changed since the CLI UART receive audit:"; echo "$$changed"; \
-	    echo "Audit each again (does anything arm a receive on the CLI UART, by a HAL call, a register write or LL, or echo what it receives?), then put its new sha256 in $(ST_AUDIT)."; \
-	    exit 1; \
-	  fi
+$(BUILD)/st_receive.ok: $(OBJS) $(LIBS) $(ST_AUDIT) tools/st_audit.sh
+	@sh tools/st_audit.sh check $(ST_AUDIT) -- $(ST_SRCS) $(LIBS) -- $(DEPS)
 	@$(NM) -u $(ST_UART_O) | grep -qE ' U HAL_UART_Receive_IT$$' || \
 	  { echo "ST's uart.o no longer arms its receive with HAL_UART_Receive_IT, which the wrap refuses: ST could echo what it receives"; exit 1; }
 	@other=$$($(NM) -u -A $(filter-out $(RX_OWN),$(OBJS)) $(LIBS) 2>/dev/null | grep -E ' U ($(RX_OTHER))$$'); \
 	  if [ -n "$$other" ]; then echo "the UART's receive is reached by a call the wrap does not refuse:"; echo "$$other"; exit 1; fi
 	@echo "  OK   ST's receive on the CLI UART is never armed"
 	@touch $@
+
+# Only after a person has audited what changed: the ST files this image is
+# built from, each with its sha256, into tools/st_receive_audit.sha256.
+.PHONY: st-audit-write
+st-audit-write: $(OBJS)
+	@sh tools/st_audit.sh write $(ST_AUDIT) -- $(ST_SRCS) $(LIBS) -- $(DEPS)
 
 $(BUILD)/$(TARGET).elf: $(OBJS) $(LDSCRIPT) $(BUILD)/st_receive.ok
 	@echo "  LD   $@"
