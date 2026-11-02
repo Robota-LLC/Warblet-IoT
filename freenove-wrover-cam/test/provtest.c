@@ -928,6 +928,24 @@ static void test_reader(void)
     check(strncmp(said, "CHIRP! ", 7) == 0 && strstr(said, "CHIRP= ") == NULL,
           "a probe right after a push that stopped for 1.6 s gets the announce and no bad-json", said);
 
+    /* A line over the limit, no line ending, then its bytes stop: a pause gives
+     * it up too (CHIRP-PROV v1.8), so the first probe after it is answered. */
+    {
+        static char over[CHIRP_LINE_MAX + 200];
+        size_t m = (size_t)snprintf(over, sizeof(over), "CHIRP+ {\"token\":\"");
+        memset(over + m, 't', sizeof(over) - m - 1);
+        over[sizeof(over) - 1] = '\0';
+        start_with(&base);
+        said_len = 0;
+        said[0] = '\0';
+        wire_send(over, strlen(over), 64, 30);
+        wire_pause(1600);
+        wire_send("CHIRP?\r\n", 8, 64, 30);
+        run_reader();
+        check(strncmp(said, "CHIRP! ", 7) == 0 && strstr(said, "CHIRP= ") == NULL,
+              "the first probe after a line over the limit stopped for 1.6 s gets the announce", said);
+    }
+
     /* A flood, all there at once: taken at most READ_BATCH bytes before the
      * other tasks run, and the probe behind it is answered. */
     static char flood[4096];

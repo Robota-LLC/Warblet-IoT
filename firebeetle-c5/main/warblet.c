@@ -580,12 +580,14 @@ static void handle_line(char *line)
 /* One byte off the console. A line counts from its first "CHIRP": stray bytes
  * in front are dropped and do not spoil it. A line longer than CHIRP_LINE_MAX
  * from there is thrown away whole, through its line ending, so no part of it
- * is read as a command. A line whose bytes stop for LINE_IDLE_MS is given up. */
+ * is read as a command. A line whose bytes stop for LINE_IDLE_MS is given up,
+ * over the limit or not (CHIRP-PROV v1.8): the byte after the pause starts
+ * afresh, so a probe sent after a stalled line is answered. */
 static void feed(char c, int64_t now_ms)
 {
-    if (s_marked && !s_skip && now_ms - s_last_ms >= LINE_IDLE_MS) {
+    if ((s_marked || s_skip) && now_ms - s_last_ms >= LINE_IDLE_MS) {
         s_len = 0;  /* the line stopped coming: it will not end now */
-        s_marked = s_nul = false;
+        s_marked = s_skip = s_nul = false;
     }
     s_last_ms = now_ms;
     if (c == '\r' || c == '\n') {  /* the portal sends CRLF; a bare LF is fine too */
