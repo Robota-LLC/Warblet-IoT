@@ -386,14 +386,34 @@ static int64_t wire_at[WIRE_MAX];
 static size_t  wire_len, wire_pos;
 static int64_t wire_next;  /* when the next piece sent arrives */
 
-/* The console driver's receive ring, as ESP-IDF's driver keeps it: what comes
- * in goes into the ring main.c sized, one USB packet (up to 64 bytes) at a
- * time, and a packet that does not fit is dropped. 0 before a driver is
- * installed: then nothing is dropped. */
+/* The console driver's receive ring, as ESP-IDF's drivers keep it, in the
+ * size main.c gave (0 before a driver is installed: then nothing is lost).
+ *   USB-Serial-JTAG (usb_serial_jtag.c, the receive interrupt): each USB packet,
+ *   up to 64 bytes that came at once, goes into the ring, and a packet that
+ *   does not fit is dropped.
+ *   UART (uart.c): bytes come at the line's pace into the 128-byte hardware
+ *   FIFO; at 120 of them, or when the line goes quiet, the interrupt moves
+ *   the FIFO's bytes into the ring. A batch that does not fit is stashed and
+ *   the receive interrupts are turned off; each read tries the stash again
+ *   (uart_check_buf_full) and turns them back on once it fits. Nothing is lost
+ *   until the FIFO overflows while they are off: then the driver resets the
+ *   FIFO, and its bytes, with the one that overflowed it, are gone. */
 static size_t console_rx_size;
+static bool   console_uart;         /* the UART driver, not USB-Serial-JTAG */
 static size_t wire_seen;            /* bytes the driver has dealt with: kept or dropped */
 static size_t ring_fill;            /* kept, and not read yet */
-static bool   wire_lost[WIRE_MAX];  /* dropped: the ring was full */
+static bool   wire_lost[WIRE_MAX];  /* dropped: the ring or the FIFO was full */
+
+#define UART_FIFO        128
+#define UART_FULL_THRESH 120
+#define UART_BYTE_US     87           /* 10 bits at 115200 baud */
+static size_t  uart_ring_end;         /* bytes before this are in the ring (or lost) */
+static size_t  uart_stash_end;        /* [uart_ring_end, uart_stash_end): the stash */
+static size_t  uart_fifo_start;       /* [uart_fifo_start, wire_seen): the FIFO */
+static bool    uart_full;             /* a stash is held; receive interrupts are off */
+static int64_t uart_line_us;          /* when the last byte finished arriving */
+static unsigned uart_stashes, uart_overflows;
+static int64_t reader_stall_ms;       /* the reader's next delay lasts this much longer */
 
 /* Sends n bytes in pieces of `piece`, gap_ms apart, after what was sent
  * before. */
@@ -401,6 +421,9 @@ static void wire_send(const char *bytes, size_t n, size_t piece, int gap_ms)
 {
     if (wire_pos == wire_len) {
         wire_pos = wire_len = wire_seen = ring_fill = 0;
+        uart_ring_end = uart_stash_end = uart_fifo_start = 0;
+        uart_full = false;
+        uart_line_us = -1000000;
     }
     int64_t at = wire_next > clock_ms ? wire_next : clock_ms;
     for (size_t i = 0; i < n && wire_len < WIRE_MAX; i++) {
@@ -433,8 +456,82 @@ static bool    in_reader;
 
 /* What has come in by now, into the ring in packets, as the driver's interrupt
  * puts it there: bytes that came at the same moment, up to 64 to a packet. */
+static size_t kept_between(size_t from, size_t to)
+{
+    size_t n = 0;
+    for (size_t i = from; i < to; i++) {
+        n += !wire_lost[i];
+    }
+    return n;
+}
+
+/* The UART interrupt: the FIFO's bytes into the ring, or into the stash. */
+static void uart_isr_move(void)
+{
+    size_t n = wire_seen - uart_fifo_start;
+    if (n == 0 || uart_full) {
+        return;
+    }
+    if (ring_fill + n <= console_rx_size) {
+        ring_fill += n;
+        uart_ring_end = uart_stash_end = uart_fifo_start = wire_seen;
+    } else {
+        uart_stash_end = uart_fifo_start = wire_seen;
+        uart_full = true;
+        uart_stashes++;
+    }
+}
+
+/* uart_check_buf_full(), after a read: the stash into the ring once it fits,
+ * the interrupts on again, and the FIFO moved at once. */
+static void uart_check_buf_full(void)
+{
+    size_t n = kept_between(uart_ring_end, uart_stash_end);
+    if (uart_full && ring_fill + n <= console_rx_size) {
+        ring_fill += n;
+        uart_ring_end = uart_stash_end;
+        uart_full = false;
+        uart_isr_move();
+    }
+}
+
+static void uart_takes_in(void)
+{
+    int64_t now_us = clock_ms * 1000;
+    while (wire_seen < wire_len) {
+        int64_t at = wire_at[wire_seen] * 1000;
+        if (at < uart_line_us + UART_BYTE_US) {
+            at = uart_line_us + UART_BYTE_US;       /* the line's own pace */
+        }
+        if (at > now_us) {
+            break;
+        }
+        uart_line_us = at;
+        wire_lost[wire_seen] = false;
+        wire_seen++;
+        if (wire_seen - uart_fifo_start > UART_FIFO) {
+            /* Overflow with the interrupts off: the FIFO is reset. */
+            for (size_t i = uart_fifo_start; i < wire_seen; i++) {
+                wire_lost[i] = true;
+            }
+            uart_fifo_start = wire_seen;
+            uart_overflows++;
+        } else if (wire_seen - uart_fifo_start >= UART_FULL_THRESH) {
+            uart_isr_move();
+        }
+    }
+    /* The line went quiet (the receive timeout): what the FIFO holds moves. */
+    if (wire_seen == wire_len || wire_at[wire_seen] * 1000 > now_us) {
+        uart_isr_move();
+    }
+}
+
 static void driver_takes_in(void)
 {
+    if (console_uart && console_rx_size != 0) {
+        uart_takes_in();
+        return;
+    }
     while (wire_seen < wire_len && wire_at[wire_seen] <= clock_ms) {
         size_t n = 0;
         while (n < 64 && wire_seen + n < wire_len && wire_at[wire_seen + n] == wire_at[wire_seen]) {
@@ -474,13 +571,20 @@ static int console_take(void *buf, uint32_t length, TickType_t ticks)
     driver_takes_in();
     size_t most = READ_PIECES[read_count++ % (sizeof(READ_PIECES) / sizeof(READ_PIECES[0]))];
     size_t n = 0;
-    while (n < length && n < most && wire_pos < wire_seen) {
+    size_t readable = console_uart && console_rx_size != 0 ? uart_ring_end : wire_seen;
+    while (n < length && n < most && wire_pos < readable) {
         if (wire_lost[wire_pos]) {
             wire_pos++;
             continue;
         }
         ((char *)buf)[n++] = wire[wire_pos++];
         ring_fill--;
+    }
+    while (wire_pos < readable && wire_lost[wire_pos]) {
+        wire_pos++;
+    }
+    if (console_uart && console_rx_size != 0) {
+        uart_check_buf_full();
     }
     since_yield += n;
     if (since_yield > most_between_yields) {
@@ -492,6 +596,7 @@ static int console_take(void *buf, uint32_t length, TickType_t ticks)
 esp_err_t usb_serial_jtag_driver_install(usb_serial_jtag_driver_config_t *config)
 {
     console_driver = "USB-Serial-JTAG";
+    console_uart = false;
     console_rx_size = (size_t)config->rx_buffer_size;
     return ESP_OK;
 }
@@ -503,6 +608,7 @@ esp_err_t uart_driver_install(uart_port_t uart_num, int rx_buffer_size, int tx_b
                               void *uart_queue, int intr_alloc_flags)
 {
     console_driver = "UART";
+    console_uart = true;
     console_rx_size = (size_t)rx_buffer_size;
     return ESP_OK;
 }
@@ -516,7 +622,8 @@ int uart_read_bytes(uart_port_t uart_num, void *buf, uint32_t length, TickType_t
  * the run ends. */
 void vTaskDelay(TickType_t ticks)
 {
-    clock_ms += ticks;
+    clock_ms += ticks + reader_stall_ms;   /* a stall: other tasks kept the reader off */
+    reader_stall_ms = 0;
     since_yield = 0;
     if (in_reader && wire_pos == wire_len && clock_ms >= (wire_len ? wire_at[wire_len - 1] : 0) + 3000) {
         longjmp(reader_stop, 1);
@@ -866,6 +973,62 @@ static void test_reader(void)
     check(n > 3000 && strncmp(said, "CHIRP= ok", 9) == 0 && held.ap_count == CHIRP_MAX_APS &&
               strcmp(held.hwid, "board-at-once") == 0,
           "a 3 KB push sent in one write lands whole", detail);
+
+    if (!console_uart) {
+        return;
+    }
+    /* The UART driver's own way with a full ring (uart.c): the stash, and an
+     * overflow of the hardware FIFO while the receive interrupts are off. */
+    static char burst[6000 + 16];
+
+    /* 5,200 bytes with the reader kept off for 0.7 s: the ring fills, the next
+     * batch is stashed, the FIFO holds the rest. The reader comes back, the
+     * stash goes in, and nothing is lost: the probe behind is answered. */
+    memset(burst, 'z', 5200);
+    memcpy(burst + 5200, "\r\nCHIRP?\r\n", 10);
+    start_with(&base);
+    said_len = 0;
+    said[0] = '\0';
+    uart_stashes = uart_overflows = 0;
+    wire_send(burst, 5210, 5210, 0);
+    reader_stall_ms = 700;
+    run_reader();
+    snprintf(detail, sizeof(detail), "%u stashed, %u overflows: %s", uart_stashes, uart_overflows, said_len ? said : "no answer");
+    check(uart_stashes >= 1 && uart_overflows == 0 && strncmp(said, "CHIRP! ", 7) == 0,
+          "UART: a full ring stashes a batch and takes it once the reader is back; nothing is lost", detail);
+
+    /* More than the ring, the stash and the FIFO hold (5,368 bytes) with the
+     * reader kept off: the FIFO overflows and is reset, bytes are lost. What
+     * is lost is a line over the limit, dropped anyway; the probe behind it
+     * is answered. A host sends one line and waits for its answer, and no
+     * legal line comes near 5,368 bytes, so this takes more than the contract
+     * lets a host send. */
+    memset(burst, 'z', 6000);
+    memcpy(burst + 6000, "\r\nCHIRP?\r\n", 10);
+    start_with(&base);
+    said_len = 0;
+    said[0] = '\0';
+    uart_stashes = uart_overflows = 0;
+    wire_send(burst, 6010, 6010, 0);
+    reader_stall_ms = 1000;
+    run_reader();
+    snprintf(detail, sizeof(detail), "%u stashed, %u overflows: %s", uart_stashes, uart_overflows, said_len ? said : "no answer");
+    check(uart_overflows >= 1 && strncmp(said, "CHIRP! ", 7) == 0 && strstr(said, "CHIRP= ") == NULL,
+          "UART: a FIFO overflow loses bytes of the burst only; the probe after it is answered", detail);
+
+    /* The longest legal push sent at once, the reader kept off for a whole
+     * second: the ring holds it, and it lands whole. */
+    start_with(&base);
+    said_len = 0;
+    said[0] = '\0';
+    uart_stashes = uart_overflows = 0;
+    wire_send(at_once, n, n, 0);
+    reader_stall_ms = 1000;
+    run_reader();
+    chirp_store_load(&held);
+    snprintf(detail, sizeof(detail), "%u stashed, %u overflows: %s", uart_stashes, uart_overflows, said_len ? said : "no answer");
+    check(uart_overflows == 0 && strncmp(said, "CHIRP= ok", 9) == 0 && held.ap_count == CHIRP_MAX_APS,
+          "UART: the longest push at once, the reader a second late, lands whole", detail);
 }
 
 static void test_vectors(const char *path)
