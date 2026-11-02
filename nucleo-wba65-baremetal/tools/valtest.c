@@ -671,15 +671,16 @@ static void test_rules(void)
 
   puts("\n--- the longest record ---");
   {
-    /* Every value at its bound, every byte of text one that needs an escape. */
+    /* Every value at its bound, every byte of text one that needs an escape:
+     * network i's name is i backslashes and then 32 - i quotes. */
     char *p = big;
     int   i;
     unsigned n = 0u;
     p += sprintf(p, "{\"aps\":[");
     for (i = 0; i < 8; i++) {
       p += sprintf(p, "%s{\"ssid\":\"", i ? "," : "");
-      for (int k = 0; k < 31; k++) { p += sprintf(p, "\\\""); }
-      p += sprintf(p, "%d\",\"pass\":\"", i);
+      for (int k = 0; k < 32; k++) { p += sprintf(p, k < i ? "\\\\" : "\\\""); }
+      p += sprintf(p, "\",\"pass\":\"");
       for (int k = 0; k < 64; k++) { p += sprintf(p, "\\\\"); }
       p += sprintf(p, "\"}");
     }
@@ -699,7 +700,9 @@ static void test_rules(void)
            n, (unsigned)CHIRP_RECORD_MAX, (unsigned)CFG_MAX_PAYLOAD);
     check(n > 0u && n <= CHIRP_RECORD_MAX && CHIRP_RECORD_MAX <= CFG_MAX_PAYLOAD,
           "  ... and fits CHIRP_RECORD_MAX, which fits the store", NULL);
-    check(n + 16u > CHIRP_RECORD_MAX, "  ... and CHIRP_RECORD_MAX is within 16 bytes of it", NULL);
+    /* The bound counts a comma before every member and after every network;
+     * the first member and the last network have none. */
+    check(n + 2u == CHIRP_RECORD_MAX, "  ... and it is CHIRP_RECORD_MAX less the two commas no record has", NULL);
     {
       /* The bound counts two record bytes for each byte of text, which holds
        * because a network refuses control characters: each would be a six-byte
@@ -726,8 +729,8 @@ static void test_rules(void)
       char *w = want;
       int   k;
       w += sprintf(w, "{\"ssid\":\"");
-      for (k = 0; k < 31; k++) { w += sprintf(w, "\\\""); }
-      w += sprintf(w, "0\",\"pass\":\"");
+      for (k = 0; k < 32; k++) { w += sprintf(w, "\\\""); }
+      w += sprintf(w, "\",\"pass\":\"");
       for (k = 0; k < 64; k++) { w += sprintf(w, "\\\\"); }
       sprintf(w, "\",%s", big + 1);
       check(same_record(held_after_restart(), want), "  ... and the next start reads every value of it", NULL);
