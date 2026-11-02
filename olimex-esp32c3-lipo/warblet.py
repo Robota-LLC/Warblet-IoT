@@ -83,6 +83,7 @@ _console = getattr(sys.stdin, "buffer", sys.stdin)
 _buf = bytearray()   # the console line so far, as bytes
 _start = -1          # 0 once "CHIRP" has come (_buf starts there), else -1
 _skip = False        # the rest of a line that was too long: dropped to its end
+_last = 0            # ticks_ms() of the last byte of a line collected or thrown away
 _probed = False      # a CHIRP? read and not yet answered
 
 
@@ -345,44 +346,51 @@ def service(seconds=0):
     # bytes, so junk that keeps coming cannot hold the loop. (Probes that keep
     # coming each extend the pass, one answer per SETTINGS_S: a page probes
     # for 15 s at most.) A setup line whose bytes stop for LINE_IDLE_MS is
-    # given up wherever it is, and inside the pass the pass goes on.
-    global _probed, _buf, _start, _skip
+    # given up wherever it is, over the limit or not, and inside the pass the
+    # pass goes on. The pause counts across calls too: the first byte read
+    # after it starts afresh, so a probe sent after a stalled line is answered.
+    global _probed, _buf, _start, _skip, _last
     deadline = time.ticks_add(time.ticks_ms(), int(seconds * 1000))
     junk = 0  # bytes read past the deadline in no setup line
-    last = time.ticks_ms()  # when the last byte came
     while True:
         now = time.ticks_ms()
         remaining = time.ticks_diff(deadline, now)
         late = time.ticks_diff(time.ticks_add(deadline, LINE_LATE_S * 1000), now)
+        held = _start >= 0 or _skip  # a line being collected or thrown away
         if _probed:
             wait = 0  # owing an answer: only look for more input
-        elif _start >= 0:
-            # A setup line is arriving: its next byte, until it has been idle
-            # LINE_IDLE_MS, inside the pass or past it.
-            wait = max(0, min(LINE_IDLE_MS - time.ticks_diff(now, last), late))
+        elif held:
+            # A setup line is arriving, or one is being thrown away: its next
+            # byte, until it has been idle LINE_IDLE_MS.
+            wait = max(0, min(LINE_IDLE_MS - time.ticks_diff(now, _last), late))
         else:
             wait = max(0, remaining)
         byte = _console.read(1) if _poller.poll(wait) else None
+        now = time.ticks_ms()
+        idle = held and time.ticks_diff(now, _last) >= LINE_IDLE_MS
         if byte:
+            if idle:
+                # Its bytes had stopped for LINE_IDLE_MS, here or between two
+                # calls: the line is given up, and this byte starts afresh.
+                _buf, _start, _skip = bytearray(), -1, False
             if remaining <= 0 and _start >= 0 and late <= 0:
                 # LINE_LATE_S past the pass and still coming: given up, and
                 # the rest of it is dropped through its line ending.
                 _buf, _start, _skip = bytearray(), -1, True
                 _feed(byte)
                 return
-            last = time.ticks_ms()
+            _last = now
             _feed(byte)
             if remaining > 0 or _start >= 0:
                 continue  # drain the rest of the line without waiting again
             junk += 1
             if junk < LATE_JUNK:
                 continue
-        elif _start >= 0 and not _probed:
-            # Its bytes stopped for LINE_IDLE_MS, or LINE_LATE_S ran out past
-            # the pass: it will not end now. Only in the second case is the
-            # rest dropped through its line ending.
-            _buf, _start = bytearray(), -1
-            _skip = time.ticks_diff(time.ticks_add(deadline, LINE_LATE_S * 1000), time.ticks_ms()) <= 0
+        elif not _probed and (idle or _start >= 0):
+            # It will not end now. A pause of LINE_IDLE_MS gives it up, over
+            # the limit or not, and the next byte starts afresh; LINE_LATE_S
+            # running out past the pass drops the rest through its line ending.
+            _buf, _start, _skip = bytearray(), -1, not idle
             continue
         if _probed:
             _probed = False
