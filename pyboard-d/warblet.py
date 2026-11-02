@@ -372,8 +372,9 @@ def service(seconds=0):
         byte = _console.read(1) if _poller.poll(wait) else None
         if not (byte or _last):
             _last = now  # nothing waited, nothing came: quiet from here
-        now = time.ticks_ms()
-        idle = held and not byte and time.ticks_diff(now, _last) >= LINE_IDLE_MS
+        # The look ended when the poll's wait did: time spent after it is not
+        # quiet the board saw.
+        idle = held and not byte and time.ticks_diff(now, _last) + wait >= LINE_IDLE_MS
         if byte:
             _last = 0
             if remaining <= 0 and _start >= 0 and late <= 0:
