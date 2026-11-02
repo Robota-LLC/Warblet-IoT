@@ -12,7 +12,8 @@
 # headers out of the .d files.
 #
 # check fails the build when one of those files is not in MANIFEST, when a
-# file MANIFEST lists is missing, or when a hash differs. write puts every one
+# file MANIFEST lists is missing, when a hash differs, or when a header from
+# outside ST's tree has an audited header's name. write puts every one
 # of them, with its sha256, in MANIFEST: make st-audit-write runs it, and it
 # is for use only after a person has audited what changed, for anything that
 # arms a receive on the CLI UART (a HAL call, a register write, LL) or echoes
@@ -40,6 +41,9 @@ fi
 needed=$( { for f in $given; do echo "$f"; done
             for d in "$@"; do [ -f "$d" ] && cat "$d"; done | tr ' \t\\' '\n\n\n' | sed 's/:$//' |
               grep -vE '^$|\.o$|^(/|[A-Za-z]:|chirp/|build/|ld/|tools/)'; } | sort -u )
+# The headers the compiler opened from anywhere else: ours, or outside the tree.
+outside=$(for d in "$@"; do [ -f "$d" ] && cat "$d"; done | tr ' \t\\' '\n\n\n' | sed 's/:$//' |
+            grep -E '\.h$' | grep -E '^(/|[A-Za-z]:|chirp/|build/|ld/|tools/)' | sort -u)
 
 if [ "$mode" = write ]; then
   for f in $needed; do $SUM "$f"; done | sed 's/ \*/  /' > "$manifest" || exit 1
@@ -59,6 +63,16 @@ unlisted=$(printf '%s\n' $needed | awk -v m="$manifest" '
 if [ -n "$unlisted" ]; then
   echo "ST files this image is built from that $manifest does not list:"
   echo "$unlisted"
+  fail=1
+fi
+# One of those with an audited ST header's name stands in for it (an include
+# path ahead of ST's): what was compiled is not what was audited.
+standin=$(printf '%s\n' $outside | awk -v m="$manifest" '
+  BEGIN { while ((getline line < m) > 0) { sub(/^[0-9a-f]+  /, "", line); sub(/.*\//, "", line); audited[line] = 1 } }
+  { name = $0; sub(/.*\//, "", name) } name != "" && (name in audited)')
+if [ -n "$standin" ]; then
+  echo "headers from outside ST's tree that stand in for audited ST headers of the same name:"
+  echo "$standin"
   fail=1
 fi
 changed=$($SUM -c "$manifest" 2>&1 | grep -v ': OK$')
