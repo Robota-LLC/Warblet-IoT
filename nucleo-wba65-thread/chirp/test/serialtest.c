@@ -405,6 +405,83 @@ static void test_hook(void)
   then_hook_works("credential tail");
 }
 
+/* A push cut by a restart: its start came before board_serial_begin() (the
+ * hook drops it) or while nothing read the UART, and its tail after it,
+ * within the idle limit. */
+static void restart_with(const char *before, unsigned nb)
+{
+  s_begun = 0u;
+  reset_seen();
+  hook(before, nb, 64u);
+  board_serial_begin(on_line);
+}
+
+static void test_restart(void)
+{
+  static const char push[] = "CHIRP+ {\"token\":\"tok-RESTART-SECRET-77\"}\r\n";
+  const unsigned n = (unsigned)sizeof push - 1u;
+  unsigned k, bad = 0u, first_bad = 0u;
+  char why[200];
+
+  puts("--- a push cut by a restart ---");
+  for (k = 1u; k < n; k++) {
+    restart_with(push, k);
+    tick += 300u;                         /* the tail, within the idle limit */
+    reset_seen();
+    receive(push + k, n - k);
+    arcUartProcess();
+    st_wire[st_wire_len] = '\0';
+    if (cli_len != 0u || chirp_lines != 0u || st_wire_len != 0u || leaks("RESTART-SECRET-77")) {
+      bad++;
+      if (first_bad == 0u) { first_bad = k; }
+    }
+  }
+  snprintf(why, sizeof why, "a push split at each of its %u positions across a restart, its tail within the idle "
+           "limit: nothing to ot-cli, nothing echoed, no answer (%u wrong, the first at byte %u)", n - 1u, bad, first_bad);
+  expect(bad == 0u, why);
+
+  /* After the tail: a probe is answered, and a command sent once the idle
+   * limit has passed reaches ot-cli. */
+  reset_seen();
+  receive_text("CHIRP?\r\n");
+  arcUartProcess();
+  expect(chirp_lines == 1u && st_wire_len == sizeof ANNOUNCE - 1u, "  ... then a probe is answered");
+  tick += BOARD_SERIAL_IDLE_MS;
+  reset_seen();
+  receive_text("state\r\n");
+  expect(strcmp(cli_got, "state\r\n") == 0, "  ... and a CLI command after the idle limit reaches ot-cli");
+
+  /* A command typed within the idle limit of a start cannot be told from the
+   * tail of a push: it is dropped. One typed after the idle limit is not. */
+  restart_with("", 0u);
+  tick += 200u;
+  reset_seen();
+  receive_text("state\r\n");
+  arcUartProcess();
+  st_wire[st_wire_len] = '\0';
+  expect(cli_len == 0u && st_wire_len == 0u, "a CLI command within the idle limit of a start is dropped, unechoed");
+  restart_with("", 0u);
+  tick += BOARD_SERIAL_IDLE_MS;
+  reset_seen();
+  receive_text("state\r\n");
+  expect(strcmp(cli_got, "state\r\n") == 0, "a CLI command once the idle limit has passed since a start reaches ot-cli");
+
+  /* A fresh probe at once after a start is a line that starts with CHIRP. */
+  restart_with("", 0u);
+  tick += 100u;
+  reset_seen();
+  receive_text("CHIRP?\r\n");
+  arcUartProcess();
+  expect(chirp_lines == 1u && st_wire_len == sizeof ANNOUNCE - 1u, "a probe at once after a start is answered");
+
+  /* A batch is taken in with BASEPRI raised to the UART's priority, and put back. */
+  test_basepri = 0u;
+  test_basepri_raised = 0u;
+  receive_text("CHIRP?\r\n");
+  expect(test_basepri_raised > 0u && test_basepri == 0u,
+         "a batch is taken in with BASEPRI raised to the UART's priority, then restored");
+}
+
 static void test_secrets(void)
 {
   static const char tok[]  = "tok-S3CRET-0123456789";
@@ -539,6 +616,7 @@ int main(void)
   test_idle_anywhere();
   test_ring_full();
   test_hook();
+  test_restart();
 
   printf("\nserialtest: %d passed, %d failed\n", passes, fails);
   printf("%s (%d failure%s)\n", fails ? "FAILED" : "PASSED", fails, fails == 1 ? "" : "s");

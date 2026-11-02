@@ -57,6 +57,7 @@ static char        s_line[BOARD_SERIAL_LINE_MAX + 3u];
 static unsigned    s_line_len;
 static const char *s_line_bad;      /* NULL, or why this line is a write-off */
 static int         s_line_dropped;  /* it follows a setup line given up on a pause */
+static int         s_starting;      /* since board_serial_begin(), no pause and no line ending yet */
 
 /* Interrupt -> task ring. head is interrupt-owned, tail is task-owned. */
 static volatile uint16_t s_ring[RX_RING];
@@ -65,6 +66,7 @@ static volatile uint32_t s_ring_tail;
 static volatile uint8_t  s_ring_lost;   /* the next byte in carries RX_LOST */
 static volatile uint32_t s_rx_last_ms;  /* HAL_GetTick() when the last bytes came */
 static volatile uint8_t  s_begun;       /* board_serial_begin() has run: the console is ours */
+static uint32_t          s_rx_basepri;  /* BASEPRI that holds off both producers, not the radio */
 
 /* DMA reception buffer; the callbacks copy each new region into the ring.
  * 512 bytes is ~44 ms at 115200. */
@@ -180,6 +182,7 @@ static void dispatch_line(void)
   s_line_len     = 0u;
   s_line_bad     = NULL;
   s_line_dropped = 0;
+  s_starting     = 0;                   /* the line in progress at the start has ended */
 
   if (bad != NULL) {
     /* A damaged line is not dispatched, and no part of it is read as a
@@ -220,6 +223,17 @@ static void rx_task(void)
 
     s_ring_tail = (next == RX_RING) ? 0u : next;
 
+    /* The idle limit passed with nothing received since board_serial_begin():
+     * whatever was arriving across the restart has stopped, and the console
+     * is in its ordinary state, so a person's first command reaches the CLI. */
+    if (s_starting && (e & RX_PAUSED) != 0u) {
+      s_starting     = 0;
+      s_line_len     = 0u;
+      s_line_bad     = NULL;
+      s_line_dropped = 0;
+      e &= (uint16_t)~RX_PAUSED;
+    }
+
     /* A setup line whose bytes stopped will not end now: it is given up
      * wherever it had got to, over the limit or damaged too. What follows,
      * to the next line ending, is the rest of it: dropped, unless it starts
@@ -239,39 +253,44 @@ static void rx_task(void)
   }
 }
 
-/* Ring push. Two producers can feed the ring: the DMA callbacks below and
- * ot-cli's receive hook (the backstop at the end of this file). The HAL runs
- * one receive at a time on a UART, since starting either needs RxState READY,
- * so they do not overlap; the push masks interrupts all the same, so the ring
- * stays whole whichever of them runs, and from whatever priority. */
+/* Ring push, called only inside ring_take_in()'s critical section. */
 static void ring_push(uint16_t c)
 {
-  uint32_t primask = __get_PRIMASK();
-  uint32_t head, next;
+  uint32_t head = s_ring_head;
+  uint32_t next = head + 1u;
 
-  __disable_irq();
-  head = s_ring_head;
-  next = head + 1u;
   if (next == RX_RING) { next = 0u; }
   if (s_ring_lost)     { c |= RX_LOST; }
 
   if (next != s_ring_tail) { s_ring[head] = c; s_ring_head = next; s_ring_lost = 0u; }
   else                     { s_ring_lost = 1u; }
-  __set_PRIMASK(primask);
 }
 
 /* Bytes in, from either producer, under one set of rules: the first is marked
  * RX_PAUSED when the bytes had stopped for BOARD_SERIAL_IDLE_MS, and the task
  * assembles and routes the lines. A DMA event comes at most a buffer's time
- * (44 ms) after its first byte, so its time stands for all of its bytes. */
+ * (44 ms) after its first byte, so its time stands for all of its bytes.
+ *
+ * Two producers feed the ring. The DMA path runs in the USART1 interrupt and
+ * in GPDMA1 channel 7's, both at the UART's priority, so one never preempts
+ * the other. ot-cli's receive hook runs in thread mode, from ST's sequencer
+ * task (arcUartProcess(), which our output paths call too), so either
+ * interrupt can preempt it. A whole batch, with its time and its pause mark,
+ * is taken in with BASEPRI at the UART's priority: both producers wait, and
+ * the radio's interrupts, at higher priorities, never do. */
 static void ring_take_in(const uint8_t *bytes, unsigned n)
 {
-  uint32_t now   = HAL_GetTick();
-  uint16_t pause = (now - s_rx_last_ms >= BOARD_SERIAL_IDLE_MS) ? RX_PAUSED : 0u;
+  uint32_t basepri = __get_BASEPRI();
+  uint32_t now;
+  uint16_t pause;
   unsigned i;
 
+  __set_BASEPRI_MAX(s_rx_basepri);
+  now   = HAL_GetTick();
+  pause = (now - s_rx_last_ms >= BOARD_SERIAL_IDLE_MS) ? RX_PAUSED : 0u;
   for (i = 0u; i < n; i++) { ring_push((uint16_t)(bytes[i] | pause)); pause = 0u; }
   if (n > 0u) { s_rx_last_ms = now; }
+  __set_BASEPRI(basepri);
   UTIL_SEQ_SetTask(SERIAL_TASK_RX, CFG_SEQ_PRIO_1);
 }
 
@@ -314,6 +333,8 @@ void GPDMA1_Channel7_IRQHandler(void)
 
 void board_serial_begin(void (*on_chirp_line)(char *line, unsigned len))
 {
+  uint32_t uart_prio;
+
   s_on_chirp_line = on_chirp_line;
 
   s_ring_head = 0u;
@@ -321,7 +342,29 @@ void board_serial_begin(void (*on_chirp_line)(char *line, unsigned len))
   s_ring_lost = 0u;
   s_line_len  = 0u;
   s_line_bad  = NULL;
-  s_line_dropped = 0;
+
+  /* A start is a pause inside a line whose beginning was not seen: the board
+   * may have restarted, or not been reading, while a push was arriving, and
+   * the host keeps sending its pieces. Bytes that come before the idle limit
+   * has passed with nothing arriving are the tail of whatever was arriving:
+   * dropped through their line ending, not echoed, not handed to the CLI, no
+   * answer. A line that starts with CHIRP is served as usual, so a fresh
+   * probe is answered at once. Once the idle limit passes with nothing
+   * received, the console is in its ordinary state. So a command a person
+   * types within the idle limit of a restart is dropped with the tail it
+   * cannot be told from; one typed after it reaches the CLI. */
+  s_line_dropped = 1;
+  s_starting     = 1;
+  s_rx_last_ms   = HAL_GetTick();
+
+  /* Both producers run at or below the UART's interrupt priority (see
+   * ring_take_in()); BASEPRI at that level holds them off. ST sets it to 7. */
+  uart_prio    = NVIC_GetPriority(USART1_IRQn);
+  s_rx_basepri = uart_prio << (8u - __NVIC_PRIO_BITS);
+  if (uart_prio == 0u) {
+    board_serial_print("CHIRP. USART1 has interrupt priority 0, which BASEPRI cannot hold off: "
+                       "receive batches are not serialized\r\n");
+  }
 
   /* The task exists before anything can wake it; from here the receive hook
    * feeds the ring too. */
@@ -360,7 +403,7 @@ void board_serial_begin(void (*on_chirp_line)(char *line, unsigned len))
   __HAL_LINKDMA(oTCLIuart, hdmarx, s_rx_dma);
   oTCLIuart->RxEventCallback = rx_event;
   oTCLIuart->ErrorCallback   = rx_error;
-  HAL_NVIC_SetPriority(GPDMA1_Channel7_IRQn, 7, 0);
+  HAL_NVIC_SetPriority(GPDMA1_Channel7_IRQn, uart_prio, 0);   /* the UART's own: neither preempts */
   HAL_NVIC_EnableIRQ(GPDMA1_Channel7_IRQn);
   s_dma_last = 0u;
 
