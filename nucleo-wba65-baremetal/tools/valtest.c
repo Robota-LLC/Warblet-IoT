@@ -334,7 +334,8 @@ static char *read_file(const char *path)
 /* The shared vectors file holds pushes with a raw NUL, which JSON can only
  * write as \u0000, and this board's scanner refuses that escape wherever it is
  * (CHIRP-PROV v1.8). To load the file, the test reads each one as U+2400. None
- * is a push of this board's profile, and the raw NUL has its own test. */
+ * may be in a vector of this board's profile (the test checks: such a vector's
+ * text is not the file's), and the raw NUL has its own test. */
 static char *vectors_file(const char *path)
 {
   char *text = read_file(path), *p;
@@ -380,8 +381,9 @@ static void test_vectors(const char *path)
 {
   js_val   root, pushes, v;
   unsigned pos = 0u;
-  int      n = 0;
-  static char name[512], pushed[8192], want[128], stored[4096], after[4096], detail[2048];
+  int      n = 0, stand_ins = 0;
+  char    *raw;
+  static char name[512], pushed[8192], want[128], stored[4096], after[4096], detail[2048], odd[512];
 
   puts("\n--- the shared CHIRP-PROV v1.8 vectors, relay profile (this board) ---");
   if (path == NULL) {
@@ -389,8 +391,9 @@ static void test_vectors(const char *path)
     return;
   }
   s_vectors = vectors_file(path);
-  check(s_vectors != NULL, "the shared vectors read", path);
-  if (s_vectors == NULL) { return; }
+  raw = read_file(path);
+  check(s_vectors != NULL && raw != NULL, "the shared vectors read", path);
+  if (s_vectors == NULL || raw == NULL) { free(raw); return; }
   root.p = s_vectors; root.n = (unsigned)strlen(s_vectors); root.t = JS_OBJ;
   if (js_obj_get(root.p, root.n, "pushes", &pushes) != 1 || pushes.t != JS_ARR) {
     check(0, "the vectors hold pushes", path);
@@ -405,6 +408,7 @@ static void test_vectors(const char *path)
 
     if (strcmp(str_of(&v, "profile", profile, sizeof profile), "relay") != 0) { continue; }
     str_of(&v, "name", name, sizeof name);
+    if (memcmp(raw + (v.p - s_vectors), v.p, v.n) != 0 && stand_ins++ == 0) { snprintf(odd, sizeof odd, "%s", name); }
     str_of(&v, "push", pushed, sizeof pushed);
     str_of(&v, "answer", want, sizeof want);
     will_store = js_obj_get(v.p, v.n, "stores", &stores) == 1 && stores.t == JS_TRUE;
@@ -433,7 +437,9 @@ static void test_vectors(const char *path)
     n++;
   }
   check(n >= 20, "the vectors hold the relay profile's pushes", NULL);
+  check(stand_ins == 0, "no relay vector holds a raw NUL, which the test reads as U+2400", stand_ins ? odd : NULL);
   printf("      %d relay pushes answered and stored as the contract says\n", n);
+  free(raw);
 }
 
 /* ---- the rules one by one --------------------------------------------------------- */

@@ -287,7 +287,8 @@ static char *read_file(const char *path)
 /* The shared vectors file holds pushes with a raw NUL, which JSON can only
  * write as \u0000, and this board's scanner refuses that escape wherever it is
  * (CHIRP-PROV v1.8). To load the file, the test reads each one as U+2400. None
- * is a push of this board's profile, and the raw NUL has its own test. */
+ * may be in a vector of this board's profile (the test checks: such a vector's
+ * text is not the file's), and the raw NUL has its own test. */
 static char *vectors_file(const char *path)
 {
   char *text = read_file(path), *p;
@@ -328,11 +329,11 @@ static const char *obj_text(const js_val *obj, const char *key, char *buf, unsig
 
 static void test_vectors(const char *path)
 {
-  char    *doc;
+  char    *doc, *raw;
   js_val   pushes, v;
   unsigned pos = 0u;
-  int      n = 0;
-  static char name[512], pushed[8192], want[128], stored[4096], after[4096], detail[2048];
+  int      n = 0, stand_ins = 0;
+  static char name[512], pushed[8192], want[128], stored[4096], after[4096], detail[2048], odd[512];
 
   puts("--- the shared CHIRP-PROV v1.8 vectors, thread profile (this board) ---");
   if (path == NULL) {
@@ -340,11 +341,13 @@ static void test_vectors(const char *path)
     return;
   }
   doc = vectors_file(path);
-  verdict(doc != NULL, "the shared vectors read", path);
-  if (doc == NULL) { return; }
+  raw = read_file(path);
+  verdict(doc != NULL && raw != NULL, "the shared vectors read", path);
+  if (doc == NULL || raw == NULL) { free(doc); free(raw); return; }
   if (js_obj_get(doc, (unsigned)strlen(doc), "pushes", &pushes) != 1 || pushes.t != JS_ARR) {
     verdict(0, "the vectors hold pushes", path);
     free(doc);
+    free(raw);
     return;
   }
   while (js_arr_next(pushes.p, pushes.n, &pos, &v) == 1) {
@@ -355,6 +358,7 @@ static void test_vectors(const char *path)
 
     if (strcmp(str_of(&v, "profile", profile, sizeof profile), "thread") != 0) { continue; }
     str_of(&v, "name", name, sizeof name);
+    if (memcmp(raw + (v.p - doc), v.p, v.n) != 0 && stand_ins++ == 0) { snprintf(odd, sizeof odd, "%s", name); }
     str_of(&v, "push", pushed, sizeof pushed);
     str_of(&v, "answer", want, sizeof want);
     will_store = js_obj_get(v.p, v.n, "stores", &stores) == 1 && stores.t == JS_TRUE;
@@ -381,6 +385,7 @@ static void test_vectors(const char *path)
     n++;
   }
   verdict(n >= 15, "the vectors hold the thread profile's pushes", NULL);
+  verdict(stand_ins == 0, "no thread vector holds a raw NUL, which the test reads as U+2400", stand_ins ? odd : NULL);
   printf("      %d thread pushes answered and stored as the contract says\n", n);
 
   {
@@ -392,6 +397,7 @@ static void test_vectors(const char *path)
             strcmp(vc, CHIRP_CAPS) == 0, "CHIRP_CAPS is the vectors' thread profile", NULL);
   }
   free(doc);
+  free(raw);
 }
 
 /* ---- the rules one by one --------------------------------------------------------- */
