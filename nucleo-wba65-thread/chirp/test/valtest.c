@@ -284,6 +284,25 @@ static char *read_file(const char *path)
   return text;
 }
 
+/* The shared vectors file holds pushes with a raw NUL, which JSON can only
+ * write as \u0000, and this board's scanner refuses that escape wherever it is
+ * (CHIRP-PROV v1.8). To load the file, the test reads each one as U+2400. None
+ * is a push of this board's profile, and the raw NUL has its own test. */
+static char *vectors_file(const char *path)
+{
+  char *text = read_file(path), *p;
+
+  if (text == NULL) { return NULL; }
+  for (p = text; (p = strstr(p, "u0000")) != NULL; p += 5) {
+    const char *q = p;
+    unsigned    slashes = 0u;
+
+    while (q > text && q[-1] == '\\') { q--; slashes++; }
+    if ((slashes & 1u) != 0u) { memcpy(p, "u2400", 5u); }
+  }
+  return text;
+}
+
 static const char *str_of(const js_val *obj, const char *key, char *buf, unsigned n)
 {
   js_val v;
@@ -320,7 +339,7 @@ static void test_vectors(const char *path)
     printf("SKIP  the shared vectors: no path given (make test VECTORS=<path to chirp-prov-v1.8.json>)\n");
     return;
   }
-  doc = read_file(path);
+  doc = vectors_file(path);
   verdict(doc != NULL, "the shared vectors read", path);
   if (doc == NULL) { return; }
   if (js_obj_get(doc, (unsigned)strlen(doc), "pushes", &pushes) != 1 || pushes.t != JS_ARR) {

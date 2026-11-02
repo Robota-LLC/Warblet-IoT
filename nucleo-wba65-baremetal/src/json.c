@@ -34,6 +34,9 @@ static const char *skip_string(const char *p, const char *e)
         case 'u':
           if (e - p < 5) { return 0; }
           for (int i = 1; i <= 4; i++) { if (!is_hex(p[i])) { return 0; } }
+          /* An escaped NUL is refused wherever it is, before any field is
+           * chosen (CHIRP-PROV v1.8): the whole push is bad-json. */
+          if (p[1] == '0' && p[2] == '0' && p[3] == '0' && p[4] == '0') { return 0; }
           p += 5;
           break;
         default:
