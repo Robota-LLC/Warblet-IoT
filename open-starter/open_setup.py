@@ -254,7 +254,9 @@ def wait(seconds):
             continue
         if _quiet is None:
             _quiet = now                # nothing waited, nothing came: quiet from here
-        if arriving and time.ticks_diff(time.ticks_ms(), _quiet) >= LINE_IDLE_MS:
+        # The look ended when the poll's wait did. Time the board spent after
+        # it, on anything else, is not quiet it saw.
+        if arriving and time.ticks_diff(now, _quiet) + max(ms, 0) >= LINE_IDLE_MS:
             _line, _marked, _skip = bytearray(), False, False   # seen stopped: given up
 
 
