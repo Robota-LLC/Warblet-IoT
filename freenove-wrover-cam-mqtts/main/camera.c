@@ -86,7 +86,7 @@ esp_err_t camera_init(void)
     if (err == ESP_ERR_NOT_SUPPORTED) {
         /* Expected on this board's GC0308, which has no JPEG encoder: the
          * driver has just said so, and this is not a fault. */
-        ESP_LOGI(TAG, "this sensor has no JPEG encoder, as expected for the GC0308: "
+        ESP_LOGI(TAG, "this sensor has no JPEG encoder, which is expected: "
                       "capture goes on in RGB565, each frame encoded in software");
         /* esp32-camera's failed start (esp_camera_deinit) leaves two things
          * behind: the GPIO interrupt service it installed for VSYNC, of which
@@ -142,7 +142,7 @@ esp_err_t camera_capture(const uint8_t **out, size_t *out_len)
         if (age <= FRAME_STALE_MS || attempt >= FRAME_TRIES) {
             break;
         }
-        ESP_LOGW(TAG, "frame age %" PRId64 " ms -- parked before we asked, "
+        ESP_LOGI(TAG, "frame age %" PRId64 " ms -- parked before we asked, "
                       "dropping it (try %d)", age, attempt);
         esp_camera_fb_return(s_fb);
         s_fb = NULL;

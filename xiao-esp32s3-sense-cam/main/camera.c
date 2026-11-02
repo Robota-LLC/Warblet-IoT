@@ -124,7 +124,7 @@ esp_err_t camera_capture(const uint8_t **out, size_t *out_len)
         if (age <= FRAME_STALE_MS || attempt >= FRAME_TRIES) {
             break;
         }
-        ESP_LOGW(TAG, "frame age %" PRId64 " ms -- parked before we asked, "
+        ESP_LOGI(TAG, "frame age %" PRId64 " ms -- parked before we asked, "
                       "dropping it (try %d)", age, attempt);
         esp_camera_fb_return(s_fb);
         s_fb = NULL;
