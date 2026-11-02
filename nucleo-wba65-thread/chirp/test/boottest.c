@@ -120,7 +120,7 @@ int CliUartOutput(void *aContext, const char *aFormat, va_list aArguments)
 
 void arcUartProcess(void) { }
 
-static UART_HandleTypeDef uart = { HAL_UART_STATE_READY, HAL_UART_STATE_READY, 0, 0, 0 };
+static UART_HandleTypeDef uart = { HAL_UART_STATE_READY, HAL_UART_STATE_READY, 0, 0, 0, 0, 0 };
 UART_HandleTypeDef *oTCLIuart = &uart;
 
 static char     cli_got[4096];
@@ -150,6 +150,10 @@ HAL_StatusTypeDef HAL_DMA_Init(DMA_HandleTypeDef *h) { (void)h; return HAL_OK; }
 HAL_StatusTypeDef HAL_DMA_ConfigChannelAttributes(DMA_HandleTypeDef *h, uint32_t a) { (void)h; (void)a; return HAL_OK; }
 void HAL_DMA_IRQHandler(DMA_HandleTypeDef *h) { (void)h; }
 HAL_StatusTypeDef HAL_UART_AbortReceive(UART_HandleTypeDef *h) { (void)h; return HAL_OK; }
+/* The HAL's own 1-byte receive, which board_serial.c's wrap passes any
+ * other UART to; nothing here arms one. */
+HAL_StatusTypeDef __real_HAL_UART_Receive_IT(UART_HandleTypeDef *h, uint8_t *b, uint16_t n)
+{ (void)h; (void)b; (void)n; return HAL_OK; }
 void HAL_NVIC_SetPriority(int irq, uint32_t pre, uint32_t sub) { (void)irq; (void)pre; (void)sub; }
 void HAL_NVIC_EnableIRQ(int irq) { (void)irq; }
 

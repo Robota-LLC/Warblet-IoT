@@ -13,6 +13,7 @@ typedef int otError;
 #define OT_ERROR_NONE          0
 #define OT_ERROR_PARSE         6
 #define OT_ERROR_INVALID_STATE 13
+#define OT_ERROR_NOT_IMPLEMENTED 27
 
 typedef enum {
   OT_DEVICE_ROLE_DISABLED = 0,

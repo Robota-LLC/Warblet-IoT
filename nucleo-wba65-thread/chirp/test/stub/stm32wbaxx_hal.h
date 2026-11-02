@@ -2,8 +2,9 @@
 #pragma once
 #include <stdint.h>
 
-typedef enum { HAL_OK = 0, HAL_ERROR = 1 } HAL_StatusTypeDef;
-typedef enum { HAL_UART_STATE_RESET = 0x00, HAL_UART_STATE_READY = 0x20 } HAL_UART_StateTypeDef;
+typedef enum { HAL_OK = 0, HAL_ERROR = 1, HAL_BUSY = 2 } HAL_StatusTypeDef;
+typedef enum { HAL_UART_STATE_RESET = 0x00, HAL_UART_STATE_READY = 0x20, HAL_UART_STATE_BUSY_RX = 0x22 } HAL_UART_StateTypeDef;
+#define HAL_UART_ERROR_NONE 0u
 
 typedef struct {
   struct {
@@ -21,6 +22,8 @@ typedef struct UART_HandleTypeDef {
   DMA_HandleTypeDef *hdmarx;
   void (*RxEventCallback)(struct UART_HandleTypeDef *huart, uint16_t pos);
   void (*ErrorCallback)(struct UART_HandleTypeDef *huart);
+  void (*TxCpltCallback)(struct UART_HandleTypeDef *huart);   /* ST's uart.c sets these two */
+  void (*RxCpltCallback)(struct UART_HandleTypeDef *huart);
 } UART_HandleTypeDef;
 
 #define GPDMA1_Channel7              ((void *)0)
@@ -46,6 +49,8 @@ HAL_StatusTypeDef HAL_DMA_ConfigChannelAttributes(DMA_HandleTypeDef *h, uint32_t
 void HAL_DMA_IRQHandler(DMA_HandleTypeDef *h);
 HAL_StatusTypeDef HAL_UART_AbortReceive(UART_HandleTypeDef *h);
 HAL_StatusTypeDef HAL_UARTEx_ReceiveToIdle_DMA(UART_HandleTypeDef *h, uint8_t *buf, uint16_t size);
+HAL_StatusTypeDef HAL_UART_Receive_IT(UART_HandleTypeDef *h, uint8_t *buf, uint16_t size);
+HAL_StatusTypeDef HAL_UART_Transmit_DMA(UART_HandleTypeDef *h, const uint8_t *buf, uint16_t size);
 void HAL_NVIC_SetPriority(int irq, uint32_t pre, uint32_t sub);
 void HAL_NVIC_EnableIRQ(int irq);
 uint32_t HAL_GetTick(void);

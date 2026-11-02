@@ -20,8 +20,9 @@
 extern int                 CliUartOutput(void *aContext, const char *aFormat, va_list aArguments);
 extern UART_HandleTypeDef *oTCLIuart;
 
-/* --wrap partner, provided by the linker (see the Makefile's WRAPS). */
-void __real_otPlatUartReceived(const uint8_t *aBuf, uint16_t aBufLength);
+/* --wrap partners, provided by the linker (see the Makefile's WRAPS). */
+void              __real_otPlatUartReceived(const uint8_t *aBuf, uint16_t aBufLength);
+HAL_StatusTypeDef __real_HAL_UART_Receive_IT(UART_HandleTypeDef *huart, uint8_t *pData, uint16_t Size);
 
 /* CliUartOutput() passes BUFFER_SIZE, not the remaining space, to vsnprintf, so
  * a long echo would overrun ST's 1536-byte buffer. 256 matches ST's own echo. */
@@ -379,7 +380,9 @@ void board_serial_begin(void (*on_chirp_line)(char *line, unsigned len))
 
   if (oTCLIuart == NULL) { return; }
 
-  /* Replace ST's 1-byte interrupt receive with DMA, which is immune to
+  /* ST's own receive was never armed (see __wrap_HAL_UART_Receive_IT), so
+   * whatever came before now is still in the UART, unread: this flushes it,
+   * with any overrun it caused. Receive is DMA from here, which is immune to
    * radio-interrupt latency. */
   (void)HAL_UART_AbortReceive(oTCLIuart);
 
@@ -418,11 +421,30 @@ void board_serial_begin(void (*on_chirp_line)(char *line, unsigned len))
   }
 }
 
+/* ------------------------------------------------------------------ ST's receive */
+
+/* ST's uart.c arms a 1-byte interrupt receive on the CLI UART in
+ * otPlatUartEnable(), before board_serial_begin() runs, and again from its
+ * receive callback. That callback echoes a line to the console when CR comes,
+ * before any of it reaches the hook below, so a push, or the tail of one a
+ * restart cut, would be echoed whatever the hook did with it. The linker
+ * sends ST's calls here (--wrap), and the CLI UART's receive is refused: ST
+ * never receives a byte, so it never echoes one. The console is ours from
+ * board_serial_begin(); the only echo is forward_to_cli()'s. Any other UART's
+ * receive goes through untouched. The Makefile fails the build if ST's code
+ * reaches the UART's receive by any other call. */
+HAL_StatusTypeDef __wrap_HAL_UART_Receive_IT(UART_HandleTypeDef *huart, uint8_t *pData, uint16_t Size)
+{
+  if (huart == oTCLIuart) { return HAL_BUSY; }
+  return __real_HAL_UART_Receive_IT(huart, pData, Size);
+}
+
 /* ------------------------------------------------------------------ backstop */
 
-/* ot-cli's receive hook. ST's 1-byte interrupt receive feeds it until
- * board_serial_begin() replaces that receive with DMA, and so would anything
- * that started it again. Its bytes go through the same ring and line rules as
+/* ot-cli's receive hook. ST's processReceive() calls it with what ST's 1-byte
+ * interrupt receive took, and that receive is never armed now (see
+ * __wrap_HAL_UART_Receive_IT): the hook stays as a backstop, in case anything
+ * starts it again. Its bytes go through the same ring and line rules as
  * the DMA path, a byte at a time or a buffer at a time: a line is routed once
  * it ends, a push is never echoed or handed to the CLI, and a setup line that
  * pauses is given up. Before board_serial_begin() the console is not ours yet:

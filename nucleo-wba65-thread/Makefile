@@ -20,6 +20,7 @@ CC      := $(TOOL)gcc
 AS      := $(TOOL)gcc -x assembler-with-cpp
 OBJCOPY := $(TOOL)objcopy
 SIZE    := $(TOOL)size
+NM      := $(TOOL)nm
 
 # One clear line beats make's "No such file or directory" when the toolchain is
 # missing. `clean` and `test` need no cross compiler.
@@ -145,7 +146,10 @@ ASFLAGS  := $(CPU) $(OPT) -ffunction-sections -fdata-sections
 
 # Wrap CLI initialization to register setup and reporting tasks.
 # Wrap UART input to dispatch complete lines without editing ST sources.
-WRAPS    := -Wl,--wrap=otPlatUartReceived -Wl,--wrap=otCliInit
+# Wrap the HAL's 1-byte receive so that ST's uart.c never arms it on the CLI
+# UART: its receive callback echoes a line before any of it reaches us, so
+# ST must never receive a byte (chirp/src/board_serial.c).
+WRAPS    := -Wl,--wrap=otPlatUartReceived -Wl,--wrap=otCliInit -Wl,--wrap=HAL_UART_Receive_IT
 
 # chirp/src/flashcfg.c's NMI_Handler catches a flash ECC error in the config
 # page and passes every other NMI to ST's, which is built under another name.
@@ -173,6 +177,9 @@ all: $(BUILD)/$(TARGET).bin size
 # chirp_report.c and board_serial.c together on stand-ins for OpenThread and
 # ST's scheduler (chirp/test/stub). VECTORS is the path to Warblet's shared CHIRP-PROV
 # vectors (chirp-prov-v1.8.json); without it those checks are skipped.
+# echotest runs ST's own uart.c, as make fetch places it, with board_serial.c,
+# linked with the firmware's wraps: no line before the takeover is echoed.
+ST_UART_C := Middlewares/ST/STM32_WPAN/thread/openthread/platform/uart.c
 HOSTCC  ?= gcc
 VECTORS ?=
 ifeq ($(OS),Windows_NT)
@@ -201,6 +208,7 @@ test:
 	   chirp/src/chirp_hwid.c chirp/src/chirpval.c chirp/src/json.c chirp/src/flashcfg.c \
 	   chirp/src/chirp_ds.c chirp/src/chirp_frame.c chirp/src/chirp_sign.c chirp/test/sha256_host.c
 	@$(BUILD)/boottest$(HOSTEXE)
+	@if [ -f $(ST_UART_C) ]; then 	  "$(HOSTCC)" -std=gnu11 -w -Ichirp/test/stub_st -Ichirp/test/stub -c $(ST_UART_C) -o $(BUILD)/st_uart_host.o && 	  "$(HOSTCC)" -std=c11 -Wall -Wextra -Ichirp/test -Ichirp/test/stub -Ichirp/inc -o $(BUILD)/echotest$(HOSTEXE) 	    chirp/test/echotest.c chirp/test/echo_hal.c chirp/src/board_serial.c $(BUILD)/st_uart_host.o 	    -Wl,--wrap=HAL_UART_Receive_IT -Wl,--wrap=otPlatUartReceived && 	  $(BUILD)/echotest$(HOSTEXE); 	else echo "SKIP  echotest: ST's uart.c is not here yet (make fetch)"; fi
 
 $(BUILD)/%.o: %.c
 	@mkdir -p $(dir $@)
@@ -212,7 +220,20 @@ $(BUILD)/%.o: %.s
 	@echo "  AS   $<"
 	@$(AS) -c $(ASFLAGS) $< -o $@
 
-$(BUILD)/$(TARGET).elf: $(OBJS) $(LDSCRIPT)
+# ST never receives on the CLI UART, so it never echoes: the wrap above
+# refuses the one call ST's uart.c arms its receive with. This fails the build
+# if that stops holding: ST's uart.o no longer arming through that call, or an
+# object or library other than board_serial.o reaching the UART's receive by
+# another call.
+ST_UART_O := $(BUILD)/Middlewares/ST/STM32_WPAN/thread/openthread/platform/uart.o
+RX_OTHER  := HAL_UART_Receive|HAL_UART_Receive_DMA|HAL_UARTEx_ReceiveToIdle|HAL_UARTEx_ReceiveToIdle_IT|HAL_UARTEx_ReceiveToIdle_DMA
+$(BUILD)/st_receive.ok: $(OBJS) $(LIBS)
+	@$(NM) -u $(ST_UART_O) | grep -qE ' U HAL_UART_Receive_IT$$' || 	  { echo "ST's uart.o no longer arms its receive with HAL_UART_Receive_IT, which the wrap refuses: ST could echo what it receives"; exit 1; }
+	@other=$$($(NM) -u -A $(filter-out $(BUILD)/chirp/src/board_serial.o,$(OBJS)) $(LIBS) 2>/dev/null | grep -E ' U ($(RX_OTHER))$$'); 	  if [ -n "$$other" ]; then echo "the UART's receive is reached by a call the wrap does not refuse:"; echo "$$other"; exit 1; fi
+	@echo "  OK   ST's receive on the CLI UART is never armed"
+	@touch $@
+
+$(BUILD)/$(TARGET).elf: $(OBJS) $(LDSCRIPT) $(BUILD)/st_receive.ok
 	@echo "  LD   $@"
 	@$(CC) $(OBJS) $(LDFLAGS) -Wl,--start-group $(LIBS) -lc -lm -Wl,--end-group -o $@
 
