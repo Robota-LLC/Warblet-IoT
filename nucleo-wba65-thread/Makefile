@@ -208,7 +208,13 @@ test:
 	   chirp/src/chirp_hwid.c chirp/src/chirpval.c chirp/src/json.c chirp/src/flashcfg.c \
 	   chirp/src/chirp_ds.c chirp/src/chirp_frame.c chirp/src/chirp_sign.c chirp/test/sha256_host.c
 	@$(BUILD)/boottest$(HOSTEXE)
-	@if [ -f $(ST_UART_C) ]; then 	  "$(HOSTCC)" -std=gnu11 -w -Ichirp/test/stub_st -Ichirp/test/stub -c $(ST_UART_C) -o $(BUILD)/st_uart_host.o && 	  "$(HOSTCC)" -std=c11 -Wall -Wextra -Ichirp/test -Ichirp/test/stub -Ichirp/inc -o $(BUILD)/echotest$(HOSTEXE) 	    chirp/test/echotest.c chirp/test/echo_hal.c chirp/src/board_serial.c $(BUILD)/st_uart_host.o 	    -Wl,--wrap=HAL_UART_Receive_IT -Wl,--wrap=otPlatUartReceived && 	  $(BUILD)/echotest$(HOSTEXE); 	else echo "SKIP  echotest: ST's uart.c is not here yet (make fetch)"; fi
+	@if [ -f $(ST_UART_C) ]; then \
+	  "$(HOSTCC)" -std=gnu11 -w -Ichirp/test/stub_st -Ichirp/test/stub -c $(ST_UART_C) -o $(BUILD)/st_uart_host.o && \
+	  "$(HOSTCC)" -std=c11 -Wall -Wextra -Ichirp/test -Ichirp/test/stub -Ichirp/inc -o $(BUILD)/echotest$(HOSTEXE) \
+	    chirp/test/echotest.c chirp/test/echo_hal.c chirp/src/board_serial.c $(BUILD)/st_uart_host.o \
+	    -Wl,--wrap=HAL_UART_Receive_IT -Wl,--wrap=otPlatUartReceived && \
+	  $(BUILD)/echotest$(HOSTEXE); \
+	else echo "SKIP  echotest: ST's uart.c is not here yet (make fetch)"; fi
 
 $(BUILD)/%.o: %.c
 	@mkdir -p $(dir $@)
@@ -222,14 +228,32 @@ $(BUILD)/%.o: %.s
 
 # ST never receives on the CLI UART, so it never echoes: the wrap above
 # refuses the one call ST's uart.c arms its receive with. This fails the build
-# if that stops holding: ST's uart.o no longer arming through that call, or an
-# object or library other than board_serial.o reaching the UART's receive by
-# another call.
+# if that stops holding:
+#   - an ST source the receive audit read has changed (its sha256 in
+#     tools/st_receive_audit.sha256): a register write or an inlined LL call
+#     leaves no symbol, so a changed source is audited again, by a person,
+#     before its new hash goes in that file;
+#   - ST's uart.o no longer arms its receive through that call;
+#   - an object or library other than board_serial.o and the HAL's own UART
+#     files (where these calls live and call each other; pinned above)
+#     reaches the UART's receive by any other call.
+ST_AUDIT  := tools/st_receive_audit.sha256
+SHA256SUM ?= $(if $(shell command -v sha256sum 2>/dev/null),sha256sum,shasum -a 256)
 ST_UART_O := $(BUILD)/Middlewares/ST/STM32_WPAN/thread/openthread/platform/uart.o
-RX_OTHER  := HAL_UART_Receive|HAL_UART_Receive_DMA|HAL_UARTEx_ReceiveToIdle|HAL_UARTEx_ReceiveToIdle_IT|HAL_UARTEx_ReceiveToIdle_DMA
-$(BUILD)/st_receive.ok: $(OBJS) $(LIBS)
-	@$(NM) -u $(ST_UART_O) | grep -qE ' U HAL_UART_Receive_IT$$' || 	  { echo "ST's uart.o no longer arms its receive with HAL_UART_Receive_IT, which the wrap refuses: ST could echo what it receives"; exit 1; }
-	@other=$$($(NM) -u -A $(filter-out $(BUILD)/chirp/src/board_serial.o,$(OBJS)) $(LIBS) 2>/dev/null | grep -E ' U ($(RX_OTHER))$$'); 	  if [ -n "$$other" ]; then echo "the UART's receive is reached by a call the wrap does not refuse:"; echo "$$other"; exit 1; fi
+RX_OWN    := $(BUILD)/chirp/src/board_serial.o $(BUILD)/Drivers/STM32WBAxx_HAL_Driver/Src/stm32wbaxx_hal_uart.o \
+             $(BUILD)/Drivers/STM32WBAxx_HAL_Driver/Src/stm32wbaxx_hal_uart_ex.o
+RX_OTHER  := HAL_UART_Receive|HAL_UART_Receive_DMA|HAL_UARTEx_ReceiveToIdle|HAL_UARTEx_ReceiveToIdle_IT|HAL_UARTEx_ReceiveToIdle_DMA|UART_Start_Receive_IT|UART_Start_Receive_DMA
+$(BUILD)/st_receive.ok: $(OBJS) $(LIBS) $(ST_AUDIT) $(shell sed 's/^[0-9a-f]*  //' $(ST_AUDIT))
+	@changed=$$($(SHA256SUM) -c $(ST_AUDIT) 2>&1 | grep -v ': OK$$'); \
+	  if [ -n "$$changed" ]; then \
+	    echo "ST sources changed since the CLI UART receive audit:"; echo "$$changed"; \
+	    echo "Audit each again (does anything arm a receive on the CLI UART, by a HAL call, a register write or LL, or echo what it receives?), then put its new sha256 in $(ST_AUDIT)."; \
+	    exit 1; \
+	  fi
+	@$(NM) -u $(ST_UART_O) | grep -qE ' U HAL_UART_Receive_IT$$' || \
+	  { echo "ST's uart.o no longer arms its receive with HAL_UART_Receive_IT, which the wrap refuses: ST could echo what it receives"; exit 1; }
+	@other=$$($(NM) -u -A $(filter-out $(RX_OWN),$(OBJS)) $(LIBS) 2>/dev/null | grep -E ' U ($(RX_OTHER))$$'); \
+	  if [ -n "$$other" ]; then echo "the UART's receive is reached by a call the wrap does not refuse:"; echo "$$other"; exit 1; fi
 	@echo "  OK   ST's receive on the CLI UART is never armed"
 	@touch $@
 
