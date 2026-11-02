@@ -45,7 +45,9 @@ warblet.COMMAND_EVERY_S = 5
 
 TIMEOUT_S = 20
 
-# Dashboard commands are at most 256 bytes; a bigger reply is not a command.
+# The most of a command this part reads. Warblet permits up to 8 KiB; a
+# longer reply is refused, said on the console, and that command is gone:
+# Warblet settles it once it has sent it.
 MAX_COMMAND_BYTES = 1024
 
 
