@@ -416,6 +416,7 @@ static int64_t uart_line_us;          /* when the last byte finished arriving */
 static unsigned uart_stashes, uart_overflows;
 static size_t  uart_ring_at_overflow; /* the ring's fill when the FIFO first overflowed */
 static int64_t reader_stall_ms;       /* the reader's next delay lasts this much longer */
+static size_t  reader_stall_from;     /* ...the first one once it has read this many bytes */
 
 /* Sends n bytes in pieces of `piece`, gap_ms apart, after what was sent
  * before. */
@@ -644,8 +645,12 @@ int uart_read_bytes(uart_port_t uart_num, void *buf, uint32_t length, TickType_t
  * the run ends. */
 void vTaskDelay(TickType_t ticks)
 {
-    clock_ms += ticks + reader_stall_ms;   /* a stall: other tasks kept the reader off */
-    reader_stall_ms = 0;
+    clock_ms += ticks;
+    if (reader_stall_ms != 0 && wire_pos >= reader_stall_from) {
+        clock_ms += reader_stall_ms;       /* a stall: other tasks kept the reader off */
+        reader_stall_ms = 0;
+        reader_stall_from = 0;
+    }
     since_yield = 0;
     if (in_reader && wire_pos == wire_len && clock_ms >= (wire_len ? wire_at[wire_len - 1] : 0) + 3000) {
         longjmp(reader_stop, 1);
@@ -693,7 +698,7 @@ static void boot(void)
 {
     s_len = 0;
     s_marked = s_skip = s_nul = false;
-    s_last_ms = 0;
+    s_quiet_ms = -1;
     started[0] = '\0';
     mqtt_inits = 0;
     in_boot = true;
@@ -966,7 +971,40 @@ static void test_reader(void)
         run_reader();
         check(strncmp(said, "CHIRP! ", 7) == 0 && strstr(said, "CHIRP= ") == NULL,
               "the first probe after a line over the limit stopped for 1.6 s gets the announce", said);
+
+        /* The same line with no pause on the wire, ending in "CHIRP?", while
+         * other tasks keep the reader off for 2 s: no look found the console
+         * quiet, so what it then reads is the same line, dropped through its
+         * line ending. Only the probe sent after it is answered. */
+        size_t n_over = strlen(over);
+        memcpy(over + n_over - 8, "CHIRP?\r\n", 8);   /* still far over the limit */
+        start_with(&base);
+        said_len = 0;
+        said[0] = '\0';
+        wire_send(over, strlen(over), 64, 30);
+        wire_pause(2000);
+        wire_send("CHIRP?\r\n", 8, 64, 30);
+        reader_stall_ms = 2000;
+        reader_stall_from = 64;              /* once part of the line is read */
+        run_reader();
+        memset(over + n_over - 8, 't', 8);
+        const char *second = strstr(said, "CHIRP! ") ? strstr(strstr(said, "CHIRP! ") + 7, "CHIRP! ") : NULL;
+        check(strncmp(said, "CHIRP! ", 7) == 0 && second == NULL && strstr(said, "CHIRP= ") == NULL,
+              "a line over the limit read late, the reader kept off 2 s: its tail is dropped, one announce", said);
     }
+
+    /* A push whose rest waits in the driver while other tasks keep the reader
+     * off for 2 s: no look found the console quiet, so the rest joins the
+     * line, and the push lands. */
+    start_with(&base);
+    said_len = 0;
+    said[0] = '\0';
+    wire_send(head, strlen(head), 64, 30);
+    wire_send("\"board-starved\"}\r\n", 18, 64, 30);
+    reader_stall_ms = 2000;
+    reader_stall_from = strlen(head);    /* once the start is read */
+    run_reader();
+    check(strncmp(said, "CHIRP= ok", 9) == 0, "a push read late, the reader kept off 2 s while it waited, lands", said);
 
     /* A flood, all there at once: taken at most READ_BATCH bytes before the
      * other tasks run, and the probe behind it is answered. */

@@ -557,7 +557,7 @@ static size_t  s_len;
 static bool    s_marked;   /* "CHIRP" has come: s_line starts there */
 static bool    s_skip;     /* the rest of a line that was too long: dropped to its end */
 static bool    s_nul;      /* a raw NUL came in this line: it is refused at its end */
-static int64_t s_last_ms;  /* when the last byte came */
+static int64_t s_quiet_ms = -1;  /* since when every look at the console found nothing; -1 once one found a byte */
 
 static void handle_line(char *line)
 {
@@ -580,16 +580,9 @@ static void handle_line(char *line)
 /* One byte off the console. A line counts from its first "CHIRP": stray bytes
  * in front are dropped and do not spoil it. A line longer than CHIRP_LINE_MAX
  * from there is thrown away whole, through its line ending, so no part of it
- * is read as a command. A line whose bytes stop for LINE_IDLE_MS is given up,
- * over the limit or not (CHIRP-PROV v1.8): the byte after the pause starts
- * afresh, so a probe sent after a stalled line is answered. */
-static void feed(char c, int64_t now_ms)
+ * is read as a command. A line that stops coming is given up by quiet(). */
+static void feed(char c)
 {
-    if ((s_marked || s_skip) && now_ms - s_last_ms >= LINE_IDLE_MS) {
-        s_len = 0;  /* the line stopped coming: it will not end now */
-        s_marked = s_skip = s_nul = false;
-    }
-    s_last_ms = now_ms;
     if (c == '\r' || c == '\n') {  /* the portal sends CRLF; a bare LF is fine too */
         if (s_marked && !s_skip) {
             s_line[s_len] = '\0';
@@ -628,10 +621,26 @@ static void feed(char c, int64_t now_ms)
     }
 }
 
-/* One turn of the reader: the bytes that have come in, up to READ_BATCH, each
- * stamped with the time it was taken. The read never waits: one that waited
- * for more would hand feed() the bytes from both sides of a pause with one
- * time, and a line that stopped coming would never be seen to stop. */
+/* A look at the console that found nothing, at now_ms. A setup line is given
+ * up, over the limit or not (CHIRP-PROV v1.8), once the console has been seen
+ * quiet for LINE_IDLE_MS: looks that found nothing, that far apart, so a probe
+ * sent after a stalled line is answered. Bytes that came while other tasks
+ * kept the reader off would still be waiting, so quiet seen at both ends means
+ * none came between. Bytes found waiting join the line that was arriving:
+ * nothing shows they paused, so a good push is never thrown away. */
+static void quiet(int64_t now_ms)
+{
+    if (s_quiet_ms < 0) {
+        s_quiet_ms = now_ms;
+    } else if ((s_marked || s_skip) && now_ms - s_quiet_ms >= LINE_IDLE_MS) {
+        s_len = 0;  /* the line stopped coming: it will not end now */
+        s_marked = s_skip = s_nul = false;
+    }
+}
+
+/* One turn of the reader: the bytes that have come in, up to READ_BATCH. The
+ * read never waits, so a read that returns nothing is a look that found the
+ * console quiet, which is how quiet() sees a line stop. */
 static void prov_step(void)
 {
     uint8_t buf[64];
@@ -639,11 +648,12 @@ static void prov_step(void)
         size_t room = READ_BATCH - taken;
         int n = s_read(buf, room < sizeof(buf) ? room : sizeof(buf));
         if (n <= 0) {
-            return;  /* nothing more has come */
+            quiet(esp_timer_get_time() / 1000);  /* nothing more has come */
+            return;
         }
-        int64_t now = esp_timer_get_time() / 1000;
+        s_quiet_ms = -1;
         for (int i = 0; i < n; i++) {
-            feed((char)buf[i], now);
+            feed((char)buf[i]);
         }
         taken += (size_t)n;
     }
