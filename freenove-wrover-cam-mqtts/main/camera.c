@@ -84,8 +84,8 @@ esp_err_t camera_init(void)
 
     esp_err_t err = esp_camera_init(&cfg);
     if (err == ESP_ERR_NOT_SUPPORTED) {
-        /* Expected on this board's GC0308, which has no JPEG encoder: the
-         * driver has just said so, and this is not a fault. */
+        /* Expected on a sensor without a JPEG encoder, such as the GC0308:
+         * the driver has just said so, and this is not a fault. */
         ESP_LOGI(TAG, "this sensor has no JPEG encoder, which is expected: "
                       "capture goes on in RGB565, each frame encoded in software");
         /* esp32-camera's failed start (esp_camera_deinit) leaves two things
