@@ -2,7 +2,7 @@
   "_": "arduino-libraries/Warblet is the Warblet Arduino library, vendored byte for byte at this commit of its repository: the files listed, and nothing else. A release pin also names the release whose tag is this commit; this one is before its release. Change it only by copying the library at a commit of its repository and writing this file again.",
   "library": "Warblet",
   "repository": "https://github.com/Robota-LLC/Warblet-Arduino",
-  "commit": "be296fc8cc633acf9d6dd4cd57288ce423f573e4",
+  "commit": "d0d535a0fe23b70cce325faf5b69168498d19acd",
   "paths": [
     "library.properties",
     "LICENSE",
@@ -36,7 +36,7 @@
     "src/Warblet.h": "55c3a89536ac55060af82f64e6e26ed97c7d4227f87bb211877cdeaa45ead403",
     "src/warblet/core/json.cpp": "a687b241b9c53a2ad3a01bfb55487c556a23572ae18dea6d19628c0b1edc2eb3",
     "src/warblet/core/json.h": "ee261640c50c72363da4fe98aacde171162c6b7cb9e1e28f5a765e41d3e89361",
-    "src/warblet/core/prov.cpp": "c1626a20dc4efe455de1e091aec534f06347f0b2a80372655207ab33e8a4f813",
+    "src/warblet/core/prov.cpp": "117c4a1b826917b3bbdaaf97d7579248a6257f59082f9fc40fdaca20a0d1f89d",
     "src/warblet/core/prov.h": "da297166a8335faeb8874c3cca9086347cfd88e4cf0fcd1805e2ffc3afab9205",
     "src/warblet/core/sha256.cpp": "fc87079614613f4f1aaf565cb46a6d945b6d5c440b5fbb5d24ce94949ed7724b",
     "src/warblet/core/sha256.h": "9c74d35701e22ad4cf3a5af05f1529269a3ff53c0ce7403bc699a8fb7ae54627",
