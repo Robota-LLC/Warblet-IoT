@@ -4,6 +4,8 @@
 
 Every 30 seconds the board prints an HTTP request to its serial port. A Python relay on your computer sends it to Warblet. The two-byte reading is simulated: it starts at 20.1 °C, rises to 40.0 °C, then repeats from 20.0 °C. This firmware does not use the board’s radio.
 
+Setup and storage have been tested on this board; reporting to Warblet has not yet been validated.
+
 ## What you need
 
 - An ST NUCLEO-WBA65RI.
@@ -105,6 +107,8 @@ with serial.Serial(PORT, 115200, timeout=1) as port:
 
 Keep the relay running to receive reports. If you set a custom `host` on the board, change the relay’s `HOST` too. The serial requests contain the device credential; keep captured logs private.
 
+No report is sent until a device credential is stored. A serial line that loses bytes is discarded whole without an answer; resend it.
+
 ## Data and commands
 
 The relay removes the `CHIRP^ ` prefix from each header line and converts the `body` line from hex to bytes. It sends `POST /ingest/{hwid}` to `http.warbletiot.com:80`.
@@ -145,7 +149,7 @@ The HTTP connection from the computer relay to Warblet is unencrypted. Signing d
 | No console output | Use CN15, the ST-LINK port, at 115200 baud. |
 | No relay output | Wait 30 seconds after boot and close other apps using the serial port. |
 | `missing-field` | A first push needs a token or claim; a signing key alone is not enough. |
-| `bad-json` | Use a host of at most 79 characters and a token or claim of at most 95. A signing key must be standard base64: 44 characters ending in `=`. |
+| `bad-json` | Use a host of at most 63 characters and a token or claim of 1–63 printable ASCII characters, with no spaces. A signing key must be standard base64: 44 characters ending in `=`. |
 | Relay connection failed | Check the computer’s internet connection, DNS, and `HOST`. |
 | HTTP 401 | Check the device credential and signing key. |
 | No LED heartbeat | Check that the app is running and that the image was written to `0x08000000`. |

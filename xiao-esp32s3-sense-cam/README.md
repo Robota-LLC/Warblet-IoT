@@ -81,15 +81,13 @@ esptool --chip esp32s3 --port <PORT> --baud 115200 write_flash 0x10000 build/xia
 
 You can also select the image in https://warbletiot.com/flash. Use `build/xiao-esp32s3-sense-cam-full.bin` at `0x0` for an initial install, or `build/xiao-esp32s3-sense-cam-update.bin` at `0x10000` for an app update. A merged-image write can erase stored credentials. If the port does not appear, hold BOOT while you plug the cable in, then flash.
 
-An app-only update to v1.6.0 keeps Wi-Fi, server and device settings. After you send settings under v1.6.0, older firmware needs USB setup if installed again. Returning to v1.6.0 with an app-only write restores its last saved identity and server, with Wi-Fi networks from whichever firmware saved them last.
-
 ## Set up the connection
 
 1. Open https://warbletiot.com/flash in Chrome or Edge and connect the board's serial port.
 2. Choose your Wi-Fi network and Warblet device, then send the settings.
 3. Open the device page to see incoming messages. Close other serial tools while the browser uses the port.
 
-For manual setup, use a serial terminal on the board's USB port. The board speaks CHIRP-PROV v1.7 there. Replace these values and send each command on one line:
+For manual setup, use a serial terminal on the board's USB port. The board speaks CHIRP-PROV v1.8 there. Replace these values and send each command on one line:
 
 ```text
 CHIRP?
@@ -99,7 +97,7 @@ CHIRP+ {"ssid":"YOUR_WIFI","pass":"YOUR_WIFI_PASSWORD","hwid":"YOUR_DEVICE_ID","
 The board answers `CHIRP?` with a line like this:
 
 ```text
-CHIRP! v=1 hw=cam-a1b2c3 radios=wifi sig=1 t=demo-xiao-s3-cam
+CHIRP! v=1 hw=cam-a1b2c3 fw=v1.6.0 key_set=0 radios=wifi t=demo-xiao-s3-cam caps={"v":1,"auth":[1,2],"keyProvisioning":["usb"],"otaKeyRotation":false,"otaFirmwareUpdate":false,"transports":["mqtts"]}
 ```
 
 The board saves settings in NVS flash and restarts. Later pushes can contain only changed fields. The optional `key` is a base64-encoded 32-byte signing key; use either `claim` or `token`, not both. Invalid settings are refused without saving.
@@ -116,7 +114,7 @@ For `host`, use only letters, digits, dots and hyphens: a hostname or IPv4 addre
 |---|---|
 | **Transport** | MQTT over TLS to `mqtt.warbletiot.com:8883` |
 | **Security cap** | L2 (Signed), with a key; L1 (Token) without one |
-| **Announce** | `CHIRP! v=1 hw=cam-a1b2c3 radios=wifi sig=1 t=demo-xiao-s3-cam` |
+| **Announce** | `CHIRP! v=1 hw=cam-a1b2c3 fw=v1.6.0 key_set=0 radios=wifi t=demo-xiao-s3-cam caps={"v":1,"auth":[1,2],"keyProvisioning":["usb"],"otaKeyRotation":false,"otaFirmwareUpdate":false,"transports":["mqtts"]}` |
 
 The board verifies the broker with the ESP-IDF certificate bundle. The device ID is both the MQTT client ID and username; the token or claim code is the password. This sender has no plaintext setting.
 

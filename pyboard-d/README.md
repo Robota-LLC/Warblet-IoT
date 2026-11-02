@@ -6,7 +6,7 @@ The board reads its chip temperature every 30 seconds and sends two bytes to War
 
 ## What you need
 
-- A Pyboard D SF2W with MicroPython v1.14.
+- A Pyboard D SF2W with MicroPython 1.28.0.
 - A micro-USB data cable.
 - A Wi-Fi network and a Warblet account.
 
@@ -28,12 +28,14 @@ python -m pip install mpremote
 
 Run from this demo’s directory. Replace `<PORT>` with the board’s serial port, such as `COM5` or `/dev/ttyACM0`.
 
-Use MicroPython v1.14 for PYBD-SF2W. If it is already installed, copy the app files below. A board without this runtime needs a PYBD-SF2 runtime installed through its DFU bootloader first.
+Use [MicroPython 1.28.0 for PYBD-SF2](https://micropython.org/resources/firmware/PYBD_SF2-20260406-v1.28.0.dfu). If it is already installed, copy the app files below.
 
-Eject or unmount `PYBFLASH` before writing through the serial prompt. Copy the files, then press RESET:
+To update the runtime, first back up your files and finish any computer writes to `PYBFLASH`. On Windows, flush the drive with `Write-VolumeCache -DriveLetter <LETTER>` in PowerShell. At the MicroPython prompt, run `import machine; machine.bootloader()`. Windows binds its driver to **Pyboard DFU**; use MicroPython's `tools/pydfu.py` with the downloaded image. No button is needed. **Do not hold USR while pressing RST**: that can reset the filesystem.
+
+Copy the three app files, then press RESET. You need not eject `PYBFLASH` for USB setup, but avoid editing the drive from your computer while the board saves settings.
 
 ```sh
-mpremote connect <PORT> fs cp main.py chirp_prov.py chirp_send.py chirp_sign.py :
+mpremote connect <PORT> fs cp main.py warblet.py warblet_http.py :
 ```
 
 ## Set up the connection
@@ -42,7 +44,7 @@ mpremote connect <PORT> fs cp main.py chirp_prov.py chirp_send.py chirp_sign.py 
 2. Choose your Wi-Fi network and Warblet device, then send the settings.
 3. Open the device page to see incoming messages. Close other serial tools while the browser uses the port.
 
-For manual setup, use a serial terminal at 115200 baud, 8 data bits, no parity, and 1 stop bit. Replace these values and send each command on one line:
+For manual setup, use a serial terminal at 115200 baud, 8 data bits, no parity, and 1 stop bit, with DTR asserted; otherwise the console stays silent. Replace these values and send each command on one line:
 
 ```text
 CHIRP?
@@ -59,11 +61,11 @@ An `aps` list can hold up to eight networks, tried in order. Sending `ssid` with
 
 The app sends `POST /ingest/{hwid}` with `Content-Type: application/octet-stream` and the token in `X-Chirp-Token`. A credential beginning with `CHIRP-` also goes in `X-Chirp-Claim`.
 
-With a signing key, `X-Chirp-Signature` carries a hex HMAC-SHA256 of `"<nonce>\ntag=\n" + payload`: this app sends no tag, and the tag line is signed empty. When the clock is set, `X-Chirp-Nonce` carries Unix milliseconds and the same number is the nonce line. Without a clock there is no nonce header, the nonce line is empty (`"\ntag=\n" + payload`), and there is no replay protection. This app has no downlink polling; keys arrive over USB.
+With a signing key, `X-Chirp-Signature` carries a hex HMAC-SHA256 of `"<nonce>\ntag=\n" + payload`: this app sends no tag, and the tag line is signed empty. `X-Chirp-Nonce` carries Unix milliseconds and the same number is the nonce line. Signed reports wait for NTP to set the clock. This app has no downlink polling; keys arrive over USB.
 
 The payload is two bytes: Celsius multiplied by 10, rounded, and stored as a signed 16-bit integer, high byte first. `00 d7` means 21.5 °C; `ff ce` means −5.0 °C. Die temperature measures the chip, not the room.
 
-The destination is `http.warbletiot.com:80`. This sender does not use TLS: the token and reading are visible on the network. A signature does not encrypt them, and this app cannot satisfy `enforceTls`. `chirp_send.py` contains its HTTP socket client and time-sync code.
+The destination is `http.warbletiot.com:80`. This sender does not use TLS: the token and reading are visible on the network. A signature does not encrypt them, and this app cannot satisfy `enforceTls`. `warblet_http.py` contains its HTTP socket client and time-sync code.
 
 ## Decoder
 
@@ -89,4 +91,4 @@ Keep Celsius as the return unit, or change `encode_temperature()` and `decoder.s
 | Send failed | Check Wi-Fi, DNS, and the stored host. |
 | `stopped by an unexpected error` | Read the preceding error. The board restarts after 10 seconds; Ctrl-C stops it for debugging. |
 
-HTTP 301 can mean the stored host is wrong; use `http.warbletiot.com`. If time sync fails, signed messages carry no nonce header and sign an empty nonce line. A reset can disconnect native USB before the setup reply is visible: reconnect and send `CHIRP?` to check the saved device ID.
+HTTP 301 can mean the stored host is wrong; use `http.warbletiot.com`. If time sync fails, signed reports wait; allow NTP on the network. A reset can disconnect native USB before the setup reply is visible: reconnect and send `CHIRP?` to check the saved device ID.

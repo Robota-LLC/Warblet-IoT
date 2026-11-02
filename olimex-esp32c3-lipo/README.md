@@ -27,7 +27,7 @@ The board has the button and LED fitted. No extra wiring is needed.
 | `LED_PIN` | 8 | LED1; low turns it on |
 | `BUTTON_PIN` | 9 | BUT1; pressed connects to ground |
 | `INTERVAL_S` | 30 | Seconds before a heartbeat |
-| `COMMAND_POLL_S` | 5 | Seconds between command checks |
+| `warblet.COMMAND_EVERY_S` | 5 | Seconds between command checks |
 | `BUTTON_POLL_INTERVAL_MS` | 20 | Gap between button checks |
 | `DEBOUNCE_MS` | 40 | A press must still read down this much later |
 
@@ -62,7 +62,7 @@ esptool --chip esp32c3 --port <PORT> write_flash 0x0 ESP32_GENERIC_C3-20260406-v
 Copy the files, then press RESET:
 
 ```sh
-mpremote connect <PORT> fs cp main.py chirp_prov.py chirp_send.py chirp_sign.py :
+mpremote connect <PORT> fs cp main.py warblet.py warblet_https.py :
 ```
 
 Keep the default flashing baud rate. If the board needs bootloader mode, hold BUT1 while resetting, then release it.
@@ -88,13 +88,13 @@ An `aps` list can hold up to eight networks, tried in order. Sending `ssid` with
 
 ## Data and commands
 
-The app connects to `https.warbletiot.com:443`, verifies the hostname and certificate against the roots in `chirp_send.py`, and requires an NTP-set clock before sending.
+The app connects to `https.warbletiot.com:443`, verifies the hostname and certificate against the roots in `warblet_https.py`, and requires an NTP-set clock before sending.
 
 The app sends `POST /ingest/{hwid}` with `Content-Type: application/octet-stream` and the token in `X-Chirp-Token`. A credential beginning with `CHIRP-` also goes in `X-Chirp-Claim`. A report sent because of a press adds `X-Chirp-Tag: press`.
 
 With a signing key, `X-Chirp-Signature` is a hex HMAC-SHA256 of `"<nonce>\ntag=<tag>\n" + payload`. The nonce is Unix milliseconds, also sent in `X-Chirp-Nonce`. Both lines are required; leave the tag empty for an untagged reading.
 
-Commands are collected with `GET /ingest/{hwid}/down` and the token header. Signed devices also send a fresh nonce and a signature over `"chirp-down\n<hwid>\n<nonce>"`. A `200` returns one command; `204` means none. Truncated replies and replies over 1024 bytes are ignored.
+Commands are collected with `GET /ingest/{hwid}/down` and the token header. Signed devices also send a fresh nonce and a signature over `"chirp-down\n<hwid>\n<nonce>"`. A `200` returns one command; `204` means none. Truncated replies are ignored. A command over 1,024 bytes is dropped with a console message; send a shorter command again.
 
 Send signing keys over USB in the `key` field. This demo ignores over-the-air key updates, even if Warblet marks the delivery as sent.
 

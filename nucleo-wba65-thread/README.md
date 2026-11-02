@@ -4,6 +4,8 @@
 
 The board joins a Thread network and sends a two-byte simulated temperature to Warblet every 30 seconds. The reading starts at 20.1 °C, rises to 40.0 °C, then repeats from 20.0 °C. Credentials are sent through USB and saved in flash.
 
+Setup and storage have been tested on this board; reporting to Warblet has not yet been validated.
+
 ## What you need
 
 - An ST NUCLEO-WBA65RI.
@@ -69,9 +71,11 @@ CHIRP?
 CHIRP+ {"thread":{"dataset":"YOUR_DATASET_HEX"},"hwid":"YOUR_DEVICE_ID","token":"YOUR_DEVICE_TOKEN"}
 ```
 
-The board answers `CHIRP= ok` when it saves the config. The optional `key` is a base64-encoded 32-byte signing key. Use `claim` or `token`, not both. Later pushes merge with saved fields; a key-only push needs a network and credential already stored. A host over 63 characters or a token or claim over 95 is refused with `bad-json`.
+The board answers `CHIRP= ok` when it saves the config. The optional `key` is a base64-encoded 32-byte signing key. Use `claim` or `token`, not both. Later pushes merge with saved fields; a key-only push needs a network and credential already stored. A host over 63 characters, or a token or claim outside 1–63 printable ASCII characters without spaces, is refused with `bad-json`.
 
 A push with `claim` or a changed `hwid` (including letter case) starts a new device. It drops the stored signing key unless the same push supplies `key`. Token-only or network-only updates keep the key; a key-only update replaces it.
+
+A setup line that stalls for 1.5 seconds is dropped without an answer. The following line is also discarded through its ending; if your next CLI command gets no response, send it again.
 
 The same console accepts OpenThread commands such as `state`. A connected node has a role such as `child` or `router`. `dataset active -x` shows the network dataset, including private credentials; do not share its output.
 
@@ -91,7 +95,7 @@ With a signing key:
 CHIRP1 <hwid> <token>:<64 hex HMAC characters> <two raw payload bytes>
 ```
 
-Spaces separate the text fields; the last two bytes are binary, with no trailing newline. With no credential the token field is `-`.
+Spaces separate the text fields; the last two bytes are binary, with no trailing newline. Nothing is sent until a credential is stored.
 
 The HMAC-SHA256 covers `"\ntag=\n" + payload`: an empty nonce line, an empty tag line, then the binary payload. Include both lines when porting the signing code; they are not sent in the datagram.
 
@@ -122,8 +126,8 @@ Thread encrypts the local radio link; the UDP route beyond it is unencrypted. Si
 | Role stays `detached` | Check the dataset, channel, and router range. |
 | DNS fails | Check the border router’s DNS64/NAT64 and internet connection. |
 | `missing-field` | A first push needs the network and credential. |
-| `overrun` | Close competing serial tools and resend the whole line. |
-| `too-long` | Keep the line to 4096 bytes or fewer. |
+| `CHIRP. input line dropped (overrun)` | Close competing serial tools and resend the whole line; no setup answer is sent. |
+| `CHIRP. input line dropped (too-long)` | Keep the line to 4096 bytes or fewer; no setup answer is sent. |
 | No serial answer | Use CN15 at 115200 baud. |
 | Stored key is unusable | Send a valid signing key; confirm acceptance on the device page. |
 | Reports sent but no reading appears | UDP has no delivery acknowledgement. Check the device ID, credential, and rejected-message count. |

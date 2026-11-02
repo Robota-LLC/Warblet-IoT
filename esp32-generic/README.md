@@ -8,9 +8,11 @@ Between readings the board checks with Warblet for a command, waiting 5 seconds 
 
 ## What you need
 
-- An ESP32, ESP32-S3, ESP32-C3, ESP32-C5, or ESP32-C6 board.
+- An ESP32-S3, ESP32-C3, ESP32-C5, or ESP32-C6 board.
 - A USB data cable.
 - A 2.4 GHz Wi-Fi network and a Warblet account.
+
+For a classic ESP32, use the [Open starter](../open-starter/README.md), or the [Desk display](../cyd-desk-display/README.md) on a Cheap Yellow Display.
 
 ## Quick start
 
@@ -22,7 +24,7 @@ To customize the firmware first, use the build and flash steps below.
 
 Check your board’s pinout before running the app. `LED_PIN = 2` is a default, not a detected LED. Set it to your LED’s GPIO, or to `None` to disable it. Set `LED_ACTIVE_LOW` to match the wiring. No external sensor is needed.
 
-`INTERVAL_S` in `main.py` sets the reporting interval, and `COMMAND_POLL_S` how often the board asks for a command. `read_temperature_c()` tries the Celsius API, then converts the ESP32 Fahrenheit API to Celsius. Die temperature measures the chip, not the room.
+`INTERVAL_S` in `main.py` sets the reporting interval, and `warblet.COMMAND_EVERY_S` how often the board asks for a command. `read_temperature_c()` tries the Celsius API, then converts the ESP32 Fahrenheit API to Celsius. Die temperature measures the chip, not the room.
 
 ## Build by hand
 
@@ -40,7 +42,6 @@ Use the MicroPython 1.28.0 image for your chip. [demo.json](demo.json) also list
 
 | Chip | Download | Offset |
 |---|---|---|
-| ESP32 | [ESP32_GENERIC-20260406-v1.28.0.bin](https://micropython.org/resources/firmware/ESP32_GENERIC-20260406-v1.28.0.bin) | `0x1000` |
 | ESP32-S3 | [ESP32_GENERIC_S3-20260406-v1.28.0.bin](https://micropython.org/resources/firmware/ESP32_GENERIC_S3-20260406-v1.28.0.bin) | `0x0` |
 | ESP32-C3 | [ESP32_GENERIC_C3-20260406-v1.28.0.bin](https://micropython.org/resources/firmware/ESP32_GENERIC_C3-20260406-v1.28.0.bin) | `0x0` |
 | ESP32-C5 | [ESP32_GENERIC_C5-20260406-v1.28.0.bin](https://micropython.org/resources/firmware/ESP32_GENERIC_C5-20260406-v1.28.0.bin) | `0x2000` |
@@ -55,7 +56,7 @@ esptool --chip esp32c3 --port <PORT> write_flash 0x0 ESP32_GENERIC_C3-20260406-v
 Copy the files, then press RESET:
 
 ```sh
-mpremote connect <PORT> fs cp main.py chirp_prov.py chirp_send.py chirp_sign.py :
+mpremote connect <PORT> fs cp main.py warblet.py warblet_https.py :
 ```
 
 ## Set up the connection
@@ -79,13 +80,13 @@ An `aps` list can hold up to eight networks, tried in order. Sending `ssid` with
 
 ## Data and commands
 
-The app connects to `https.warbletiot.com:443`, verifies the hostname and certificate against the roots in `chirp_send.py`, and requires an NTP-set clock before sending.
+The app connects to `https.warbletiot.com:443`, verifies the hostname and certificate against the roots in `warblet_https.py`, and requires an NTP-set clock before sending.
 
 The app sends `POST /ingest/{hwid}` with `Content-Type: application/octet-stream` and the token in `X-Chirp-Token`. A credential beginning with `CHIRP-` also goes in `X-Chirp-Claim`.
 
 With a signing key, `X-Chirp-Signature` is a hex HMAC-SHA256 of `"<nonce>\ntag=<tag>\n" + payload`. The nonce is Unix milliseconds, also sent in `X-Chirp-Nonce`. Both lines are required; leave the tag empty for an untagged reading.
 
-Commands are collected with `GET /ingest/{hwid}/down` and the token header. Signed devices also send a fresh nonce and a signature over `"chirp-down\n<hwid>\n<nonce>"`. A `200` returns one command; `204` means none. Truncated replies and replies over 1024 bytes are ignored.
+Commands are collected with `GET /ingest/{hwid}/down` and the token header. Signed devices also send a fresh nonce and a signature over `"chirp-down\n<hwid>\n<nonce>"`. A `200` returns one command; `204` means none. Truncated replies are ignored. A command over 1,024 bytes is dropped with a console message; send a shorter command again.
 
 Send signing keys over USB in the `key` field. This demo ignores over-the-air key updates, even if Warblet marks the delivery as sent.
 
@@ -131,4 +132,4 @@ To drive a relay or a buzzer instead of the LED, change `on_downlink()` and the 
 | USB console interrupts reporting | Close competing serial tools and reset. Ctrl-C stops the app at the MicroPython prompt. |
 | `stopped by an unexpected error` | Read the preceding error. The board restarts after 10 seconds; Ctrl-C stops it for debugging. |
 
-If the board will not boot, check the image and flash offset: ESP32 uses `0x1000`; C5 uses `0x2000`; S3, C3, and C6 use `0x0`. If esptool rejects `esp32c5`, update it with `python -m pip install --upgrade esptool`. If the console says it has no die temperature, check the runtime or connect an external sensor.
+If the board will not boot, check the image and flash offset: C5 uses `0x2000`; S3, C3, and C6 use `0x0`. If esptool rejects `esp32c5`, update it with `python -m pip install --upgrade esptool`. If the console says it has no die temperature, check the runtime or connect an external sensor.

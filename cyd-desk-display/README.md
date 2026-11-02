@@ -27,13 +27,13 @@ Close other serial tools while the browser uses the board; unplug other USB seri
 <details>
 <summary>If the board needs BOOT and RST</summary>
 
-Select **Skip automatic reset**, then click Connect or Install. Wait for the page to open the USB connection and show **Put the board in install mode** before pressing the board's buttons:
+Open **ESP32 connection help** and select **Use the BOOT button for installation**. Start the connection or installation, then wait for the page to open the USB port and ask for the button sequence before doing it:
 
 1. Hold **BOOT**.
 2. Press and release **RST**.
 3. Let go of **BOOT**.
 
-Click **Continue**. Repeat the three steps only when the page shows this prompt again. If the page asks you to restart the board, keep BOOT released and press RST.
+Click **Buttons released — continue**. Repeat the three steps only when the page shows this prompt again. If the page asks you to restart the board, keep BOOT released and press RST.
 
 </details>
 
@@ -63,12 +63,16 @@ If Wi-Fi stays connected but Warblet gives no answer, the board keeps retrying a
 
 **Not set up** means the board needs USB setup. **Not on an account** means Warblet no longer recognizes its setup; the board stops communicating and needs USB setup again. Deleting a device from the dashboard does not erase its Wi-Fi settings or keys from the board.
 
+This MicroPython demo deliberately uses plain HTTP so there is room for your own code. Signed is the default: it authenticates reports but does not hide traffic or protect replies from tampering. Use the [Arduino Desk display](../cyd-desk-display-arduino/README.md) for HTTPS.
+
+Commands over 1,024 bytes are dropped with a console message; send a shorter message again.
+
 ## Facts
 
 | | |
 |---|---|
 | **Screen** | 320 × 240, landscape; ILI9341, with an ST7789 driver that is untested on hardware |
-| **Transport** | HTTPS to `https.warbletiot.com`; a report about every 30 seconds and a message check every 5 seconds |
+| **Transport** | HTTP to `http.warbletiot.com`; a report about every 30 seconds and a message check every 5 seconds |
 | **Security cap** | L2 (Signed), with a signing key; L1 (Token) without one |
 | **Runtime** | MicroPython 1.28.0 ESP32_GENERIC; this demo runs as Python source |
 | **History** | Up to 7 days, subject to your plan and available storage |
@@ -141,10 +145,10 @@ Run the following command first. If esptool waits for a connection, hold BOOT, p
 python -m esptool --chip esp32 --port <PORT> --before no-reset write-flash --erase-all 0x1000 ESP32_GENERIC-20260406-v1.28.0.bin
 ```
 
-Press RST with BOOT released if the board does not restart. Then copy the five app files and reset:
+Press RST with BOOT released if the board does not restart. Then copy the four app files and reset:
 
 ```sh
-mpremote connect <PORT> fs cp main.py screen.py chirp_prov.py chirp_send.py chirp_sign.py :
+mpremote connect <PORT> fs cp main.py screen.py warblet.py warblet_http.py :
 mpremote connect <PORT> reset
 ```
 
@@ -165,7 +169,7 @@ For terminal setup at 115200 baud, follow the [ESP32 connection guide](../esp32-
 - `hwid`: the device ID.
 - `claim` or `token`: a setup code or device token; send one, not both.
 - `key`: the base64-encoded 32-byte signing key.
-- `host`: the server address, normally `https.warbletiot.com`.
+- `host`: the server address, normally `http.warbletiot.com`.
 
 A later push can contain only changed fields. Sending blank settings does not erase the setup.
 

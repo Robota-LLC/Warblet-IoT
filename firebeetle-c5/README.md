@@ -53,8 +53,6 @@ esptool --chip esp32c5 --port <PORT> write_flash 0x10000 build/firebeetle-c5-upd
 
 You can also select the image in https://warbletiot.com/flash. Use `build/firebeetle-c5-full.bin` at `0x0` for an initial install, or `build/firebeetle-c5-update.bin` at `0x10000` for an app update. A merged-image write can erase stored credentials.
 
-An app-only update to v1.6.0 keeps Wi-Fi, server and device settings. After you send settings under v1.6.0, older firmware needs USB setup if installed again. Returning to v1.6.0 with an app-only write restores its last saved identity and server, with Wi-Fi networks from whichever firmware saved them last.
-
 ## Set up the connection
 
 1. Open https://warbletiot.com/flash in Chrome or Edge and connect the board’s serial port.

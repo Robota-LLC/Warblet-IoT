@@ -49,7 +49,7 @@ esptool --chip esp32c6 --port <PORT> write_flash 0x0 ESP32_GENERIC_C6-20260406-v
 Copy the files, then press RESET:
 
 ```sh
-mpremote connect <PORT> fs cp main.py chirp_mqtt.py chirp_prov.py chirp_sign.py :
+mpremote connect <PORT> fs cp main.py warblet.py warblet_mqtt.py :
 ```
 
 ## Set up the connection
@@ -87,7 +87,7 @@ The payload is two bytes: Celsius multiplied by 10, rounded, and stored as a sig
 
 With a signing key, each published payload starts with 32 raw HMAC-SHA256 bytes, followed by the two temperature bytes. The signature covers an empty nonce line, the tag line and then the temperature bytes: `"\ntag=\n"` before a plain reading and `"\ntag=press\n"` before a press. Those lines are signed but not sent, because the topic already carries the tag. These messages have no nonce and no replay protection. QoS 0 gives no delivery acknowledgement; check the device page to confirm receipt.
 
-`chirp_mqtt.py` verifies the hostname and server certificate using its bundled roots and sets the clock through NTP. Keep `tls` enabled for encrypted port 8883. Setting `"tls": false` uses unencrypted port 1883 and cannot meet a device’s TLS requirement.
+`warblet_mqtt.py` verifies the hostname and server certificate using its bundled roots and sets the clock through NTP. Keep `tls` enabled for encrypted port 8883. Setting `"tls": false` uses unencrypted port 1883 and cannot meet a device’s TLS requirement.
 
 ## LED commands
 
@@ -104,6 +104,8 @@ Set the device spec’s controls to:
 The app reconnects after a network failure. Readings missed while offline are not stored for later delivery. Commands wait at Warblet until reconnection or expiry; their delivery status does not confirm that the board acted on them.
 
 Unexpected errors print to the console and restart the board after 10 seconds. Ctrl-C stops the app for debugging; press RESET to run it again.
+
+Commands wait in a queue of up to eight messages and 8 KiB; one command always fits on its own. When full, the newest command is dropped with a console message.
 
 ## Decoder
 
