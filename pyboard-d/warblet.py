@@ -448,10 +448,10 @@ def _controls(text):
 
 def fits(name, value):
     # True when a pushed text is within the contract's bounds: an ssid of 1 to
-    # 32 bytes and a pass of up to 64, neither holding a control character, a claim or token of 1 to 63 printable ASCII
-    # characters without the space, a
-    # host of up to 63 letters, digits, . and -, an id in the platform's
-    # grammar, and a key that will sign.
+    # 32 bytes and a pass of up to 64, neither holding a control character; a
+    # claim or token of 1 to 63 printable ASCII characters without the space;
+    # a host of up to 63 letters, digits, . and -; an id in the platform's
+    # grammar; and a key that will sign.
     if name == "ssid":
         return 0 < len(value.encode()) <= 32 and not _controls(value)
     if name == "pass":
