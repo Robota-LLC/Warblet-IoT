@@ -380,9 +380,9 @@ void board_serial_begin(void (*on_chirp_line)(char *line, unsigned len))
 
   if (oTCLIuart == NULL) { return; }
 
-  /* ST's own receive was never armed (see __wrap_HAL_UART_Receive_IT), so
-   * whatever came before now is still in the UART, unread: this flushes it,
-   * with any overrun it caused. Receive is DMA from here, which is immune to
+  /* Stop any receive before the DMA channel is set up: ST's is never armed
+   * (see __wrap_HAL_UART_Receive_IT), but ours is running when OpenThread's
+   * reset runs this again. Receive is DMA from here, which is immune to
    * radio-interrupt latency. */
   (void)HAL_UART_AbortReceive(oTCLIuart);
 
@@ -416,6 +416,14 @@ void board_serial_begin(void (*on_chirp_line)(char *line, unsigned len))
   HAL_NVIC_EnableIRQ(GPDMA1_Channel7_IRQn);
   s_dma_last = 0u;
 
+  /* Whatever came before now is still in the UART, unread. The HAL's abort
+   * clears the overrun, noise, parity and framing flags and flushes the data
+   * register (RXFRQ; this UART runs with its FIFO off); the receive below
+   * clears the idle flag itself. Done last, so bytes that came while the
+   * channel was set up go too, with any overrun they caused. A byte still
+   * being shifted in arrives after it: the first byte after the start, it is
+   * a tail and dropped through its line ending (rx_task()). */
+  (void)HAL_UART_AbortReceive(oTCLIuart);
   if (HAL_UARTEx_ReceiveToIdle_DMA(oTCLIuart, s_dma_buf, sizeof s_dma_buf) != HAL_OK) {
     board_serial_print("CHIRP. rx dma start failed; serial input is dead\r\n");
   }

@@ -21,3 +21,15 @@ extern char     wire_out[8192];   /* what the board sent to the console */
 extern unsigned wire_out_len;
 extern unsigned it_bytes;         /* bytes the 1-byte receive handed to a callback */
 extern unsigned lost_bytes;       /* bytes no receive was armed for */
+
+/* What the UART holds that no receive took: in its data register, or still
+ * being shifted in. HAL_UART_AbortReceive()'s flush (RXFRQ) empties it, all
+ * but the last flush_leaves bytes (a byte still being shifted in is not there
+ * to flush yet). When the DMA receive starts, the DMA takes what is left at
+ * the next hal_dma_takes_waiting(); two or more left are an overrun, which
+ * the error callback hears of first, and only the last of them is kept. */
+extern unsigned flush_leaves;
+void uart_holds(const char *bytes, unsigned n);
+void hal_dma_takes_waiting(UART_HandleTypeDef *h);
+unsigned uart_waiting_bytes(void);
+void hal_uart_reset(UART_HandleTypeDef *h);   /* the UART as after a reset: no receive, nothing held */

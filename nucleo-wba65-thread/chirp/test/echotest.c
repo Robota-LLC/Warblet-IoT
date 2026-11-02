@@ -12,7 +12,10 @@
  *     callback does echo a line, so the model reaches ST's echo;
  *   - the wrap refuses the CLI UART's receive and passes any other UART's;
  *   - after the takeover, a probe is read and a CLI command reaches ot-cli,
- *     echoed once, by board_serial.c.
+ *     echoed once, by board_serial.c;
+ *   - bytes still in the UART at the takeover (or a byte still being shifted
+ *     in, or bytes that come while the DMA channel is set up) are flushed or
+ *     dropped as a tail: nothing echoed, no overrun notice, no answer.
  * Run with make test, after make fetch. */
 
 #include <stdio.h>
@@ -36,7 +39,15 @@ UART_HandleTypeDef huart2 = { HAL_UART_STATE_READY, HAL_UART_STATE_READY, 0, 0, 
 static uint32_t tick = 100000u;
 uint32_t HAL_GetTick(void) { return tick; }
 
-HAL_StatusTypeDef HAL_DMA_Init(DMA_HandleTypeDef *h) { (void)h; return HAL_OK; }
+/* Bytes that arrive while board_serial_begin() sets its DMA channel up. */
+static const char *during_setup = "";
+HAL_StatusTypeDef HAL_DMA_Init(DMA_HandleTypeDef *h)
+{
+  (void)h;
+  uart_holds(during_setup, (unsigned)strlen(during_setup));
+  during_setup = "";
+  return HAL_OK;
+}
 HAL_StatusTypeDef HAL_DMA_ConfigChannelAttributes(DMA_HandleTypeDef *h, uint32_t a) { (void)h; (void)a; return HAL_OK; }
 void HAL_DMA_IRQHandler(DMA_HandleTypeDef *h) { (void)h; }
 void HAL_NVIC_SetPriority(int irq, uint32_t pre, uint32_t sub) { (void)irq; (void)pre; (void)sub; }
@@ -178,6 +189,50 @@ int main(void)
   run_tasks();
   expect(strcmp(cli_got, "state\r\n") == 0 && count(wire_out, "state") == 1u && it_bytes == 0u,
          "a CLI command after the idle limit reaches ot-cli, echoed once, by board_serial.c");
+
+  puts("--- bytes still in the UART at the takeover ---");
+  {
+    /* Each case is a start again, as after a restart, with a push arriving
+     * across it: what is in the UART at the takeover, and what follows it
+     * within the idle limit, is the tail of a push. It is dropped through its
+     * line ending: nothing echoed, nothing answered, nothing to ot-cli. A
+     * probe after the idle limit is answered. */
+    static const struct {
+      const char *why, *waiting, *setup;
+      unsigned    leaves;
+    } cases[] = {
+      {"bytes waiting in the UART at the takeover are flushed; the rest is dropped as a tail",
+       "\"token\":\"tok-WAIT", "", 0u},
+      {"a byte still being shifted in at the flush reaches the DMA first, and is dropped as a tail",
+       "\"token\":\"tok-WAIT", "", 1u},
+      {"bytes that come while the DMA channel is set up are flushed before it starts: no overrun notice",
+       "", "\"tok-WAIT", 0u},
+    };
+    for (unsigned i = 0u; i < sizeof cases / sizeof cases[0]; i++) {
+      unsigned before;
+      hal_uart_reset(&huart1);
+      flush_leaves = cases[i].leaves;
+      clear_seen();
+      wire_in(&huart1, cases[i].waiting, (unsigned)strlen(cases[i].waiting));   /* no receive armed: held */
+      during_setup = cases[i].setup;
+      before = chirp_lines;
+      board_serial_begin(on_line);
+      hal_dma_takes_waiting(&huart1);
+      run_tasks();
+      tick += 300u;                                                             /* within the idle limit */
+      wire_in(&huart1, "ING-4242\"}\r\n", 12u);
+      run_tasks();
+      expect(!shown("tok-WAITING-4242") && wire_out_len == 0u && cli_len == 0u && chirp_lines == before &&
+                 uart_waiting_bytes() == 0u,
+             cases[i].why);
+      tick += BOARD_SERIAL_IDLE_MS;
+      clear_seen();
+      wire_in(&huart1, "CHIRP?\r\n", 8u);
+      run_tasks();
+      expect(chirp_lines == before + 1u, "  ... and a probe after the idle limit is read");
+    }
+    flush_leaves = 0u;
+  }
 
   printf("\nechotest: %d passed, %d failed\n", passes, fails);
   printf("%s (%d failure%s)\n", fails ? "FAILED" : "PASSED", fails, fails == 1 ? "" : "s");
