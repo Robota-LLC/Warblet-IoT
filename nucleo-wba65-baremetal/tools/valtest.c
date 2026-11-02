@@ -679,12 +679,11 @@ static void test_announce(void)
   compact(caps.p, caps.n, capsv);
   check(strcmp(capsv, CHIRP_CAPS) == 0, "CHIRP_CAPS is demo.json's capabilities", capsv);
   check(strcmp(fwv, CHIRP_FW) == 0, "the Makefile's FW_VERSION is demo.json's fw", fwv);
-  check(strcmp(slugv, DEMO_SLUG) == 0, "the announced slug is demo.json's", slugv);
 
   board_with("{\"token\":\"tok\",\"hwid\":\"board-1\"}");
   line = answer_to("CHIRP?\r\n");
-  snprintf(want, sizeof want, "CHIRP! v=2 hw=board-1 fw=%s key_set=0 t=%s caps=%s", fwv, slugv, capsv);
-  check(strcmp(line, want) == 0, "the line: v=2 hw fw key_set t caps, caps last, no radios", line);
+  snprintf(want, sizeof want, "CHIRP! v=2 hw=board-1 fw=%s key_set=0 radios= t=%s caps=%s", fwv, slugv, capsv);
+  check(strcmp(line, want) == 0, "the line: v=2 hw fw key_set, radios empty, demo.json's slug, caps last", line);
   board_with("{\"token\":\"tok\",\"hwid\":\"board-1\",\"key\":\"" KEY_A "\"}");
   check(strstr(answer_to("CHIRP?\r\n"), " key_set=1 ") != NULL, "a stored key: key_set=1", first_line);
   board_with("{\"token\":\"tok\"}");

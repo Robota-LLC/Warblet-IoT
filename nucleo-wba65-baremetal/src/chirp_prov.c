@@ -14,8 +14,6 @@
 #error "build with the Makefile: it passes CHIRP_FW, this demo's FW_VERSION"
 #endif
 
-#define DEMO_SLUG "demo-nucleo-wba65"
-
 /* A line whose bytes stop for this long is given up: longer than the 1 s a
  * browser tab out of view waits between the pieces of a push. */
 #define LINE_IDLE_MS 1500u
@@ -23,9 +21,10 @@
 /* Before "CHIRP" nothing counts, so only enough to find it is kept. */
 #define JUNK_KEPT 64u
 
-/* The announce at its longest, within CHIRP-PROV v1.8's 512 bytes. */
-_Static_assert(sizeof("CHIRP! v=2 hw= fw= key_set=0 t=" DEMO_SLUG " caps=") - 1u + CHIRP_HWID_LEN_MAX +
-               sizeof(CHIRP_FW) - 1u + sizeof(CHIRP_CAPS) - 1u <= 512u,
+/* The announce at its longest, within CHIRP-PROV v1.8's 512 bytes: this line
+ * with the longest id, the fw and the caps in their places. */
+_Static_assert(sizeof("CHIRP! v=2 hw= fw= key_set=0 radios= t=demo-nucleo-wba65 caps=") - 1u +
+               CHIRP_HWID_LEN_MAX + sizeof(CHIRP_FW) - 1u + sizeof(CHIRP_CAPS) - 1u <= 512u,
                "the announce must fit in 512 bytes");
 
 /* The store holds the longest record a push can make. */
@@ -144,7 +143,8 @@ static void summarize(const char *json, unsigned len)
 /* ------------------------------------------------------------------ line handling */
 
 /* CHIRP-PROV v1.8: what this firmware is and can do. v=2: it reads a Thread
- * dataset. No radios=: it drives no radio, and reports through the computer. */
+ * dataset. radios= is empty: it drives no radio, and reports through the
+ * computer. */
 static void announce(void)
 {
   uart_puts("CHIRP! v=2 hw=");
@@ -152,8 +152,7 @@ static void announce(void)
   uart_puts(" fw=");
   uart_puts(CHIRP_FW);
   uart_puts(chirp_send_key_set() ? " key_set=1" : " key_set=0");
-  uart_puts(" t=" DEMO_SLUG);
-  uart_puts(" caps=");
+  uart_puts(" radios= t=demo-nucleo-wba65 caps=");
   uart_line(CHIRP_CAPS);
 }
 
