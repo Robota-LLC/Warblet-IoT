@@ -640,15 +640,18 @@ static void quiet(int64_t now_ms)
 
 /* One turn of the reader: the bytes that have come in, up to READ_BATCH. The
  * read never waits, so a read that returns nothing is a look that found the
- * console quiet, which is how quiet() sees a line stop. */
+ * console quiet, which is how quiet() sees a line stop. The look's time is
+ * read before it: other tasks can hold the reader off after it, and a byte
+ * that came then is not one the look saw come. */
 static void prov_step(void)
 {
     uint8_t buf[64];
     for (size_t taken = 0; taken < READ_BATCH;) {
         size_t room = READ_BATCH - taken;
+        int64_t looked_ms = esp_timer_get_time() / 1000;
         int n = s_read(buf, room < sizeof(buf) ? room : sizeof(buf));
         if (n <= 0) {
-            quiet(esp_timer_get_time() / 1000);  /* nothing more has come */
+            quiet(looked_ms);  /* nothing more had come when it looked */
             return;
         }
         s_quiet_ms = -1;

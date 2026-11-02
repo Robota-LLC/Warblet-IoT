@@ -569,6 +569,32 @@ static void driver_takes_in(void)
     }
 }
 
+/* Other tasks taking the CPU right after the reader looked and found nothing:
+ * once the console has been seen quiet for hold_after_ms (looks that found
+ * nothing, as this model sees them), the next such look is followed by
+ * hold_ms with the reader held off, and hold_bytes arrive 5 ms into it. */
+static int64_t     model_quiet_since = -1;
+static int64_t     hold_after_ms = -1, hold_ms;
+static const char *hold_bytes;
+
+static void reader_held_after_look(size_t got)
+{
+    if (got > 0) {
+        model_quiet_since = -1;
+        return;
+    }
+    if (model_quiet_since < 0) {
+        model_quiet_since = clock_ms;
+    }
+    if (hold_after_ms >= 0 && clock_ms - model_quiet_since >= hold_after_ms) {
+        int64_t now = clock_ms;
+        hold_after_ms = -1;
+        clock_ms = wire_next = now + 5;
+        wire_send(hold_bytes, strlen(hold_bytes), 64, 30);
+        clock_ms = now + hold_ms;
+    }
+}
+
 static int console_take(void *buf, uint32_t length, TickType_t ticks)
 {
     if (ticks != 0) {
@@ -612,6 +638,9 @@ static int console_take(void *buf, uint32_t length, TickType_t ticks)
     since_yield += n;
     if (since_yield > most_between_yields) {
         most_between_yields = since_yield;
+    }
+    if (ticks == 0) {
+        reader_held_after_look(n);
     }
     return (int)n;
 }
@@ -711,6 +740,7 @@ static void boot(void)
 /* A board holding `stored` (nothing, for NULL), just started. */
 static void start_with(const chirp_config_t *stored)
 {
+    model_quiet_since = hold_after_ms = -1;
     memset(&nvs, 0, sizeof(nvs));
     power_on();
     if (stored != NULL) {
@@ -1005,6 +1035,47 @@ static void test_reader(void)
     reader_stall_from = strlen(head);    /* once the start is read */
     run_reader();
     check(strncmp(said, "CHIRP= ok", 9) == 0, "a push read late, the reader kept off 2 s while it waited, lands", said);
+
+    /* Held off right after a look that found nothing, 1,490 ms into a quiet
+     * the reader saw: the rest of the push comes 5 ms later, and the reader
+     * is back 20 ms later. That look was made at 1,490 ms, so the reader has
+     * seen 1,490 ms of quiet, not 1,510: the rest joins the line. */
+    start_with(&base);
+    said_len = 0;
+    said[0] = '\0';
+    wire_send(head, strlen(head), 64, 30);
+    hold_after_ms = 1490;
+    hold_ms = 20;
+    hold_bytes = "\"board-held\"}\r\n";
+    run_reader();
+    check(strncmp(said, "CHIRP= ok", 9) == 0,
+          "held off after a look that found nothing at 1,490 ms: the rest that came meanwhile joins the line",
+          said);
+
+    /* The same for a line over the limit being thrown away: its tail, which
+     * ends in "CHIRP?", is still that line, dropped through its line ending.
+     * Only a probe sent after it is answered. */
+    {
+        static char over_held[CHIRP_LINE_MAX + 200];
+        size_t m = (size_t)snprintf(over_held, sizeof(over_held), "CHIRP+ {\"token\":\"");
+        memset(over_held + m, 't', sizeof(over_held) - m - 1);
+        over_held[sizeof(over_held) - 1] = '\0';
+        start_with(&base);
+        said_len = 0;
+        said[0] = '\0';
+        wire_send(over_held, strlen(over_held), strlen(over_held), 0);
+        hold_after_ms = 1490;
+        hold_ms = 20;
+        hold_bytes = "tttCHIRP?\r\n";
+        run_reader();
+        size_t before_probe = said_len;
+        wire_send("CHIRP?\r\n", 8, 64, 30);
+        run_reader();
+        const char *first = strstr(said, "CHIRP! ");
+        check(before_probe == 0 && first != NULL && strstr(first + 7, "CHIRP! ") == NULL,
+              "held off after a look that found nothing at 1,490 ms: an over-limit line's tail is dropped, "
+              "one announce, for the probe after it", said);
+    }
 
     /* A flood, all there at once: taken at most READ_BATCH bytes before the
      * other tasks run, and the probe behind it is answered. */
