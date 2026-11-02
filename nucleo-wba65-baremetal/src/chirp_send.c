@@ -3,6 +3,7 @@
 #include "chirp_send.h"
 #include "chirp_prov.h"
 #include "chirp_sign.h"
+#include "chirpval.h"
 #include "flashcfg.h"
 #include "json.h"
 #include "uart.h"
@@ -24,6 +25,7 @@ static int           s_have_cred;
 static unsigned s_tenths = 200u;        /* the demo reading, in tenths of a degree */
 static unsigned s_last;
 static int      s_armed;
+static int      s_told_idle;            /* "nothing to send with" has been said */
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -32,8 +34,8 @@ static int b64_val(char c)
   if (c >= 'A' && c <= 'Z') { return c - 'A'; }
   if (c >= 'a' && c <= 'z') { return c - 'a' + 26; }
   if (c >= '0' && c <= '9') { return c - '0' + 52; }
-  if (c == '+' || c == '-') { return 62; }   /* - and _ too: an older image */
-  if (c == '/' || c == '_') { return 63; }   /* stored URL-safe keys        */
+  if (c == '+') { return 62; }
+  if (c == '/') { return 63; }
   return -1;
 }
 
@@ -69,7 +71,8 @@ static int cfg_field(const char *json, unsigned jl, const char *key,
 
 /* ------------------------------------------------------------------ level */
 
-/* Nothing else in this firmware branches on the level. */
+/* Nothing else in this firmware branches on the level. With no credential
+ * nothing is sent at all: this demo does not send at Open. */
 static unsigned level(void)
 {
   if (s_have_key)  { return 2u; }
@@ -86,13 +89,13 @@ void chirp_send_reload(void)
   s_have_cred     = 0;
   s_cred_is_claim = 0;
   s_have_key      = 0;
+  s_told_idle     = 0;
 
   chirp_hwid(s_hwid, sizeof s_hwid);
 
   json = cfg_json(&jl);
 
-  /* A pushed `host` is an override for a self-hosted core. One that does not
-   * fit (stored by an older image) is not used cut short. */
+  /* A pushed `host` is an override for a self-hosted core. */
   s_host = cfg_field(json, jl, "host", s_host_buf, sizeof s_host_buf) ? s_host_buf
                                                                        : DEFAULT_HOST;
   if (!json) { return; }
@@ -190,6 +193,10 @@ static void print_http_request(void)
 void chirp_send_init(void)
 {
   chirp_send_reload();
+  if (!s_have_cred) {
+    uart_line("CHIRP. uplink off until a credential is stored (USB setup)");
+    return;
+  }
 
   uart_puts("CHIRP. uplink ");
   uart_puts(s_host);
@@ -198,10 +205,21 @@ void chirp_send_init(void)
   uart_line(" (cap L2: no TLS stack on this board)");
 }
 
+int chirp_send_key_set(void)
+{
+  return s_have_key;
+}
+
 void chirp_send_tick(unsigned now_ms)
 {
   if (!s_armed) { s_armed = 1; s_last = now_ms; return; }
   if ((unsigned)(now_ms - s_last) < SEND_PERIOD_MS) { return; }
   s_last = now_ms;
+  if (!s_have_cred) {
+    /* Never at Open: a request with no credential is not printed. */
+    if (!s_told_idle) { uart_line("CHIRP. no uplink: no credential stored yet (USB setup)"); }
+    s_told_idle = 1;
+    return;
+  }
   print_http_request();
 }

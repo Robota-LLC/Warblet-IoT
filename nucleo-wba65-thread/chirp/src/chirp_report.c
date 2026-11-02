@@ -43,14 +43,14 @@ static otInstance *s_inst;
 
 /* From the config record. A token goes in the token field as it is; a claim
  * code goes as "claim:<code>", which is how Warblet knows to redeem it.
- * chirpval enforces at most one of the two. s_cred holds the field, and
+ * chirpval keeps one of the two, never empty. s_cred holds the field, and
  * s_bare skips the "claim:" when the frame is signed: a redeemed code is the
  * device's token, and a signed field is "<token>:<signature>". */
 #define CLAIM_PREFIX "claim:"
 static char        s_host[CHIRP_HOST_MAX + 1u] = CHIRP_REPORT_DEFAULT_HOST;
 static char        s_cred[sizeof CLAIM_PREFIX - 1u + CHIRP_CRED_MAX + 1u];
 static const char *s_bare = s_cred;
-static int         s_configured;
+static int         s_configured;    /* a credential is held: reports go */
 
 /* Base64 signing key from the config. An empty string disables signing. */
 static char s_key_b64[64];
@@ -273,6 +273,14 @@ void chirp_report_config(const char *json, unsigned len)
     copy_str(json, len, "token", s_cred, CHIRP_CRED_MAX + 1u);
   }
 
+  /* Never at Open: with no credential there is nothing to send with. */
+  if (s_cred[0] == '\0') {
+    s_configured = 0;
+    s_key_b64[0] = '\0';
+    board_serial_print("CHIRP. report: no credential stored; nothing is sent\r\n");
+    return;
+  }
+
   s_key_b64[0] = '\0';
   copy_str(json, len, "key", s_key_b64, sizeof s_key_b64);
   if (s_key_b64[0] != '\0') {
@@ -292,4 +300,9 @@ void chirp_report_config(const char *json, unsigned len)
   s_last_err    = NULL;
 
   UTIL_SEQ_SetTask(CHIRP_TASK_REPORT, CFG_SEQ_PRIO_1);
+}
+
+int chirp_report_key_set(void)
+{
+  return s_key_b64[0] != '\0';
 }

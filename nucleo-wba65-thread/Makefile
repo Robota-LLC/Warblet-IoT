@@ -6,6 +6,10 @@ TARGET  := thread_chirp
 BUILD   := build
 APP     := Projects/NUCLEO-WBA65RI/Applications/Thread/Thread_Cli_Cmd_FTD
 
+# fw=: the release in which this demo's firmware last changed. The board
+# announces it, and demo.json's firmware.fw says the same (make test checks).
+FW_VERSION := v1.6.0
+
 # Use GNU Arm tools from PATH, or set GCC_DIR to their bin directory.
 # CROSS_COMPILE selects the executable prefix.
 CROSS_COMPILE ?= arm-none-eabi-
@@ -45,7 +49,8 @@ DEFS := \
   -DOPENTHREAD_FTD -DMAC -DMAC_LAYER \
   -DDISABLE_RFTS_EXT_EVNT_HNDLR=1 -DPHY_40nm_3_40_a \
   -DOPENTHREAD_CONFIG_FILE='<stm32wba-openthread-ftd-config.h>' \
-  -DOPENTHREAD_PROJECT_CORE_CONFIG_FILE='<stm32wba-openthread-ftd-config.h>'
+  -DOPENTHREAD_PROJECT_CORE_CONFIG_FILE='<stm32wba-openthread-ftd-config.h>' \
+  -DCHIRP_FW='"$(FW_VERSION)"'
 
 # ---- include paths (.cproject, verbatim, rebased to repo root) ---------------
 INCS := \
@@ -160,10 +165,14 @@ all: $(BUILD)/$(TARGET).bin size
 
 # ---- host unit tests ---------------------------------------------------------
 # Hardware-free sources are compiled natively. valtest builds chirp_sign.c
-# against a host SHA-256 in chirp/test/ that stands in for ST's mbedTLS.
-# serialtest runs board_serial.c against stub ST headers and a model of ST's
-# CLI output buffer; hwidtest holds the announce to the id the reports use.
-HOSTCC ?= gcc
+# against a host SHA-256 in chirp/test/ that stands in for ST's mbedTLS, and
+# flashcfg.c against a flash of its own that can fail or lose power at any
+# step. serialtest runs board_serial.c against stub ST headers and a model of
+# ST's CLI output buffer; hwidtest holds the announce to the id the reports
+# use and to demo.json. VECTORS is the path to Warblet's shared CHIRP-PROV
+# vectors (chirp-prov-v1.8.json); without it those checks are skipped.
+HOSTCC  ?= gcc
+VECTORS ?=
 ifeq ($(OS),Windows_NT)
   HOSTEXE := .exe
 else
@@ -172,15 +181,17 @@ endif
 
 test:
 	@mkdir -p $(BUILD)
-	@"$(HOSTCC)" -std=c11 -Wall -Wextra -Ichirp/inc -Ichirp/test -o $(BUILD)/valtest$(HOSTEXE) \
+	@"$(HOSTCC)" -std=c11 -Wall -Wextra -Ichirp/inc -Ichirp/test -Ichirp/test/stub -DCFG_FAKE_FLASH \
+	   -DCHIRP_FW='"$(FW_VERSION)"' -o $(BUILD)/valtest$(HOSTEXE) \
 	   chirp/test/valtest.c chirp/src/json.c chirp/src/chirpval.c chirp/src/chirp_ds.c \
-	   chirp/src/chirp_frame.c chirp/src/chirp_sign.c chirp/test/sha256_host.c
-	@$(BUILD)/valtest$(HOSTEXE)
+	   chirp/src/chirp_frame.c chirp/src/chirp_sign.c chirp/src/flashcfg.c chirp/src/chirp_hwid.c \
+	   chirp/test/sha256_host.c
+	@$(BUILD)/valtest$(HOSTEXE) $(VECTORS)
 	@"$(HOSTCC)" -std=c11 -Wall -Wextra -Ichirp/test/stub -Ichirp/inc \
 	   -o $(BUILD)/serialtest$(HOSTEXE) chirp/test/serialtest.c
 	@$(BUILD)/serialtest$(HOSTEXE)
-	@"$(HOSTCC)" -std=c11 -Wall -Wextra -Ichirp/inc -o $(BUILD)/hwidtest$(HOSTEXE) \
-	   chirp/test/hwidtest.c chirp/src/chirp_hwid.c chirp/src/json.c
+	@"$(HOSTCC)" -std=c11 -Wall -Wextra -Ichirp/inc -DCHIRP_FW='"$(FW_VERSION)"' \
+	   -o $(BUILD)/hwidtest$(HOSTEXE) chirp/test/hwidtest.c chirp/src/chirp_hwid.c chirp/src/json.c
 	@$(BUILD)/hwidtest$(HOSTEXE)
 
 $(BUILD)/%.o: %.c

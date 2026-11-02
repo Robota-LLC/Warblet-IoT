@@ -1,12 +1,18 @@
 /* ST-LINK serial adapter: DMA reception, line assembly, and dispatch.
  * Send CHIRP lines to the provisioning callback and other lines to OpenThread CLI.
- * Reject damaged lines instead of dispatching partial commands. */
+ * Drop damaged lines instead of dispatching partial commands. */
 #ifndef BOARD_SERIAL_H
 #define BOARD_SERIAL_H
 
-/* CHIRP-PROV allows a 4096-byte push; 64 bytes of margin so a line at the
- * limit is never over it. */
-#define BOARD_SERIAL_LINE_MAX 4160u
+/* The longest line, counted from its first byte: a setup line starts with
+ * "CHIRP", so CHIRP-PROV's 4096 counts from there. A longer line is thrown
+ * away whole, through its line ending, and gets no answer. */
+#define BOARD_SERIAL_LINE_MAX 4096u
+
+/* A setup line whose bytes stop for this long is given up: longer than the
+ * 1 s a browser tab out of view waits between the pieces of a push. A CLI
+ * line is typed by a person and waits as long as it takes. */
+#define BOARD_SERIAL_IDLE_MS 1500u
 
 /* printf-style, into the same sink as ot-cli so lines interleave in order. */
 void board_serial_print(const char *fmt, ...);

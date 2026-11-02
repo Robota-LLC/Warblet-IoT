@@ -1,10 +1,179 @@
-/* STM32WBA65 flash store: 8 KB pages, 16-byte writes, page declared by the linker.
- * A slot tag records bank geometry: a mismatch reads as no config, and writes
- * with SWAP_BANK set are refused. One page, erase-then-write, no wear levelling:
- * a power cut mid-store can lose the config. */
+/* STM32WBA65 flash store: 8 KB pages, 16-byte writes, two pages declared by the
+ * linker. A save writes the new record to the page not in use, reads it back,
+ * and only then erases the old page; at start the newest valid record wins.
+ * So a power cut at any moment leaves one whole record to read: the old one or
+ * the new one. A slot tag records bank geometry: a mismatch reads as no
+ * config, and writes with SWAP_BANK set are refused. No wear levelling. */
 
 #include "flashcfg.h"
 #include "stm32wbaxx.h"
+
+#define CFG_MAGIC  0x31425743u   /* bytes 'C','W','B','1' little-endian */
+#define CFG_VER    3u            /* two pages and a sequence number (2, one page, is not read) */
+
+/* A record's first 16 bytes, one programming burst. The CRC covers seq and
+ * len as well as the payload, so a header that a power cut tore cannot pass
+ * for a newer record. */
+typedef struct {
+  unsigned       magic;
+  unsigned char  ver;
+  unsigned char  slot;      /* cfg_flash_slot() at write time */
+  unsigned short len;
+  unsigned       seq;       /* one more than the record it replaced */
+  unsigned       crc;       /* CRC-32 of seq, len and the payload */
+} cfg_hdr_t;
+
+_Static_assert(sizeof(cfg_hdr_t) == 16u, "cfg header must be one 128-bit quadword");
+_Static_assert(sizeof(cfg_hdr_t) + CFG_MAX_PAYLOAD <= CFG_PAGE_SIZE, "a record fits in a page");
+
+/* The flash, as the store uses it: at the end of this file. The host test
+ * (chirp/test/valtest.c) brings its own, which can fail or lose power at any step. */
+unsigned cfg_flash_page(unsigned i);                             /* page 0 or 1 */
+unsigned cfg_flash_slot(void);                                   /* the bank geometry */
+int      cfg_flash_read(unsigned addr, void *dst, unsigned n);   /* 0, or -2: an ECC error */
+int      cfg_flash_erase(unsigned i);                            /* 0, or -1 */
+int      cfg_flash_write(unsigned addr, const unsigned char qw[16]);  /* 0, or -1 */
+
+static unsigned crc32_add(unsigned c, const unsigned char *d, unsigned n)
+{
+  for (unsigned i = 0; i < n; i++) {
+    c ^= d[i];
+    for (int b = 0; b < 8; b++) {
+      c = (c >> 1) ^ (0xEDB88320u & (unsigned)(-(int)(c & 1u)));
+    }
+  }
+  return c;
+}
+
+/* The CRC of a record's seq and len, which its payload then continues. */
+static unsigned head_crc(unsigned seq, unsigned len)
+{
+  unsigned char b[6];
+
+  for (unsigned i = 0u; i < 4u; i++) { b[i] = (unsigned char)(seq >> (8u * i)); }
+  b[4] = (unsigned char)len;
+  b[5] = (unsigned char)(len >> 8);
+  return crc32_add(0xFFFFFFFFu, b, sizeof b);
+}
+
+/* Where the record the board reads now is. */
+static int      s_page = -1;     /* the page with the newest valid record, or -1 */
+static unsigned s_seq;           /* that record's seq */
+
+unsigned cfg_page_addr(void)
+{
+  return cfg_flash_page(s_page == 1 ? 1u : 0u);
+}
+
+/* Is page i one whole record? 1 = yes (its header in *h), 0 = no, -2 = it
+ * could not be read. With `to`, the payload is copied there as it is checked. */
+static int read_record(unsigned i, cfg_hdr_t *h, char *to)
+{
+  unsigned      base = cfg_flash_page(i), c, off, n;
+  unsigned char chunk[64];
+
+  if (cfg_flash_read(base, h, sizeof *h) != 0) { return -2; }
+  /* Written under a different bank geometry: not our record. Report none; do not erase. */
+  if (h->magic != CFG_MAGIC || h->ver != CFG_VER || h->slot != cfg_flash_slot() ||
+      h->len == 0u || h->len > CFG_MAX_PAYLOAD) {
+    return 0;
+  }
+  c = head_crc(h->seq, h->len);
+  for (off = 0u; off < h->len; off += n) {
+    n = (h->len - off < sizeof chunk) ? h->len - off : (unsigned)sizeof chunk;
+    if (cfg_flash_read(base + sizeof *h + off, chunk, n) != 0) { return -2; }
+    c = crc32_add(c, chunk, n);
+    for (unsigned k = 0u; to && k < n; k++) { to[off + k] = (char)chunk[k]; }
+  }
+  return ~c == h->crc ? 1 : 0;
+}
+
+/* Does page i hold exactly this record, as the next start would read it? */
+static int holds(unsigned i, unsigned seq, const char *json, unsigned len)
+{
+  cfg_hdr_t     h;
+  unsigned char chunk[64];
+  unsigned      off, n;
+
+  if (read_record(i, &h, 0) != 1 || h.seq != seq || h.len != len) { return 0; }
+  for (off = 0u; off < len; off += n) {
+    n = (len - off < sizeof chunk) ? len - off : (unsigned)sizeof chunk;
+    if (cfg_flash_read(cfg_flash_page(i) + sizeof h + off, chunk, n) != 0) { return 0; }
+    for (unsigned k = 0u; k < n; k++) { if (chunk[k] != (unsigned char)json[off + k]) { return 0; } }
+  }
+  return 1;
+}
+
+int cfg_load(char *buf, unsigned bufsz, unsigned *len)
+{
+  cfg_hdr_t h[2];
+  int       got[2], newest;
+
+  s_page = -1;
+  got[0] = read_record(0u, &h[0], 0);
+  got[1] = read_record(1u, &h[1], 0);
+
+  /* The newest valid record wins (seq may count on past 2^32), then the other. */
+  newest = (got[1] == 1 && (got[0] != 1 || (int)(h[1].seq - h[0].seq) > 0)) ? 1 : 0;
+  for (int k = 0; k < 2; k++) {
+    unsigned p = (unsigned)(k == 0 ? newest : 1 - newest);
+    if (got[p] == 1 && h[p].len < bufsz && read_record(p, &h[p], buf) == 1) {
+      buf[h[p].len] = '\0';
+      *len   = h[p].len;
+      s_page = (int)p;
+      s_seq  = h[p].seq;
+      return 0;
+    }
+  }
+  /* No record: the board waits for USB setup, and the next push writes one. */
+  return (got[0] == -2 || got[1] == -2) ? -2 : -1;
+}
+
+int cfg_store(const char *json, unsigned len)
+{
+  unsigned char qw[16];
+  cfg_hdr_t     h;
+  unsigned      t = (s_page == 0) ? 1u : 0u;   /* the page not in use */
+  unsigned      base = cfg_flash_page(t), off, i;
+
+  if (len == 0u || len > CFG_MAX_PAYLOAD) { return -1; }
+
+  h.magic = CFG_MAGIC;
+  h.ver   = CFG_VER;
+  h.slot  = (unsigned char)cfg_flash_slot();
+  h.len   = (unsigned short)len;
+  h.seq   = (s_page >= 0) ? s_seq + 1u : 1u;
+  h.crc   = ~crc32_add(head_crc(h.seq, len), (const unsigned char *)json, len);
+
+  /* 1. The new record goes to the page not in use: erase it, write the
+   *    payload (zero-padded to 16 bytes), then the header, since the header
+   *    is what makes it a record. */
+  if (cfg_flash_erase(t) != 0) { return -1; }
+  for (off = 0u; off < len; off += 16u) {
+    for (i = 0u; i < 16u; i++) { qw[i] = (off + i < len) ? (unsigned char)json[off + i] : 0u; }
+    if (cfg_flash_write(base + 16u + off, qw) != 0) { return -1; }
+  }
+  for (i = 0u; i < 16u; i++) { qw[i] = ((const unsigned char *)&h)[i]; }
+
+  /* 2. Read it back as the next start would. A record that failed to write,
+   *    or does not read back as what was pushed, is erased again, so the old
+   *    record stays the newest and the next start reads it. */
+  if (cfg_flash_write(base, qw) != 0 || !holds(t, h.seq, json, len)) {
+    (void)cfg_flash_erase(t);
+    return -1;
+  }
+
+  /* 3. Only now does the old page go. Should that fail, the new record is
+   *    still the newest, so the next start reads it all the same. */
+  (void)cfg_flash_erase(1u - t);
+
+  s_page = (int)t;
+  s_seq  = h.seq;
+  return 0;
+}
+
+#ifndef CFG_FAKE_FLASH
+/* ------------------------------------------------------------------ the flash */
 
 /* Use HAL definitions when available, with local fallbacks otherwise. */
 #ifndef FLASH_KEY1
@@ -14,32 +183,21 @@
 #define FLASH_KEY2 0xCDEF89ABu
 #endif
 
-#define CFG_MAGIC  0x31425743u   /* bytes 'C','W','B','1' little-endian */
-#define CFG_VER    2u            /* Config record format with a bank-geometry tag */
-
-/* Exported by ld/thread_chirp.ld. Only the addresses of these matter. */
+/* Exported by ld/thread_chirp.ld: the two pages. Only the addresses of these matter. */
 extern char _chirp_cfg_start[];
 extern char _chirp_cfg_size[];
 
-typedef struct {
-  unsigned       magic;
-  unsigned short ver;
-  unsigned short len;
-  unsigned       crc;
-  unsigned       slot;      /* cfg_slot_tag() at write time */
-} cfg_hdr_t;
+_Static_assert(CFG_PAGE_SIZE == 0x2000u, "STM32WBA65 flash pages are 8 KB");
 
-/* Exactly one quadword, so the header is a single programming burst. */
-_Static_assert(sizeof(cfg_hdr_t) == 16u, "cfg header must be one 128-bit quadword");
-
-unsigned cfg_page_addr(void)
+/* The linker script reserves exactly the two pages; anything else is not written. */
+static int store_reserved(void)
 {
-  return (unsigned)(unsigned long)_chirp_cfg_start;
+  return (unsigned long)_chirp_cfg_size == 2u * CFG_PAGE_SIZE;
 }
 
-static unsigned cfg_page_size(void)
+unsigned cfg_flash_page(unsigned i)
 {
-  return (unsigned)(unsigned long)_chirp_cfg_size;
+  return (unsigned)(unsigned long)_chirp_cfg_start + i * CFG_PAGE_SIZE;
 }
 
 static unsigned flash_size_bytes(void)
@@ -62,36 +220,24 @@ static int flash_banks_swapped(void)
 /* Which bank the store's address falls in (0 = bank 1, 1 = bank 2). */
 static unsigned cfg_bank(void)
 {
-  unsigned off = cfg_page_addr() - (unsigned)FLASH_BASE_NS;
+  unsigned off = cfg_flash_page(0u) - (unsigned)FLASH_BASE_NS;
 
   if (!flash_is_dual_bank()) { return 0u; }
   return (off >= (flash_size_bytes() / 2u)) ? 1u : 0u;
 }
 
-/* Identity of the physical page, stored so a later boot can check the geometry. */
-static unsigned cfg_slot_tag(void)
+/* Identity of the physical pages, stored so a later boot can check the geometry. */
+unsigned cfg_flash_slot(void)
 {
   return cfg_bank() | (flash_banks_swapped() ? 2u : 0u) |
          (flash_is_dual_bank() ? 4u : 0u);
 }
 
-static unsigned crc32(const unsigned char *d, unsigned n)
-{
-  unsigned c = 0xFFFFFFFFu;
-  for (unsigned i = 0; i < n; i++) {
-    c ^= d[i];
-    for (int b = 0; b < 8; b++) {
-      c = (c >> 1) ^ (0xEDB88320u & (unsigned)(-(int)(c & 1u)));
-    }
-  }
-  return ~c;
-}
-
-/* Power lost while the page was being written can leave a quadword whose
+/* Power lost while a page was being written can leave a quadword whose
  * ECC cannot correct it. Reading it sets ECCD in FLASH_ECCR and raises the
  * NMI; ST's HAL says the handler belongs there on STM32WBA
  * (HAL_FLASHEx_ECCD_IRQHandler: check ECCD, then clear it by writing 1).
- * One raised while this file reads the page, in the page's own bank, marks
+ * One raised while this file reads the store, in the store's own bank, marks
  * the read unreadable and the read goes on. Every other NMI goes to ST's
  * handler: the Makefile builds stm32wbaxx_it.c with its NMI_Handler named
  * st_NMI_Handler, so this one is in the vector table. */
@@ -112,45 +258,26 @@ void NMI_Handler(void)
   st_NMI_Handler();
 }
 
-/* Open and close the window the NMI handler checks. The barriers keep the
- * page's reads inside it and let any NMI they raised be taken first. */
-static void read_begin(void)
+int cfg_flash_read(unsigned addr, void *dst, unsigned n)
 {
+  const volatile unsigned char *p = (const volatile unsigned char *)(unsigned long)addr;
+  unsigned char                *d = (unsigned char *)dst;
+
+  /* The instruction cache also serves data reads of flash, and it is not
+   * told a page changed: it can still hold the page as it was before an
+   * erase. Invalidate it, as ST's ICACHE driver provides, before reading. */
+  (void)HAL_ICACHE_Invalidate();
+
+  /* Copy inside the window the NMI handler checks. The barriers keep the
+   * reads inside it and let any NMI they raised be taken first. */
   s_unreadable = 0;
   s_reading    = 1;
   __DSB();
-}
-
-static int read_end(void)
-{
+  for (unsigned i = 0u; i < n; i++) { d[i] = p[i]; }
   __DSB();
   __ISB();
   s_reading = 0;
-  return s_unreadable;
-}
-
-int cfg_load(char *buf, unsigned bufsz, unsigned *len)
-{
-  const cfg_hdr_t *h = (const cfg_hdr_t *)cfg_page_addr();
-  const unsigned char *p = (const unsigned char *)(cfg_page_addr() + sizeof(cfg_hdr_t));
-  cfg_hdr_t hdr;
-  int       ok;
-
-  read_begin();
-  hdr = *h;
-  /* Written under a different bank geometry: not our record. Report none; do not erase. */
-  ok = hdr.magic == CFG_MAGIC && hdr.ver == CFG_VER && hdr.slot == cfg_slot_tag() &&
-       hdr.len != 0u && hdr.len <= CFG_MAX_PAYLOAD && hdr.len < bufsz;
-  for (unsigned i = 0; ok && i < hdr.len; i++) { buf[i] = (char)p[i]; }
-
-  /* A damaged page is no config: the board waits for USB setup, and the
-   * next push erases and rewrites the page. */
-  if (read_end()) { return -2; }
-  if (!ok || crc32((const unsigned char *)buf, hdr.len) != hdr.crc) { return -1; }
-
-  buf[hdr.len] = '\0';
-  *len = hdr.len;
-  return 0;
+  return s_unreadable ? -2 : 0;
 }
 
 static void flash_wait(void)
@@ -183,45 +310,56 @@ static void flash_lock(void)
   FLASH->NSCR1 |= FLASH_NSCR1_LOCK;
 }
 
-static int flash_erase_cfg_page(void)
+int cfg_flash_erase(unsigned i)
 {
-  unsigned off  = cfg_page_addr() - (unsigned)FLASH_BASE_NS;
+  unsigned off  = cfg_flash_page(i) - (unsigned)FLASH_BASE_NS;
   unsigned bker = cfg_bank();
-  unsigned page;
+  unsigned page, cr;
+  int      bad;
+
+  /* With SWAP_BANK set, which physical page BKER/PNB erases is uncertain, and
+   * the wrong one is firmware. */
+  if (flash_banks_swapped() || !store_reserved()) { return -1; }
 
   /* Page index *within its bank*, derived from the linker-declared address. */
   if (flash_is_dual_bank()) {
-    page = (off % (flash_size_bytes() / 2u)) / cfg_page_size();
+    page = (off % (flash_size_bytes() / 2u)) / CFG_PAGE_SIZE;
   } else {
-    page = off / cfg_page_size();
+    page = off / CFG_PAGE_SIZE;
   }
 
+  flash_unlock();
   flash_wait();
   flash_clear_err();
 
-  unsigned cr = FLASH_NSCR1_PER | ((page << FLASH_NSCR1_PNB_Pos) & FLASH_NSCR1_PNB_Msk);
+  cr = FLASH_NSCR1_PER | ((page << FLASH_NSCR1_PNB_Pos) & FLASH_NSCR1_PNB_Msk);
   if (bker) { cr |= FLASH_NSCR1_BKER; }
   FLASH->NSCR1 = cr;
   FLASH->NSCR1 = cr | FLASH_NSCR1_STRT;
   flash_wait();
 
-  int bad = flash_err();
+  bad = flash_err();
   FLASH->NSCR1 &= ~(FLASH_NSCR1_PER | FLASH_NSCR1_PNB_Msk | FLASH_NSCR1_BKER);
+  flash_lock();
   return bad ? -1 : 0;
 }
 
 /* Program one 128-bit quadword from a 16-byte source buffer. */
-static int flash_prog_qw(unsigned addr, const unsigned char *src)
+int cfg_flash_write(unsigned addr, const unsigned char qw[16])
 {
-  volatile unsigned *dst = (volatile unsigned *)addr;
+  volatile unsigned *dst = (volatile unsigned *)(unsigned long)addr;
   unsigned w[4];
   unsigned primask;
+  int      bad;
+
+  if (flash_banks_swapped() || !store_reserved()) { return -1; }
 
   for (int i = 0; i < 4; i++) {
-    w[i] = (unsigned)src[i * 4 + 0]        | ((unsigned)src[i * 4 + 1] << 8) |
-           ((unsigned)src[i * 4 + 2] << 16) | ((unsigned)src[i * 4 + 3] << 24);
+    w[i] = (unsigned)qw[i * 4 + 0]        | ((unsigned)qw[i * 4 + 1] << 8) |
+           ((unsigned)qw[i * 4 + 2] << 16) | ((unsigned)qw[i * 4 + 3] << 24);
   }
 
+  flash_unlock();
   flash_wait();
   flash_clear_err();
   FLASH->NSCR1 |= FLASH_NSCR1_PG;
@@ -238,64 +376,10 @@ static int flash_prog_qw(unsigned addr, const unsigned char *src)
 
   flash_wait();
 
-  int bad = flash_err();
+  bad = flash_err();
   if (FLASH->NSSR & FLASH_NSSR_EOP) { FLASH->NSSR = FLASH_NSSR_EOP; }
   FLASH->NSCR1 &= ~FLASH_NSCR1_PG;
+  flash_lock();
   return bad ? -1 : 0;
 }
-
-int cfg_store(const char *json, unsigned len)
-{
-  unsigned char qw[16];
-  cfg_hdr_t h;
-
-  if (len == 0u || len > CFG_MAX_PAYLOAD) { return -1; }
-
-  /* With SWAP_BANK set, which physical page BKER/PNB erases is uncertain, and
-   * the wrong one is firmware. */
-  if (flash_banks_swapped()) { return -1; }
-
-  /* Payload plus its one-quadword header must fit the reserved page. */
-  if (sizeof(cfg_hdr_t) + ((len + 15u) & ~15u) > cfg_page_size()) { return -1; }
-
-  h.magic = CFG_MAGIC;
-  h.ver   = CFG_VER;
-  h.len   = (unsigned short)len;
-  h.crc   = crc32((const unsigned char *)json, len);
-  h.slot  = cfg_slot_tag();
-
-  unsigned base = cfg_page_addr();
-
-  flash_unlock();
-  if (flash_erase_cfg_page() != 0) { flash_lock(); return -1; }
-
-  /* header (exactly one quadword) */
-  const unsigned char *hp = (const unsigned char *)&h;
-  for (unsigned i = 0; i < 16u; i++) { qw[i] = hp[i]; }
-  if (flash_prog_qw(base, qw) != 0) { flash_lock(); return -1; }
-
-  /* payload, zero-padded up to the quadword boundary */
-  for (unsigned off = 0; off < len; off += 16u) {
-    for (unsigned i = 0; i < 16u; i++) {
-      qw[i] = (off + i < len) ? (unsigned char)json[off + i] : 0u;
-    }
-    if (flash_prog_qw(base + 16u + off, qw) != 0) { flash_lock(); return -1; }
-  }
-
-  flash_lock();
-
-  /* The instruction cache also serves data reads of flash, and it is not
-   * told the page changed: it can still hold the page as it was before the
-   * erase. Invalidate it, as ST's ICACHE driver provides, before reading the
-   * page back. */
-  (void)HAL_ICACHE_Invalidate();
-
-  /* Read back: a store that cannot be re-read is a failed store. */
-  const cfg_hdr_t *v = (const cfg_hdr_t *)base;
-  int bad;
-  read_begin();
-  bad = v->magic != CFG_MAGIC || v->len != h.len || v->crc != h.crc || v->slot != h.slot ||
-        crc32((const unsigned char *)(base + sizeof(cfg_hdr_t)), len) != h.crc;
-  if (read_end() || bad) { return -1; }
-  return 0;
-}
+#endif /* CFG_FAKE_FLASH */

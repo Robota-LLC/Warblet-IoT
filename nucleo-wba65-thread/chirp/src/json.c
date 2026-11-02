@@ -212,10 +212,32 @@ int js_obj_next(const char *obj, unsigned len, unsigned *pos,
   return 1;
 }
 
-const char *js_raw(const js_val *v, unsigned *len)
+int js_arr_next(const char *arr, unsigned len, unsigned *pos, js_val *val)
 {
-  *len = (v->t == JS_STR) ? v->n + 2u : v->n;
-  return (v->t == JS_STR) ? v->p - 1  : v->p;
+  const char *e = arr + len;
+  const char *p, *ve;
+
+  val->t = JS_NONE; val->p = 0; val->n = 0;
+
+  if (*pos == 0u) {
+    /* First call: step over '['. An empty array ends immediately. */
+    p = skip_ws(arr, e);
+    if (p >= e || *p != '[') { return -1; }
+    p = skip_ws(p + 1, e);
+    if (p < e && *p == ']') { *pos = len; return 0; }
+  } else {
+    if (*pos >= len) { return 0; }
+    p = skip_ws(arr + *pos, e);
+    if (p < e && *p == ']') { *pos = len; return 0; }
+    if (p >= e || *p != ',') { return -1; }
+    p = skip_ws(p + 1, e);
+  }
+
+  ve = skip_value(p, e, 1);
+  if (!ve) { return -1; }
+  set_val(val, p, ve);
+  *pos = (unsigned)(ve - arr);
+  return 1;
 }
 
 int js_obj_get(const char *obj, unsigned len, const char *key, js_val *out)

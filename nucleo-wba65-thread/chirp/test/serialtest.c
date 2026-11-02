@@ -1,6 +1,12 @@
-/* Host check for board_serial.c: a burst of replies must not overrun ST's
- * 1536-byte CLI output buffer. The model copies ST's two-buffer output path,
- * with a guard area that records any overrun. Run with make test. */
+/* Host checks for board_serial.c, against stub ST headers:
+ *   - a burst of replies must not overrun ST's 1536-byte CLI output buffer
+ *     (the model copies ST's two-buffer output path, with a guard area that
+ *     records any overrun);
+ *   - the line rules of CHIRP-PROV v1.8: a line over the limit is thrown away
+ *     whole and gets no answer, a setup line whose bytes stop for 1.5 s is
+ *     given up, and CR, LF and CRLF each end a line. A CLI line typed by a
+ *     person is never timed.
+ * Run with make test. */
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -18,7 +24,7 @@ static unsigned st_size[2];
 static unsigned st_idx;
 static int      st_tx_scheduled;
 static unsigned st_peak;
-static char     st_wire[16384];
+static char     st_wire[65536];
 static unsigned st_wire_len;
 
 int CliUartOutput(void *aContext, const char *aFormat, va_list aArguments)
@@ -42,8 +48,10 @@ void arcUartProcess(void)
 
   if (!st_tx_scheduled || n == 0u) { return; }
   if (n > ST_BUFFER_SIZE) { n = ST_BUFFER_SIZE; }
-  memcpy(st_wire + st_wire_len, st_buf[st_idx], n);
-  st_wire_len += n;
+  if (st_wire_len + n < sizeof st_wire) {
+    memcpy(st_wire + st_wire_len, st_buf[st_idx], n);
+    st_wire_len += n;
+  }
   st_size[st_idx] = 0u;
   st_idx ^= 1u;
 }
@@ -51,7 +59,10 @@ void arcUartProcess(void)
 static UART_HandleTypeDef st_uart = { HAL_UART_STATE_READY, HAL_UART_STATE_READY, 0, 0, 0 };
 UART_HandleTypeDef *oTCLIuart = &st_uart;
 
-/* ---- the rest of the platform, inert ------------------------------------------ */
+/* ---- the rest of the platform -------------------------------------------------- */
+
+static uint32_t tick = 100000u;
+uint32_t HAL_GetTick(void) { return tick; }
 
 HAL_StatusTypeDef HAL_DMA_Init(DMA_HandleTypeDef *h) { (void)h; return HAL_OK; }
 HAL_StatusTypeDef HAL_DMA_ConfigChannelAttributes(DMA_HandleTypeDef *h, uint32_t a) { (void)h; (void)a; return HAL_OK; }
@@ -65,32 +76,70 @@ void HAL_NVIC_SetPriority(int irq, uint32_t pre, uint32_t sub) { (void)irq; (voi
 void HAL_NVIC_EnableIRQ(int irq) { (void)irq; }
 void UTIL_SEQ_SetTask(uint32_t task, uint32_t prio) { (void)task; (void)prio; }
 void UTIL_SEQ_RegTask(uint32_t task, uint32_t flags, void (*fn)(void)) { (void)task; (void)flags; (void)fn; }
-void __real_otPlatUartReceived(const uint8_t *aBuf, uint16_t aBufLength) { (void)aBuf; (void)aBufLength; }
+
+/* What ot-cli was handed. */
+static char     cli_got[8192];
+static unsigned cli_len;
+void __real_otPlatUartReceived(const uint8_t *aBuf, uint16_t aBufLength)
+{
+  if (cli_len + aBufLength < sizeof cli_got) { memcpy(cli_got + cli_len, aBuf, aBufLength); cli_len += aBufLength; }
+  cli_got[cli_len] = '\0';
+}
 
 /* ---- the test ----------------------------------------------------------------- */
 
-#define ANNOUNCE "CHIRP! v=2 hw=wba65-thread-3f9a12 radios=thread sig=1 t=demo-nucleo-wba65-thread\r\n"
+#define ANNOUNCE "CHIRP! v=2 hw=wba65-thread-3f9a12 fw=v1.6.0 key_set=0 radios=thread t=demo-nucleo-wba65-thread\r\n"
 
-static int fails;
+static int fails, passes;
 
 static void expect(int cond, const char *why)
 {
   printf("%s  %s\n", cond ? "ok  " : "FAIL", why);
   fails += !cond;
+  passes += cond;
 }
 
-/* What the provisioning responder does with each probe. */
+/* What the provisioning responder gets: every line, and the last one. */
+static char     chirp_last[BOARD_SERIAL_LINE_MAX + 1];
+static unsigned chirp_lines;
+
 static void on_line(char *line, unsigned len)
 {
+  chirp_lines++;
+  memcpy(chirp_last, line, len);
+  chirp_last[len] = '\0';
   if (len == 6u && memcmp(line, "CHIRP?", 6u) == 0) { board_serial_print("%s", ANNOUNCE); }
 }
 
-int main(void)
+/* Bytes off the wire: one DMA event per 256 bytes, all at the current tick. */
+static void receive(const char *bytes, unsigned n)
+{
+  while (n > 0u) {
+    unsigned k = n < 256u ? n : 256u;
+    memcpy(s_dma_buf, bytes, k);
+    rx_event(oTCLIuart, (uint16_t)k);
+    rx_task();
+    bytes += k;
+    n -= k;
+  }
+}
+
+static void receive_text(const char *text) { receive(text, (unsigned)strlen(text)); }
+
+static void reset_seen(void)
+{
+  chirp_lines = 0u;
+  chirp_last[0] = '\0';
+  cli_len = 0u;
+  cli_got[0] = '\0';
+  arcUartProcess();
+  st_wire_len = 0u;
+}
+
+static void test_burst(void)
 {
   static char want[16384];
   unsigned    i, want_len = 0u;
-
-  board_serial_begin(on_line);
 
   /* 30 probes arrive in one DMA event and are answered in one task run. */
   for (i = 0u; i < 30u; i++) {
@@ -120,7 +169,112 @@ int main(void)
     expect(st_peak <= ST_BUFFER_SIZE && st_wire_len - before > 0u && st_wire_len - before <= 256u,
            "a 5000-byte print is cut to at most 256 bytes");
   }
+}
 
-  printf("\n%s (%d failure%s)\n", fails ? "FAILED" : "PASSED", fails, fails == 1 ? "" : "s");
+static void test_lines(void)
+{
+  static char line[BOARD_SERIAL_LINE_MAX + 256];
+  const char *inner = "CHIRP+ {\"hwid\":\"board-new\"}";
+  size_t      n;
+  int         clean = 1;
+
+  puts("\n--- the line rules ---");
+
+  /* Exactly the limit is read; one byte more is thrown away whole, with no answer. */
+  reset_seen();
+  strcpy(line, "CHIRP+ {\"hwid\":\"b\"}");
+  n = strlen(line);
+  memset(line + n, ' ', BOARD_SERIAL_LINE_MAX - n);
+  strcpy(line + BOARD_SERIAL_LINE_MAX, "\r\n");
+  receive_text(line);
+  expect(chirp_lines == 1u && strlen(chirp_last) == BOARD_SERIAL_LINE_MAX,
+         "a setup line of exactly 4096 bytes is read");
+  reset_seen();
+  line[BOARD_SERIAL_LINE_MAX] = ' ';
+  strcpy(line + BOARD_SERIAL_LINE_MAX + 1u, "\r\n");
+  receive_text(line);
+  arcUartProcess();
+  st_wire[st_wire_len] = '\0';
+  expect(chirp_lines == 0u && strstr(st_wire, "CHIRP=") == NULL && cli_len == 0u,
+         "one of 4097 is thrown away: not read, not answered, not handed to the CLI");
+
+  /* No tail of an over-long line is a command: an inner push before, across or past the limit. */
+  for (size_t cut = 0u; cut < strlen(inner); cut++) {
+    size_t pad = BOARD_SERIAL_LINE_MAX - 7u - cut;
+    reset_seen();
+    memcpy(line, "CHIRP+ ", 7u);
+    memset(line + 7, 'j', pad);
+    sprintf(line + 7 + pad, "%s\r\n", inner);
+    receive_text(line);
+    clean = clean && chirp_lines == 0u && cli_len == 0u;
+  }
+  expect(clean, "no tail of a line over the limit is read as a command");
+  reset_seen();
+  receive_text("CHIRP?\r\n");
+  expect(chirp_lines == 1u && strcmp(chirp_last, "CHIRP?") == 0, "the line after it is read");
+
+  /* CR, LF and CRLF each end a line, once. */
+  reset_seen();
+  receive_text("CHIRP?\rCHIRP?\nCHIRP?\r\n");
+  expect(chirp_lines == 3u, "CR, LF and CRLF each end a line, once");
+
+  /* A setup line that stops for 1.5 s is given up; what follows is not joined to it. */
+  reset_seen();
+  receive_text("CHIRP+ {\"hwid\":");
+  tick += BOARD_SERIAL_IDLE_MS;
+  receive_text("\"late\"}\r\n");
+  expect(chirp_lines == 0u, "a setup line whose bytes stopped for 1.5 s is given up, its tail not read as one");
+  reset_seen();
+  tick += 3000u;
+  receive_text("CHIRP?\r\n");
+  expect(chirp_lines == 1u && strcmp(chirp_last, "CHIRP?") == 0, "a probe after a pause is read");
+
+  /* Pieces 1 s apart, as a browser tab out of view sends them, land. */
+  reset_seen();
+  {
+    const char *push = "CHIRP+ {\"thread\":{\"dataset\":\"0e080000000000010000000300001835060004001fffe002\"},"
+                       "\"token\":\"tok-0123456789\",\"hwid\":\"board-1\"}";
+    for (const char *p = push; *p != '\0'; p += (strlen(p) < 64u ? strlen(p) : 64u)) {
+      receive(p, (unsigned)(strlen(p) < 64u ? strlen(p) : 64u));
+      tick += 1000u;
+    }
+    receive_text("\r\n");
+    expect(chirp_lines == 1u && strcmp(chirp_last, push) == 0, "a push in 64-byte pieces a second apart lands whole");
+  }
+
+  /* A person typing at the CLI is never timed out. */
+  reset_seen();
+  receive_text("sta");
+  tick += 5000u;
+  receive_text("te\r\n");
+  expect(cli_len == 7u && strcmp(cli_got, "state\r\n") == 0, "a CLI line typed slowly reaches ot-cli whole");
+
+  /* The console is shared with ot-cli: a line is a setup line when it starts
+   * with CHIRP, so stray bytes in front make it a CLI line, which ot-cli
+   * refuses; the page's next probe, 500 ms later, is read. */
+  reset_seen();
+  receive_text("\x5a\xa6" "CHIRP?\r\n");
+  expect(chirp_lines == 0u && cli_len > 0u, "stray bytes in front: a CLI line, not a setup line");
+  receive_text("CHIRP?\r\n");
+  expect(chirp_lines == 1u, "  ... and the probe after it is read");
+
+  /* A line damaged by a receive overrun is not read either. */
+  reset_seen();
+  receive_text("CHIRP+ {\"hw");
+  s_ring_lost = 1u;
+  receive_text("id\":\"x\"}\r\n");
+  arcUartProcess();
+  st_wire[st_wire_len] = '\0';
+  expect(chirp_lines == 0u && strstr(st_wire, "CHIRP=") == NULL, "a line an overrun damaged is dropped, unanswered");
+}
+
+int main(void)
+{
+  board_serial_begin(on_line);
+  test_burst();
+  test_lines();
+
+  printf("\nserialtest: %d passed, %d failed\n", passes, fails);
+  printf("%s (%d failure%s)\n", fails ? "FAILED" : "PASSED", fails, fails == 1 ? "" : "s");
   return fails ? 1 : 0;
 }

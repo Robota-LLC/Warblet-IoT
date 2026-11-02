@@ -1,16 +1,14 @@
 /* Build HTTP requests and print them on the ST-LINK console for a computer relay.
  * Stored credentials add headers; a signing key adds an HMAC signature.
- * This image has no IP or TLS stack. */
+ * Nothing is sent until a credential is stored. This image has no IP or TLS stack. */
 #ifndef CHIRP_SEND_H
 #define CHIRP_SEND_H
-
-/* The longest host and credential the board holds; a longer pushed one is
- * refused. */
-#define CHIRP_HOST_MAX 79u
-#define CHIRP_CRED_MAX 95u
 
 void chirp_send_init(void);        /* read the stored credentials, say the level */
 void chirp_send_reload(void);      /* re-read them after a CHIRP+ push           */
 void chirp_send_tick(unsigned now_ms);  /* one uplink every 30 s                 */
+
+/* 1 when a signing key that will sign is stored (the announce's key_set=). */
+int chirp_send_key_set(void);
 
 #endif /* CHIRP_SEND_H */

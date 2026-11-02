@@ -159,45 +159,99 @@ static int key_eq(const char *ks, unsigned kn, const char *key)
   return (i == kn && key[i] == '\0');
 }
 
-int js_obj_get(const char *obj, unsigned len, const char *key, js_val *out)
+static void set_val(js_val *out, const char *vs, const char *ve)
+{
+  out->t = type_of(*vs);
+  if (out->t == JS_STR) { out->p = vs + 1; out->n = (unsigned)((ve - 1) - (vs + 1)); }
+  else                  { out->p = vs;     out->n = (unsigned)(ve - vs); }
+}
+
+int js_obj_next(const char *obj, unsigned len, unsigned *pos,
+                js_val *key, js_val *val)
 {
   const char *e = obj + len;
-  const char *p = skip_ws(obj, e);
+  const char *p;
 
-  out->t = JS_NONE; out->p = 0; out->n = 0;
-  if (p >= e || *p != '{') { return -1; }
-  p++;
-  p = skip_ws(p, e);
-  if (p < e && *p == '}') { return 0; }
+  key->t = JS_NONE; key->p = 0; key->n = 0;
+  val->t = JS_NONE; val->p = 0; val->n = 0;
 
-  for (;;) {
-    p = skip_ws(p, e);
-    if (p >= e || *p != '"') { return -1; }
+  if (*pos == 0u) {
+    /* First call: step over '{'. An empty object ends immediately. */
+    p = skip_ws(obj, e);
+    if (p >= e || *p != '{') { return -1; }
+    p = skip_ws(p + 1, e);
+    if (p < e && *p == '}') { *pos = len; return 0; }
+  } else {
+    if (*pos >= len) { return 0; }
+    p = skip_ws(obj + *pos, e);
+    if (p < e && *p == '}') { *pos = len; return 0; }
+    if (p >= e || *p != ',') { return -1; }
+    p = skip_ws(p + 1, e);
+  }
+
+  if (p >= e || *p != '"') { return -1; }
+  {
     const char *ks = p + 1;
     const char *ke = skip_string(p, e);
+    const char *vs, *ve;
+
     if (!ke) { return -1; }
-    unsigned kn = (unsigned)((ke - 1) - ks);
+    key->t = JS_STR;
+    key->p = ks;
+    key->n = (unsigned)((ke - 1) - ks);
 
     p = skip_ws(ke, e);
     if (p >= e || *p != ':') { return -1; }
-    p = skip_ws(p + 1, e);
-
-    const char *vs = p;
-    const char *ve = skip_value(p, e, 1);
+    vs = skip_ws(p + 1, e);
+    ve = skip_value(vs, e, 1);
     if (!ve) { return -1; }
+    set_val(val, vs, ve);
 
-    if (key_eq(ks, kn, key)) {
-      out->t = type_of(*vs);
-      if (out->t == JS_STR) { out->p = vs + 1; out->n = (unsigned)((ve - 1) - (vs + 1)); }
-      else                  { out->p = vs;     out->n = (unsigned)(ve - vs); }
-      return 1;
-    }
-
-    p = skip_ws(ve, e);
-    if (p < e && *p == ',') { p++; continue; }
-    if (p < e && *p == '}') { return 0; }
-    return -1;
+    *pos = (unsigned)(ve - obj);
   }
+  return 1;
+}
+
+int js_arr_next(const char *arr, unsigned len, unsigned *pos, js_val *val)
+{
+  const char *e = arr + len;
+  const char *p, *ve;
+
+  val->t = JS_NONE; val->p = 0; val->n = 0;
+
+  if (*pos == 0u) {
+    /* First call: step over '['. An empty array ends immediately. */
+    p = skip_ws(arr, e);
+    if (p >= e || *p != '[') { return -1; }
+    p = skip_ws(p + 1, e);
+    if (p < e && *p == ']') { *pos = len; return 0; }
+  } else {
+    if (*pos >= len) { return 0; }
+    p = skip_ws(arr + *pos, e);
+    if (p < e && *p == ']') { *pos = len; return 0; }
+    if (p >= e || *p != ',') { return -1; }
+    p = skip_ws(p + 1, e);
+  }
+
+  ve = skip_value(p, e, 1);
+  if (!ve) { return -1; }
+  set_val(val, p, ve);
+  *pos = (unsigned)(ve - arr);
+  return 1;
+}
+
+int js_obj_get(const char *obj, unsigned len, const char *key, js_val *out)
+{
+  unsigned pos = 0u;
+  js_val   k, v;
+  int      r;
+
+  out->t = JS_NONE; out->p = 0; out->n = 0;
+
+  while ((r = js_obj_next(obj, len, &pos, &k, &v)) == 1) {
+    if (key_eq(k.p, k.n, key)) { *out = v; return 1; }
+  }
+  return r;                                /* 0 = absent, -1 = malformed */
 }
 
 static int hex4(const char *p)

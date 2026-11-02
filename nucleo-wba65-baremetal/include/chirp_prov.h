@@ -3,13 +3,18 @@
 #ifndef CHIRP_PROV_H
 #define CHIRP_PROV_H
 
-#define CHIRP_LINE_MAX 1200u
+#include "chirp_profile.h"
 
-void chirp_prov_init(void);      /* banner + summary of any stored config */
-void chirp_prov_poll(void);      /* drain the UART, act on complete lines  */
+/* A setup line is never longer, counted from its "CHIRP"; a longer one is
+ * thrown away whole, through its line ending. The longest legal push is about
+ * 3.2 KB. */
+#define CHIRP_LINE_MAX 4096u
 
-/* Room for an id: 63 characters and the NUL. */
-#define CHIRP_HWID_SIZE 64u
+void chirp_prov_init(void);              /* banner + summary of any stored config */
+void chirp_prov_poll(unsigned now_ms);   /* drain the UART, act on complete lines  */
+
+/* Room for an id and its NUL. */
+#define CHIRP_HWID_SIZE (CHIRP_HWID_LEN_MAX + 1u)
 
 /* The id this board transmits as: the pushed `hwid`, else `wba65-demo-` + the
  * low 24 bits of the die's unique id. NUL-terminated; returns the length. */

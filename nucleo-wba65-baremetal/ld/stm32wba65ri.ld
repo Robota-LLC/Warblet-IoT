@@ -1,12 +1,12 @@
 /* STM32WBA65RI memory layout: 2 MB flash and 448 KB SRAM1.
- * Reserve the last 8 KB flash page for config; leave SRAM2 unused. */
+ * Reserve the last two 8 KB flash pages for config; leave SRAM2 unused. */
 
 ENTRY(Reset_Handler)
 
 MEMORY
 {
-  FLASH  (rx)  : ORIGIN = 0x08000000, LENGTH = 2040K   /* 2 MB - 8 KB config page */
-  CONFIG (r)   : ORIGIN = 0x081FE000, LENGTH = 8K
+  FLASH  (rx)  : ORIGIN = 0x08000000, LENGTH = 2032K   /* 2 MB - two 8 KB config pages */
+  CONFIG (r)   : ORIGIN = 0x081FC000, LENGTH = 16K
   RAM    (rwx) : ORIGIN = 0x20000000, LENGTH = 448K    /* SRAM1 */
 }
 

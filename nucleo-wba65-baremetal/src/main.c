@@ -75,10 +75,9 @@ int main(void)
   int      led_on     = 0;
 
   for (;;) {
-    chirp_prov_poll();
-
     unsigned now = millis();
 
+    chirp_prov_poll(now);
     chirp_send_tick(now);
 
     if ((now - last_blink) >= BLINK_HALF_MS) {   /* ~1 Hz, 50% duty */

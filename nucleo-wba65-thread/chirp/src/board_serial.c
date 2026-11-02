@@ -31,8 +31,11 @@ void __real_otPlatUartReceived(const uint8_t *aBuf, uint16_t aBufLength);
 #define OUT_LINE_MAX 256u
 #define OUT_BUDGET   1024u
 
-/* Interrupt-to-task ring; it covers one scheduler round trip, not a whole line. */
-#define RX_RING 1024u
+/* Interrupt-to-task ring; it covers one scheduler round trip, not a whole line.
+ * Each entry is a byte, and RX_PAUSED when the bytes had stopped for
+ * BOARD_SERIAL_IDLE_MS before it came. */
+#define RX_RING   1024u
+#define RX_PAUSED 0x100u
 
 /* Scheduler task id above ST's CFG_TASK_NBR. chirp_prov.c owns 30 and 31,
  * chirp_report.c owns 28. */
@@ -52,10 +55,11 @@ static unsigned    s_line_len;
 static const char *s_line_bad;      /* NULL, or why this line is a write-off */
 
 /* Interrupt -> task ring. head is interrupt-owned, tail is task-owned. */
-static volatile uint8_t  s_ring[RX_RING];
+static volatile uint16_t s_ring[RX_RING];
 static volatile uint32_t s_ring_head;
 static volatile uint32_t s_ring_tail;
 static volatile uint8_t  s_ring_lost;
+static volatile uint32_t s_rx_last_ms;  /* HAL_GetTick() when the last bytes came */
 
 /* DMA reception buffer; the callbacks copy each new region into the ring.
  * 512 bytes is ~44 ms at 115200. */
@@ -162,9 +166,9 @@ static void dispatch_line(void)
   s_line_bad = NULL;
 
   if (bad != NULL) {
-    /* Report a damaged command instead of dispatching it. */
-    if (is_chirp_line(s_line, n)) { board_serial_print("CHIRP= err %s\r\n", bad); }
-    else { board_serial_print("CHIRP. input line dropped (%s)\r\n", bad); }
+    /* A damaged line is not dispatched, and no part of it is read as a
+     * command, so a setup line gets no answer (CHIRP-PROV v1.8). */
+    board_serial_print("CHIRP. input line dropped (%s)\r\n", bad);
     return;
   }
 
@@ -195,10 +199,18 @@ static void rx_task(void)
   }
 
   while (s_ring_tail != s_ring_head) {
-    uint8_t  c    = s_ring[s_ring_tail];
+    uint16_t e    = s_ring[s_ring_tail];
+    char     c    = (char)(e & 0xFFu);
     uint32_t next = s_ring_tail + 1u;
 
     s_ring_tail = (next == RX_RING) ? 0u : next;
+
+    /* A setup line whose bytes stopped will not end now: it is given up, and
+     * what follows is not joined to it. A line already over the limit still
+     * waits for its line ending. */
+    if ((e & RX_PAUSED) != 0u && s_line_bad == NULL && is_chirp_line(s_line, s_line_len)) {
+      s_line_len = 0u;
+    }
 
     if (c == '\r' || c == '\n') { dispatch_line(); continue; }
 
@@ -208,7 +220,7 @@ static void rx_task(void)
 }
 
 /* Interrupt-side ring push, shared by the two DMA callbacks below. */
-static void ring_push(uint8_t c)
+static void ring_push(uint16_t c)
 {
   uint32_t head = s_ring_head;
   uint32_t next = head + 1u;
@@ -219,12 +231,17 @@ static void ring_push(uint8_t c)
   else                     { s_ring_lost = 1u; }
 }
 
-/* Copy received DMA bytes to the ring, wake the task, and re-arm completed transfers. */
+/* Copy received DMA bytes to the ring, wake the task, and re-arm completed
+ * transfers. An event comes at most a buffer's time (44 ms) after its first
+ * byte, so its time stands for all of its bytes. */
 static void rx_event(UART_HandleTypeDef *huart, uint16_t pos)
 {
+  uint32_t now   = HAL_GetTick();
+  uint16_t pause = (now - s_rx_last_ms >= BOARD_SERIAL_IDLE_MS) ? RX_PAUSED : 0u;
   uint16_t i;
 
-  for (i = s_dma_last; i < pos; i++) { ring_push(s_dma_buf[i]); }
+  for (i = s_dma_last; i < pos; i++) { ring_push((uint16_t)(s_dma_buf[i] | pause)); pause = 0u; }
+  if (pos > s_dma_last) { s_rx_last_ms = now; }
   s_dma_last = pos;
 
   if (huart->RxState == HAL_UART_STATE_READY) {

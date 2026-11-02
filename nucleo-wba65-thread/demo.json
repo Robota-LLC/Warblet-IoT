@@ -23,14 +23,13 @@
     "kind": "stm32-dfu",
     "images": [
       {"file": "build/thread_chirp.bin", "address": "0x08000000", "use": "blank"}
-    ]
+    ],
+    "capabilities": {"v": 1, "auth": [1, 2], "keyProvisioning": ["usb"], "otaKeyRotation": false, "otaFirmwareUpdate": false, "transports": ["udp"]},
+    "fw": "v1.6.0"
   },
   "provision": {
-    "protocol": "chirp-prov/1.6",
+    "protocol": "chirp-prov/1.8",
     "host": "udp.warbletiot.com",
-    "commands": [],
-    "knobs": {
-      "level": {"max": 2}
-    }
+    "commands": []
   }
 }

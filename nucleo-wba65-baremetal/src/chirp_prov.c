@@ -8,6 +8,29 @@
 #include "dfu.h"
 #include "board.h"
 
+/* fw=: the release in which this demo's firmware last changed. The Makefile
+ * passes it (FW_VERSION), and demo.json's firmware.fw says the same. */
+#ifndef CHIRP_FW
+#error "build with the Makefile: it passes CHIRP_FW, this demo's FW_VERSION"
+#endif
+
+#define DEMO_SLUG "demo-nucleo-wba65"
+
+/* A line whose bytes stop for this long is given up: longer than the 1 s a
+ * browser tab out of view waits between the pieces of a push. */
+#define LINE_IDLE_MS 1500u
+
+/* Before "CHIRP" nothing counts, so only enough to find it is kept. */
+#define JUNK_KEPT 64u
+
+/* The announce at its longest, within CHIRP-PROV v1.8's 512 bytes. */
+_Static_assert(sizeof("CHIRP! v=2 hw= fw= key_set=0 t=" DEMO_SLUG " caps=") - 1u + CHIRP_HWID_LEN_MAX +
+               sizeof(CHIRP_FW) - 1u + sizeof(CHIRP_CAPS) - 1u <= 512u,
+               "the announce must fit in 512 bytes");
+
+/* The store holds the longest record a push can make. */
+_Static_assert(CFG_MAX_PAYLOAD >= CHIRP_RECORD_MAX, "the store must hold the longest record");
+
 /* ------------------------------------------------------------------ small str */
 
 static int s_eq(const char *a, const char *b)
@@ -57,12 +80,6 @@ static void put_hwid(void)
   unsigned n = chirp_hwid(id, sizeof id);
   uart_write(id, n);
 }
-
-/* ------------------------------------------------------------------ state */
-
-static char     s_line[CHIRP_LINE_MAX + 1];
-static unsigned s_fill;
-static int      s_overflow;
 
 /* ------------------------------------------------------------------ config summary */
 
@@ -126,55 +143,45 @@ static void summarize(const char *json, unsigned len)
 
 /* ------------------------------------------------------------------ line handling */
 
-/* Announce dataset parsing and signing support, plus the demo slug.
- * Omit radios because this image does not drive a radio. */
+/* CHIRP-PROV v1.8: what this firmware is and can do. v=2: it reads a Thread
+ * dataset. No radios=: it drives no radio, and reports through the computer. */
 static void announce(void)
 {
   uart_puts("CHIRP! v=2 hw=");
   put_hwid();
-  uart_line(" sig=1 t=demo-nucleo-wba65");
+  uart_puts(" fw=");
+  uart_puts(CHIRP_FW);
+  uart_puts(chirp_send_key_set() ? " key_set=1" : " key_set=0");
+  uart_puts(" t=" DEMO_SLUG);
+  uart_puts(" caps=");
+  uart_line(CHIRP_CAPS);
 }
 
 /* Merge scratch, sized like the store's record. */
 static char s_merged[CFG_MAX_PAYLOAD + 1];
 
-static void handle_config(char *json, unsigned len)
+static void handle_config(const char *json, unsigned len)
 {
   const char *stored;
-  unsigned    slen = 0u;
-  int         mlen;
+  unsigned    slen = 0u, mlen = 0u;
   char        id[CHIRP_HWID_SIZE];
+  char        reply[CHIRP_REPLY_MAX];
 
-  /* Field rules are judged on the push alone. */
-  const char *err = chirp_validate_fields(json, len);
-  if (err) {
-    uart_puts("CHIRP= err ");
-    uart_line(err);
-    return;
-  }
-
+  /* Checked and merged over what is stored (chirpval.c), or refused whole. */
   stored = cfg_json(&slen);
   (void)chirp_hwid(id, sizeof id);      /* the id the board answers to now */
-  mlen = chirp_merge(stored, slen, json, len, s_merged, sizeof s_merged, id);
-  if (mlen < 0) {                       /* our page holds 1008 JSON bytes */
-    uart_line("CHIRP= err store-failed");
+  if (!chirp_merge(stored, slen, json, len, id, s_merged, sizeof s_merged, &mlen, reply)) {
+    uart_line(reply);
     return;
   }
 
-  /* Completeness is judged on the merged result. */
-  err = chirp_validate(s_merged, (unsigned)mlen);
-  if (err) {
-    uart_puts("CHIRP= err ");
-    uart_line(err);
-    return;
-  }
-
-  if (cfg_store(s_merged, (unsigned)mlen) != 0) {
+  /* ok only once the new record is stored and read back. */
+  if (cfg_store(s_merged, mlen) != 0) {
     uart_line("CHIRP= err store-failed");
     return;
   }
   uart_line("CHIRP= ok");
-  summarize(s_merged, (unsigned)mlen);
+  summarize(s_merged, mlen);
   /* Re-read the credentials now (contract §Elevation): the next uplink is
    * signed with no reboot. */
   chirp_send_reload();
@@ -182,22 +189,17 @@ static void handle_config(char *json, unsigned len)
 
 static void handle_line(char *line, unsigned len)
 {
-  /* Strip trailing whitespace, including CR from CRLF input. */
-  while (len && (line[len - 1] == ' ' || line[len - 1] == '\t' || line[len - 1] == '\r')) {
+  /* Strip trailing spaces and tabs. */
+  while (len && (line[len - 1] == ' ' || line[len - 1] == '\t')) {
     line[--len] = '\0';
   }
-  if (len == 0u) { return; }
-
-  /* Lines that are not CHIRP are ordinary console traffic: ignore them. */
-  if (!s_starts(line, "CHIRP")) { return; }
 
   if (s_eq(line, "CHIRP?")) { announce(); return; }
 
-  if (s_starts(line, "CHIRP+ ")) {
-    char *json = line + 7;
-    unsigned jl = len - 7u;
+  if (s_starts(line, "CHIRP+")) {
+    char *json = line + 6;
+    unsigned jl = len - 6u;
     while (jl && (*json == ' ' || *json == '\t')) { json++; jl--; }
-    if (jl == 0u) { uart_line("CHIRP= err bad-json"); return; }
     handle_config(json, jl);
     return;
   }
@@ -210,6 +212,54 @@ static void handle_line(char *line, unsigned len)
   }
 
   uart_line("CHIRP= err unsupported");
+}
+
+/* ------------------------------------------------------------------ the line */
+
+static char     s_line[CHIRP_LINE_MAX + 1];
+static unsigned s_len;
+static int      s_marked;    /* "CHIRP" has come: s_line starts there */
+static int      s_skip;      /* the rest of a line that was too long: dropped to its end */
+static unsigned s_last_ms;   /* when the last byte came */
+
+/* One byte off the console. A line counts from its first "CHIRP": stray bytes
+ * in front are dropped and do not spoil it. A line longer than CHIRP_LINE_MAX
+ * from there is thrown away whole, through its line ending, so no part of it
+ * is read as a command and it gets no answer. A line whose bytes stop for
+ * LINE_IDLE_MS is given up. CR, LF and CRLF each end a line. */
+static void feed(char c, unsigned now_ms)
+{
+  if (s_marked && !s_skip && (unsigned)(now_ms - s_last_ms) >= LINE_IDLE_MS) {
+    s_len = 0u;                          /* the line stopped coming: it will not end now */
+    s_marked = 0;
+  }
+  s_last_ms = now_ms;
+  if (c == '\r' || c == '\n') {
+    if (s_marked && !s_skip) {
+      s_line[s_len] = '\0';
+      handle_line(s_line, s_len);
+    }
+    s_len = 0u;
+    s_marked = s_skip = 0;
+    return;
+  }
+  if (s_skip) { return; }
+  if (s_len >= CHIRP_LINE_MAX) {
+    s_len = 0u;
+    s_marked = 0;
+    s_skip = 1;
+    return;
+  }
+  if (!s_marked && s_len >= JUNK_KEPT) {
+    for (unsigned i = 0u; i < 4u; i++) { s_line[i] = s_line[s_len - 4u + i]; }
+    s_len = 4u;                          /* enough to find a "CHIRP" split across */
+  }
+  s_line[s_len++] = c;
+  if (!s_marked && c == 'P' && s_len >= 5u && s_starts(s_line + s_len - 5u, "CHIRP")) {
+    for (unsigned i = 0u; i < 5u; i++) { s_line[i] = "CHIRP"[i]; }
+    s_len = 5u;                          /* the line starts here */
+    s_marked = 1;
+  }
 }
 
 /* ------------------------------------------------------------------ api */
@@ -230,31 +280,15 @@ void chirp_prov_init(void)
     const char *json = cfg_json(&len);
     summarize(json, len);
   } else if (loaded == -2) {
-    uart_line("CHIRP. cfg page unreadable (flash ECC error); waiting for USB setup");
+    uart_line("CHIRP. cfg pages unreadable (flash ECC error); waiting for USB setup");
   } else {
     uart_line("CHIRP. cfg none");
   }
   uart_line("CHIRP. ready (send CHIRP? / CHIRP+ <json> / CHIRP~ dfu)");
 }
 
-void chirp_prov_poll(void)
+void chirp_prov_poll(unsigned now_ms)
 {
   int c;
-  while ((c = uart_getc()) >= 0) {
-    if (c == '\n') {
-      if (s_overflow) {
-        /* Too long to take. A setup line hears why; any other line is junk,
-         * and junk gets no answer, as a short junk line gets none. */
-        if (s_starts(s_line, "CHIRP")) { uart_line("CHIRP= err bad-json"); }
-      } else {
-        s_line[s_fill] = '\0';
-        handle_line(s_line, s_fill);
-      }
-      s_fill = 0;
-      s_overflow = 0;
-      continue;
-    }
-    if (s_fill < CHIRP_LINE_MAX) { s_line[s_fill++] = (char)c; }
-    else                         { s_overflow = 1; }
-  }
+  while ((c = uart_getc()) >= 0) { feed((char)c, now_ms); }
 }

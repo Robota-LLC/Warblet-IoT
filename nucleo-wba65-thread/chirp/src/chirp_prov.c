@@ -31,6 +31,11 @@
 /* chirp_ds.h knows nothing about OpenThread; the two sizes meet here. */
 _Static_assert(CHIRP_DS_TLV_MAX == OT_OPERATIONAL_DATASET_MAX_LENGTH,
                "chirp_ds TLV buffer must match OT_OPERATIONAL_DATASET_MAX_LENGTH");
+_Static_assert(CHIRP_DS_TLV_MAX == CHIRP_DATASET_MAX && CHIRP_DS_NAME_MAX == CHIRP_TNAME_MAX,
+               "chirpval.c takes no more of a dataset or a name than chirp_ds.c decodes");
+
+/* The store holds the longest record a push can make. */
+_Static_assert(CFG_MAX_PAYLOAD >= CHIRP_RECORD_MAX, "the store must hold the longest record");
 
 /* Scheduler task ids above ST's CFG_TASK_NBR. board_serial.c owns 29 and
  * chirp_report.c owns 28. */
@@ -111,9 +116,6 @@ static void summarize(const char *json, unsigned len)
 
   if (js_obj_get(json, len, "host", &v) == 1 && v.t == JS_STR) {
     board_serial_print(" host=%.*s", (int)v.n, v.p);
-  }
-  if (js_obj_get(json, len, "ssid", &v) == 1 && v.t == JS_STR) {
-    board_serial_print(" ssid=%.*s", (int)v.n, v.p);
   }
 
   if (js_obj_get(json, len, "key", &v) == 1 && v.t == JS_STR) {
@@ -326,40 +328,33 @@ static int apply_json(const char *json, unsigned len, const char **why, otError 
 static void announce(void)
 {
   /* The id is the one the reports carry: pushed if provisioned, else the die's. */
-  char line[128];
+  static char line[CHIRP_ANNOUNCE_MAX + 3u];   /* the line, its CRLF and the NUL */
+  unsigned    n = chirp_announce_line(line, sizeof line, chirp_report_key_set());
 
-  if (chirp_announce_line(line, sizeof line) > 0u) { board_serial_print("%s", line); }
+  /* One print holds at most 255 bytes (board_serial.c), so the line goes out
+   * in pieces, back to back. */
+  for (unsigned at = 0u; at < n; at += 200u) {
+    board_serial_print("%.*s", (int)(n - at < 200u ? n - at : 200u), line + at);
+  }
 }
 
-/* Validate supplied fields, merge, check completeness, store, then apply. */
-static void handle_config(char *json, unsigned len)
+/* Check and merge the push, store it, then apply it. */
+static void handle_config(const char *json, unsigned len)
 {
-  static const char empty[] = "{}";
-  const char *err;
   const char *why   = "apply-failed";
   otError     oterr = OT_ERROR_NONE;
-  unsigned    mlen, i;
+  unsigned    mlen  = 0u, i;
   int         applied;
+  char        reply[CHIRP_REPLY_MAX];
 
-  /* 1. Field shape, judged on the push alone. */
-  err = chirp_validate_fields(json, len);
-  if (err) { board_serial_print("CHIRP= err %s\r\n", err); return; }
-
-  /* 2. MERGE over what is stored. */
-  mlen = chirp_merge(s_merged, sizeof s_merged,
-                     s_cfg_present ? s_cfg : empty,
-                     s_cfg_present ? s_cfg_len : (unsigned)(sizeof empty - 1u),
-                     json, len, chirp_hwid());
-  if (mlen == 0u || mlen > CFG_MAX_PAYLOAD) {
-    board_serial_print("CHIRP= err store-failed\r\n");
+  /* 1. Checked and merged over what is stored (chirpval.c), or refused whole. */
+  if (!chirp_merge(s_cfg_present ? s_cfg : 0, s_cfg_len, json, len, chirp_hwid(),
+                   s_merged, sizeof s_merged, &mlen, reply)) {
+    board_serial_print("%s\r\n", reply);
     return;
   }
 
-  /* 3. Completeness, judged on the merged result. */
-  err = chirp_validate(s_merged, mlen);
-  if (err) { board_serial_print("CHIRP= err %s\r\n", err); return; }
-
-  /* 4. Store before claiming ok. */
+  /* 2. Store before claiming ok. */
   if (cfg_store(s_merged, mlen) != 0) {
     board_serial_print("CHIRP= err store-failed\r\n");
     return;
@@ -374,7 +369,7 @@ static void handle_config(char *json, unsigned len)
   json = s_cfg;
   len  = mlen;
 
-  /* 5. Apply. The reporter follows the stored record, as a reboot would. */
+  /* 3. Apply. The reporter follows the stored record, as a reboot would. */
   chirp_report_config(json, len);
 
   applied = apply_json(json, len, &why, &oterr);
@@ -419,11 +414,10 @@ static void handle_chirp_line(char *line, unsigned len)
 
   if (str_eq(line, "CHIRP?")) { announce(); return; }
 
-  if (str_starts_with(line, "CHIRP+ ")) {
-    char    *json = line + 7;
-    unsigned jl   = len - 7u;
+  if (str_starts_with(line, "CHIRP+")) {
+    char    *json = line + 6;
+    unsigned jl   = len - 6u;
     while (jl && (*json == ' ' || *json == '\t')) { json++; jl--; }
-    if (jl == 0u) { board_serial_print("CHIRP= err bad-json\r\n"); return; }
     handle_config(json, jl);
     return;
   }
@@ -459,7 +453,7 @@ static void chirp_banner(void)
                      chirp_hwid(), cfg_page_addr());
 
   if (loaded == -2) {
-    board_serial_print("CHIRP. cfg page unreadable (flash ECC error); waiting for USB setup\r\n");
+    board_serial_print("CHIRP. cfg pages unreadable (flash ECC error); waiting for USB setup\r\n");
   } else if (!s_cfg_present) {
     board_serial_print("CHIRP. cfg none - stock ot-cli, no auto-join\r\n");
   } else {

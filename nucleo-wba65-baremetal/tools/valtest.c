@@ -1,16 +1,1008 @@
-/* Host checks for JSON, config validation, SHA-256, HMAC, and the signed input.
- * Run with make test. */
+/* Host checks for this demo's own code, with the board stood in (the UART, the
+ * die id and the flash here, tools/stub/board.h for the rest):
+ *   - every push of the shared CHIRP-PROV v1.8 vectors' relay profile, fed a
+ *     byte at a time as a console line: the answer, whether it is stored, and
+ *     the settings held after, read back as the next start reads them;
+ *   - the rules behind them one by one: the refusals, the Thread object, the
+ *     id, the credential, the longest record;
+ *   - the announce: v1.8's line, with this demo's slug, fw and capabilities
+ *     as demo.json declares them;
+ *   - the store: two pages; a save whose flash fails at any step, or loses
+ *     power at any step, and the newest valid record winning at start;
+ *   - the line: one over the limit, a line that stops, stray bytes in front;
+ *   - no request without a credential;
+ *   - JSON, SHA-256, HMAC and the signed input.
+ * Run with make test VECTORS=<path to chirp-prov-v1.8.json>; the vectors live
+ * with Warblet's checks, not in this folder. What this cannot show: a real
+ * start, real flash and its ECC, and the console itself. Those are the bench's. */
 
 #include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "json.h"
 #include "chirpval.h"
+#include "flashcfg.h"
 #include "sha256.h"
 #include "chirp_sign.h"
 
-static int fails;
+static int fails, passes;
+
+static void check(int ok, const char *what, const char *detail)
+{
+  if (ok) {
+    passes++;
+    printf("ok    %s\n", what);
+  } else {
+    fails++;
+    printf("FAIL  %s%s%s\n", what, detail ? "\n      " : "", detail ? detail : "");
+  }
+}
+
+/* ---- the board's parts ------------------------------------------------------ */
+
+unsigned test_uid = 0x00abcdefu;         /* the die id: wba65-demo-abcdef */
+#define DIE_ID "wba65-demo-abcdef"
+
+/* What the firmware prints, kept for the checks; and one byte waiting to be read. */
+static char     said[65536];
+static unsigned said_len;
+static int      rx = -1;
+
+void uart_init(void) { }
+void uart_putc(char c) { if (said_len + 1u < sizeof said) { said[said_len++] = c; said[said_len] = '\0'; } }
+void uart_write(const char *s, unsigned n) { for (unsigned i = 0; i < n; i++) { uart_putc(s[i]); } }
+void uart_puts(const char *s) { while (*s) { uart_putc(*s++); } }
+void uart_line(const char *s) { uart_puts(s); uart_puts("\r\n"); }
+void uart_put_uint(unsigned v) { char b[16]; snprintf(b, sizeof b, "%u", v); uart_puts(b); }
+void uart_put_hex(unsigned v, int digits) { char b[16]; snprintf(b, sizeof b, "%0*x", digits, v); uart_puts(b); }
+int  uart_getc(void) { int c = rx; rx = -1; return c; }
+void uart_flush(void) { }
+
+static int dfu_entered;
+void dfu_enter_system_bootloader(void) { dfu_entered++; }
+
+/* ---- the flash, two 8 KB pages, with faults ---------------------------------- */
+/* Erase sets a page to 0xFF; a 16-byte write needs those bytes erased, as on
+ * the chip. A power cut stops everything until power_on(); the step it cuts is
+ * left half done (a half-erased page, a torn quadword whose ECC fails on read)
+ * or not done at all. One failed operation fails in one of several ways. */
+
+#define FAKE_BASE 0x081FC000u
+static unsigned char flash_mem[2][CFG_PAGE_SIZE];
+static unsigned char flash_torn[2][CFG_PAGE_SIZE / 16u];
+
+enum { CUT_TORN, CUT_CLEAN };
+enum { FAIL_NOTHING, FAIL_HALF, FAIL_LANDED, FAIL_LIES, FAIL_KINDS };
+static int  steps;                   /* mutating steps since power_on() */
+static int  cut_at = -1, cut_mode;   /* the step the power goes at; -1 never */
+static int  fail_at = -1, fail_kind; /* the step that fails; -1 none */
+static int  power_gone;
+
+static void power_on(void) { power_gone = 0; cut_at = fail_at = -1; steps = 0; }
+
+static void flash_blank(void)
+{
+  memset(flash_mem, 0xFF, sizeof flash_mem);
+  memset(flash_torn, 0, sizeof flash_torn);
+  power_on();
+}
+
+unsigned cfg_flash_page(unsigned i) { return FAKE_BASE + i * CFG_PAGE_SIZE; }
+
+static unsigned char *at(unsigned addr, unsigned *page, unsigned *off)
+{
+  *page = (addr - FAKE_BASE) / CFG_PAGE_SIZE;
+  *off  = (addr - FAKE_BASE) % CFG_PAGE_SIZE;
+  return &flash_mem[*page][*off];
+}
+
+int cfg_flash_read(unsigned addr, void *dst, unsigned n)
+{
+  unsigned page, off;
+  unsigned char *p = at(addr, &page, &off);
+
+  if (power_gone) { return -2; }
+  for (unsigned i = 0; i < n; i++) {
+    if (flash_torn[page][(off + i) / 16u]) { return -2; }
+  }
+  memcpy(dst, p, n);
+  return 0;
+}
+
+static void erase_half(unsigned i) { memset(flash_mem[i], 0xFF, CFG_PAGE_SIZE / 2u); }
+
+int cfg_flash_erase(unsigned i)
+{
+  int s;
+
+  if (power_gone) { return -1; }
+  s = steps++;
+  if (s == cut_at) {
+    if (cut_mode == CUT_TORN) { erase_half(i); }
+    power_gone = 1;
+    return -1;
+  }
+  if (s == fail_at && (fail_kind == FAIL_NOTHING || fail_kind == FAIL_HALF)) {
+    if (fail_kind == FAIL_HALF) { erase_half(i); }
+    return -1;
+  }
+  memset(flash_mem[i], 0xFF, CFG_PAGE_SIZE);
+  memset(flash_torn[i], 0, sizeof flash_torn[i]);
+  return 0;
+}
+
+int cfg_flash_write(unsigned addr, const unsigned char qw[16])
+{
+  unsigned page, off, k;
+  unsigned char *p = at(addr, &page, &off);
+  int s;
+
+  if (power_gone) { return -1; }
+  s = steps++;
+  for (k = 0; k < 16u; k++) { if (p[k] != 0xFF || flash_torn[page][off / 16u]) { return -1; } }
+  if (s == cut_at) {
+    if (cut_mode == CUT_TORN) { memset(p, 0x5A, 16u); flash_torn[page][off / 16u] = 1; }
+    power_gone = 1;
+    return -1;
+  }
+  if (s == fail_at) {
+    switch (fail_kind) {
+      case FAIL_NOTHING: return -1;
+      case FAIL_HALF:    memset(p, 0x5A, 16u); flash_torn[page][off / 16u] = 1; return -1;
+      case FAIL_LANDED:  memcpy(p, qw, 16u); return -1;       /* written, but reported failed */
+      case FAIL_LIES:    memcpy(p, qw, 16u); p[3] ^= 0x10u; return 0;   /* a bit wrong, reported fine */
+    }
+  }
+  memcpy(p, qw, 16u);
+  return 0;
+}
+
+/* ---- the firmware under test --------------------------------------------------- */
+
+#include "../src/chirp_prov.c"
+
+static unsigned clock_ms = 1000u;
+
+/* A real start: RAM forgotten, the store read, the credentials loaded. */
+static void start(void)
+{
+  power_on();
+  s_len = 0u; s_marked = s_skip = 0;
+  (void)cfg_load();
+  chirp_send_reload();
+}
+
+static void send_text(const char *text, unsigned gap_ms)
+{
+  for (const char *c = text; *c != '\0'; c++) {
+    clock_ms += gap_ms;
+    rx = (unsigned char)*c;
+    chirp_prov_poll(clock_ms);
+  }
+}
+
+/* The first line the firmware printed for a console line ("" for none). */
+static char first_line[1024];
+static const char *answer_to(const char *line)
+{
+  char *nl;
+  said_len = 0u;
+  said[0] = '\0';
+  send_text(line, 1u);
+  snprintf(first_line, sizeof first_line, "%s", said);
+  if ((nl = strpbrk(first_line, "\r\n")) != NULL) { *nl = '\0'; }
+  return first_line;
+}
+
+static const char *push(const char *json)
+{
+  static char line[CHIRP_LINE_MAX + 16];
+  snprintf(line, sizeof line, "CHIRP+ %s\r\n", json);
+  return answer_to(line);
+}
+
+/* A board that holds `record` (NULL: never set up), just started. */
+static void board_with(const char *record)
+{
+  flash_blank();
+  (void)cfg_load();
+  if (record != NULL) { (void)cfg_store(record, (unsigned)strlen(record)); }
+  start();
+}
+
+/* ---- JSON compared as values ------------------------------------------------------ */
+
+static int decoded(const js_val *v, char *buf, unsigned n)
+{
+  return js_str_copy(v, buf, n);
+}
+
+static int same_obj(const char *a, unsigned an, const char *b, unsigned bn, int top);
+
+/* Strings by their decoded bytes, numbers by their text, objects in any order,
+ * arrays in order. */
+static int same_value(const js_val *a, const js_val *b)
+{
+  static char x[4096], y[4096];
+  if (a->t != b->t) { return 0; }
+  switch (a->t) {
+    case JS_STR: {
+      int nx = decoded(a, x, sizeof x), ny;
+      if (nx < 0) { return 0; }
+      {
+        static char xs[4096];
+        memcpy(xs, x, (size_t)nx);
+        ny = decoded(b, y, sizeof y);
+        return ny == nx && memcmp(xs, y, (size_t)nx) == 0;
+      }
+    }
+    case JS_NUM: return a->n == b->n && memcmp(a->p, b->p, a->n) == 0;
+    case JS_OBJ: return same_obj(a->p, a->n, b->p, b->n, 0);
+    case JS_ARR: {
+      unsigned pa = 0u, pb = 0u;
+      js_val   ea, eb;
+      int      ra, rb;
+      for (;;) {
+        ra = js_arr_next(a->p, a->n, &pa, &ea);
+        rb = js_arr_next(b->p, b->n, &pb, &eb);
+        if (ra != rb) { return 0; }
+        if (ra != 1) { return ra == 0; }
+        if (!same_value(&ea, &eb)) { return 0; }
+      }
+    }
+    default: return 1;
+  }
+}
+
+/* A member's name; at the top of a record a claim counts as the token, as the
+ * vectors write a setup code. */
+static void member_name(const js_val *k, int top, char name[64])
+{
+  if (js_str_copy(k, name, 64) < 0) { name[0] = '\0'; }
+  if (top && strcmp(name, "claim") == 0) { strcpy(name, "token"); }
+}
+
+static int same_obj(const char *a, unsigned an, const char *b, unsigned bn, int top)
+{
+  unsigned pa = 0u, count_a = 0u, count_b = 0u, pb;
+  js_val   ka, va, kb, vb;
+  char     na[64], nb[64];
+
+  pb = 0u;
+  while (js_obj_next(b, bn, &pb, &kb, &vb) == 1) { count_b++; }
+  while (js_obj_next(a, an, &pa, &ka, &va) == 1) {
+    int found = 0;
+    count_a++;
+    member_name(&ka, top, na);
+    pb = 0u;
+    while (!found && js_obj_next(b, bn, &pb, &kb, &vb) == 1) {
+      member_name(&kb, top, nb);
+      if (strcmp(na, nb) == 0) { found = same_value(&va, &vb); if (!found) { return 0; } }
+    }
+    if (!found) { return 0; }
+  }
+  return count_a == count_b;
+}
+
+static int same_record(const char *a, const char *b)
+{
+  return same_obj(a, (unsigned)strlen(a), b, (unsigned)strlen(b), 1);
+}
+
+/* What the next start reads, as text ("{}" when nothing). */
+static const char *held_after_restart(void)
+{
+  static char copy[CFG_MAX_PAYLOAD + 1];
+  unsigned    n = 0u;
+  const char *j;
+
+  start();
+  j = cfg_json(&n);
+  snprintf(copy, sizeof copy, "%s", j ? j : "{}");
+  return copy;
+}
+
+static char *read_file(const char *path)
+{
+  FILE *f = fopen(path, "rb");
+  long  n;
+  char *text;
+
+  if (f == NULL) { return NULL; }
+  fseek(f, 0, SEEK_END);
+  n = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  text = malloc((size_t)n + 1u);
+  if (text != NULL && fread(text, 1, (size_t)n, f) == (size_t)n) { text[n] = '\0'; }
+  else if (text != NULL) { free(text); text = NULL; }
+  fclose(f);
+  return text;
+}
+
+/* A string member of obj into buf ("" when absent). */
+static const char *str_of(const js_val *obj, const char *key, char *buf, unsigned n)
+{
+  js_val v;
+  buf[0] = '\0';
+  if (js_obj_get(obj->p, obj->n, key, &v) == 1 && v.t == JS_STR && js_str_copy(&v, buf, n) < 0) { buf[0] = '\0'; }
+  return buf;
+}
+
+/* The object's source text into buf, NULL for {}. */
+static const char *obj_text(const js_val *obj, const char *key, char *buf, unsigned n)
+{
+  js_val   v, k2, v2;
+  unsigned pos = 0u;
+
+  if (js_obj_get(obj->p, obj->n, key, &v) != 1 || v.t != JS_OBJ || v.n + 1u > n) { return NULL; }
+  if (js_obj_next(v.p, v.n, &pos, &k2, &v2) != 1) { return NULL; }
+  memcpy(buf, v.p, v.n);
+  buf[v.n] = '\0';
+  return buf;
+}
+
+/* ---- the shared vectors ----------------------------------------------------------- */
+
+static char *s_vectors;
+
+static void test_vectors(const char *path)
+{
+  js_val   root, pushes, v;
+  unsigned pos = 0u;
+  int      n = 0;
+  static char name[512], pushed[8192], want[128], stored[4096], after[4096], detail[2048];
+
+  puts("\n--- the shared CHIRP-PROV v1.8 vectors, relay profile (this board) ---");
+  if (path == NULL) {
+    printf("SKIP  the shared vectors: no path given (make test VECTORS=<path to chirp-prov-v1.8.json>)\n");
+    return;
+  }
+  s_vectors = read_file(path);
+  check(s_vectors != NULL, "the shared vectors read", path);
+  if (s_vectors == NULL) { return; }
+  root.p = s_vectors; root.n = (unsigned)strlen(s_vectors); root.t = JS_OBJ;
+  if (js_obj_get(root.p, root.n, "pushes", &pushes) != 1 || pushes.t != JS_ARR) {
+    check(0, "the vectors hold pushes", path);
+    return;
+  }
+  while (js_arr_next(pushes.p, pushes.n, &pos, &v) == 1) {
+    char        profile[32];
+    const char *st, *af, *got, *held;
+    js_val      stores;
+    int         will_store, stored_ok;
+    char        before[CFG_MAX_PAYLOAD + 1];
+
+    if (strcmp(str_of(&v, "profile", profile, sizeof profile), "relay") != 0) { continue; }
+    str_of(&v, "name", name, sizeof name);
+    str_of(&v, "push", pushed, sizeof pushed);
+    str_of(&v, "answer", want, sizeof want);
+    will_store = js_obj_get(v.p, v.n, "stores", &stores) == 1 && stores.t == JS_TRUE;
+    st = obj_text(&v, "stored", stored, sizeof stored);
+    af = obj_text(&v, "after", after, sizeof after);
+
+    /* The vector's settings, held as the board would hold them. */
+    board_with(st);
+    stored_ok = st == NULL || cfg_json(NULL) != NULL;
+    check(stored_ok, "the stored settings load", name);
+    snprintf(before, sizeof before, "%s", cfg_json(NULL) ? cfg_json(NULL) : "{}");
+
+    got = push(pushed);
+    snprintf(detail, sizeof detail, "%s\n      got  %s\n      want %s", name, got, want);
+    check(strcmp(got, want) == 0, "a v1.8 push gets the contract's answer", detail);
+
+    held = held_after_restart();
+    if (will_store) {
+      snprintf(detail, sizeof detail, "%s\n      held %s\n      want %s", name, held, af ? af : "{}");
+      check(same_record(held, af ? af : "{}"), "  ... and the next start reads the vector's settings", detail);
+    } else {
+      snprintf(detail, sizeof detail, "%s\n      held %s", name, held);
+      check(strcmp(held, before) == 0 && same_record(held, af ? af : "{}"),
+            "  ... and a refusal leaves the record as it was", detail);
+    }
+    n++;
+  }
+  check(n >= 20, "the vectors hold the relay profile's pushes", NULL);
+  printf("      %d relay pushes answered and stored as the contract says\n", n);
+}
+
+/* ---- the rules one by one --------------------------------------------------------- */
+
+#define KEY_A "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+#define KEY_B "BBECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+#define TKEY  "00112233445566778899aabbccddeeff"
+
+static void expect(const char *record, const char *json, const char *want, const char *why)
+{
+  char detail[1024];
+  const char *got;
+
+  board_with(record);
+  got = push(json);
+  snprintf(detail, sizeof detail, "got %s\n      push %s", got, json);
+  check(strcmp(got, want) == 0, why, detail);
+}
+
+/* The push is taken, and the next start reads `want`. */
+static void expect_held(const char *record, const char *json, const char *want, const char *why)
+{
+  char detail[2048];
+  const char *got, *held;
+
+  board_with(record);
+  got = push(json);
+  held = held_after_restart();
+  snprintf(detail, sizeof detail, "answer %s\n      held %s\n      want %s", got, held, want);
+  check(strcmp(got, "CHIRP= ok") == 0 && same_record(held, want), why, detail);
+}
+
+static void test_rules(void)
+{
+  const char *T = "{\"token\":\"tok\"}";
+  static char big[CHIRP_LINE_MAX];
+
+  puts("\n--- refusals (CHIRP-PROV v1.8) ---");
+  /* These two were answered ok before v1.8. */
+  expect(NULL, "{\"ssid\":\"workshop\",\"pass\":\"hunter2\",\"aps\":[{\"ssid\":\"workshop\",\"pass\":\"\"}],"
+         "\"host\":\"h\",\"claim\":\"C\",\"level\":1}", "CHIRP= err unsupported level",
+         "a push with level is refused whole, naming level");
+  expect(NULL, "{\"claim\":\"C\",\"thread\":{\"name\":\"n\",\"key\":\"" TKEY "\"},\"unknown\":{\"deep\":[1,2,3]}}",
+         "CHIRP= err unsupported unknown", "an unknown field is refused by name");
+  expect(T, "{\"tls\":true,\"level\":1}", "CHIRP= err unsupported level", "of two, the name that sorts first");
+  expect(T, "{\"zeta\":1,\"Zeta\":1}", "CHIRP= err unsupported Zeta", "  ... byte by byte: Z before z");
+  expect(T, "{\"ssid\":5,\"level\":1}", "CHIRP= err unsupported level", "unsupported comes before a bad value");
+  expect(T, "{\"two words\":1}", "CHIRP= err bad-json", "a name a refusal cannot carry is bad-json");
+  expect(T, "{\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\":1}", "CHIRP= err bad-json", "  ... and so is one of 33 characters");
+  expect(T, "{\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\":1}", "CHIRP= err unsupported aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+         "  ... one of 32 is named");
+  expect(T, "{\"token\":\"\"}", "CHIRP= err bad-json", "an empty token is refused (no send at Open)");
+  expect(T, "{\"claim\":\"\"}", "CHIRP= err bad-json", "an empty setup code is refused");
+  expect(T, "{\"key\":\"\"}", "CHIRP= err bad-json", "an empty key is refused");
+  expect(T, "{\"claim\":\"C\",\"token\":\"T\",\"ssid\":\"s\"}", "CHIRP= err bad-json", "a claim and a token together");
+  expect(T, "{\"claim\":123}", "CHIRP= err bad-json", "a claim that is not text");
+  expect(T, "{\"token\":\"tok\\u0007en\"}", "CHIRP= err bad-json", "a token with a control character");
+  expect(T, "{\"token\":\"caf\\u00e9\"}", "CHIRP= err bad-json", "a token past ASCII");
+  expect(T, "{\"host\":null}", "CHIRP= err bad-json", "host null");
+  expect(T, "{\"host\":\"under_score.example\"}", "CHIRP= err bad-json", "a host with an underscore");
+  expect(T, "[1,2,3]", "CHIRP= err bad-json", "not an object");
+  expect(T, "{\"claim\":\"C\",}", "CHIRP= err bad-json", "a trailing comma");
+  expect(T, "{'claim':'C'}", "CHIRP= err bad-json", "single quotes");
+  expect(T, "{\"claim\":\"C\"} trailing", "CHIRP= err bad-json", "junk after the object");
+  expect(T, "{\"claim\":\"C\"} {}", "CHIRP= err bad-json", "two objects on one line");
+  expect(T, "{\"ssid\":NaN}", "CHIRP= err bad-json", "NaN is not JSON");
+  expect(T, "", "CHIRP= err bad-json", "nothing after CHIRP+");
+
+  puts("\n--- completeness: a credential alone is complete ---");
+  expect(NULL, "{\"claim\":\"C\"}", "CHIRP= ok", "a claim alone");
+  expect(NULL, "{\"token\":\"T\"}", "CHIRP= ok", "a token alone");
+  expect(NULL, "{\"claim\":\"CHIRP-PLACEHOLDER\",\"hwid\":\"wba65-demo-3f9a12\",\"host\":\"h\",\"key\":\"" KEY_A "\"}",
+         "CHIRP= ok", "what the setup page pushes at a fresh board");
+  expect(NULL, "{\"host\":\"h\"}", "CHIRP= err missing-field", "no credential");
+  expect(NULL, "{\"ssid\":\"s\",\"pass\":\"p\"}", "CHIRP= err missing-field", "networks without a credential");
+  expect(NULL, "{\"key\":\"" KEY_A "\"}", "CHIRP= err missing-field", "a key without a credential");
+  expect(NULL, "{\"hwid\":\"\",\"token\":\"t\"}", "CHIRP= ok", "an empty id: the board's own");
+
+  puts("\n--- the id ---");
+  expect(T, "{\"hwid\":\"example-board-0000\"}", "CHIRP= ok", "a portal id");
+  expect(T, "{\"hwid\":\"A.b_c:9-z\"}", "CHIRP= ok", "every allowed punctuation");
+  expect(T, "{\"hwid\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde\"}", "CHIRP= ok",
+         "63 characters, the most this board holds");
+  expect(T, "{\"hwid\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+         "CHIRP= err bad-json", "64 characters are refused, not cut short");
+  expect(T, "{\"hwid\":\"two words\"}", "CHIRP= err bad-json", "a space");
+  expect(T, "{\"hwid\":\"id\\r\\nCHIRP! v=2 hw=other\"}", "CHIRP= err bad-json", "a line break cannot forge an announce");
+  expect(T, "{\"hwid\":\"caf\\u00e9\"}", "CHIRP= err bad-json", "past ASCII");
+  expect(T, "{\"hwid\":\"a/b\"}", "CHIRP= err bad-json", "a slash");
+  expect(T, "{\"hwid\":7}", "CHIRP= err bad-json", "not text");
+  expect_held(T, "{\"hwid\":\"bo\\u0061rd\"}", "{\"token\":\"tok\",\"hwid\":\"board\"}", "an escaped id is its decoded text");
+
+  puts("\n--- the credential and the host: the contract's bounds ---");
+  expect(T, "{\"token\":\"ttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\"}", "CHIRP= ok", "a token of 63");
+  expect(T, "{\"token\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\"}", "CHIRP= err bad-json",
+         "a token of 64");
+  expect(T, "{\"claim\":\"CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\"}", "CHIRP= err bad-json",
+         "a setup code of 64");
+  expect(T, "{\"host\":\"h012345678901234567890123456789012345678901234567890123.example\"}", "CHIRP= ok", "a host of 63");
+  expect(T, "{\"host\":\"h0123456789012345678901234567890123456789012345678901234.example\"}", "CHIRP= err bad-json",
+         "a host of 64");
+  expect(T, "{\"host\":5}", "CHIRP= err bad-json", "a host that is not text");
+  expect_held("{\"token\":\"tok\",\"host\":\"core.example.com\"}", "{\"host\":\"\"}", "{\"token\":\"tok\"}",
+              "the empty host is Warblet's own: the stored one goes");
+  expect_held(T, "{\"token\":\"t\\\"k\"}", "{\"token\":\"t\\\"k\"}", "a quote in a token is kept");
+
+  puts("\n--- the signing key ---");
+  expect(T, "{\"key\":\"" KEY_A "\"}", "CHIRP= ok", "44 characters of standard base64");
+  expect(T, "{\"key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\"}", "CHIRP= err bad-json", "no '=' pad");
+  expect(T, "{\"key\":\"c2hvcnQ=\"}", "CHIRP= err bad-json", "not 32 bytes");
+  expect(T, "{\"key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdH!8=\"}", "CHIRP= err bad-json", "outside base64");
+  expect(T, "{\"key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh-_\"}", "CHIRP= err bad-json", "URL-safe");
+  expect(T, "{\"key\":42}", "CHIRP= err bad-json", "not text");
+
+  puts("\n--- the new-device rule ---");
+  {
+    const char *signed_cfg = "{\"token\":\"T\",\"hwid\":\"old-id\",\"key\":\"" KEY_A "\"}";
+    expect_held(signed_cfg, "{\"claim\":\"CHIRP-NEW\",\"hwid\":\"new-id\"}",
+                "{\"token\":\"CHIRP-NEW\",\"hwid\":\"new-id\"}", "a claim and a new id: the old key goes");
+    expect_held(signed_cfg, "{\"token\":\"T2\",\"hwid\":\"OLD-ID\"}", "{\"token\":\"T2\",\"hwid\":\"OLD-ID\"}",
+                "an id that differs only in case is another device: the key goes");
+    expect_held(signed_cfg, "{\"token\":\"T2\",\"hwid\":\"old-id\"}",
+                "{\"token\":\"T2\",\"hwid\":\"old-id\",\"key\":\"" KEY_A "\"}", "the same id keeps the key");
+    expect_held(signed_cfg, "{\"claim\":\"CHIRP-NEW\",\"key\":\"" KEY_B "\"}",
+                "{\"token\":\"CHIRP-NEW\",\"hwid\":\"old-id\",\"key\":\"" KEY_B "\"}", "a claim that brings a key keeps that one");
+    expect_held(signed_cfg, "{\"ssid\":\"cafe\",\"pass\":\"p\"}",
+                "{\"ssid\":\"cafe\",\"pass\":\"p\",\"token\":\"T\",\"hwid\":\"old-id\",\"key\":\"" KEY_A "\"}",
+                "networks alone keep the key");
+    expect_held("{\"token\":\"T\",\"key\":\"" KEY_A "\"}", "{\"token\":\"T2\",\"hwid\":\"" DIE_ID "\"}",
+                "{\"token\":\"T2\",\"hwid\":\"" DIE_ID "\",\"key\":\"" KEY_A "\"}",
+                "the die id it already answers to keeps the key");
+    expect_held(signed_cfg, "{\"hwid\":\"\"}", "{\"token\":\"T\",\"key\":\"" KEY_A "\"}",
+                "an empty id starts nothing: the key stays (the contract's words)");
+  }
+
+  puts("\n--- networks, kept unused ---");
+  {
+    const char *listed = "{\"token\":\"T\",\"ssid\":\"cafe\",\"pass\":\"p1\","
+                         "\"aps\":[{\"ssid\":\"cafe\",\"pass\":\"p1\"},{\"ssid\":\"office\",\"pass\":\"p2\"}]}";
+    expect_held(listed, "{\"pass\":\"new\"}",
+                "{\"token\":\"T\",\"ssid\":\"cafe\",\"pass\":\"new\","
+                "\"aps\":[{\"ssid\":\"cafe\",\"pass\":\"new\"},{\"ssid\":\"office\",\"pass\":\"p2\"}]}",
+                "a pass alone with a list stored is the first network's, in the list too");
+    expect_held(listed, "{\"ssid\":\"home\",\"pass\":\"pw\"}", "{\"token\":\"T\",\"ssid\":\"home\",\"pass\":\"pw\"}",
+                "an ssid without aps names exactly one network");
+    expect_held(T, "{\"aps\":[{\"ssid\":\"a\",\"pass\":\"1\"},{\"ssid\":\"b\",\"pass\":\"2\"}]}",
+                "{\"token\":\"tok\",\"ssid\":\"a\",\"pass\":\"1\",\"aps\":[{\"ssid\":\"a\",\"pass\":\"1\"},{\"ssid\":\"b\",\"pass\":\"2\"}]}",
+                "aps alone: its first network is the one tried first");
+    expect(T, "{\"ssid\":\"x\",\"aps\":[{\"ssid\":\"a\",\"pass\":\"1\"}]}", "CHIRP= err bad-json",
+           "an ssid that is not aps's first");
+    expect(T, "{\"aps\":[{\"ssid\":\"a\",\"pass\":\"b\",\"bssid\":\"x\"}]}", "CHIRP= err bad-json", "an aps entry with another key");
+    expect(T, "{\"aps\":[]}", "CHIRP= err bad-json", "an empty aps");
+    expect(T, "{\"aps\":[{\"ssid\":\"n0\",\"pass\":\"\"},{\"ssid\":\"n1\",\"pass\":\"\"},{\"ssid\":\"n2\",\"pass\":\"\"},"
+           "{\"ssid\":\"n3\",\"pass\":\"\"},{\"ssid\":\"n4\",\"pass\":\"\"},{\"ssid\":\"n5\",\"pass\":\"\"},"
+           "{\"ssid\":\"n6\",\"pass\":\"\"},{\"ssid\":\"n7\",\"pass\":\"\"},{\"ssid\":\"n8\",\"pass\":\"\"}]}",
+           "CHIRP= err bad-json", "nine networks");
+    expect(T, "{\"ssid\":\"\"}", "CHIRP= err bad-json", "an empty ssid");
+    expect(T, "{\"ssid\":\"sssssssssssssssssssssssssssssssss\"}", "CHIRP= err bad-json", "an ssid of 33 bytes");
+    expect_held(T, "{\"ssid\":\"caf\\u00e9 \\\"guest\\\"\"}", "{\"token\":\"tok\",\"ssid\":\"caf\\u00e9 \\\"guest\\\"\",\"pass\":\"\"}",
+                "escapes and \\u come through as the same text");
+  }
+
+  puts("\n--- the Thread object, kept unused ---");
+  expect(T, "{\"thread\":{\"name\":\"chirp-lab\",\"key\":\"" TKEY "\",\"panid\":\"1234\",\"xpanid\":\"1111111122222222\","
+         "\"channel\":15}}", "CHIRP= ok", "discrete fields");
+  expect(T, "{\"thread\":{\"name\":\"n\",\"key\":\"00112233445566778899AABBCCDDEEFF\"}}", "CHIRP= ok", "uppercase key hex");
+  expect_held(T, "{\"thread\":{\"dataset\":\"0e08\",\"name\":\"x\",\"key\":\"nope\"}}",
+              "{\"token\":\"tok\",\"thread\":{\"dataset\":\"0e08\"}}", "the dataset wins, and is all that is kept");
+  expect(T, "{\"thread\":{\"name\":\"n\"}}", "CHIRP= err missing-field", "a name without a key");
+  expect(T, "{\"thread\":{\"key\":\"" TKEY "\"}}", "CHIRP= err missing-field", "a key without a name");
+  expect(T, "{\"thread\":{\"name\":\"n\"},\"hwid\":\"a b\"}", "CHIRP= err bad-json", "a bad value comes before missing-field");
+  expect(T, "{\"thread\":{\"name\":\"n\",\"key\":\"00112233\"}}", "CHIRP= err bad-json", "a key too short");
+  expect(T, "{\"thread\":{\"name\":\"n\",\"key\":\"00112233445566778899aabbccddeegg\"}}", "CHIRP= err bad-json", "a key not hex");
+  expect(T, "{\"thread\":{\"name\":\"0123456789abcdefg\",\"key\":\"" TKEY "\"}}", "CHIRP= err bad-json", "a name of 17");
+  expect(T, "{\"thread\":{\"name\":\"n\",\"key\":\"" TKEY "\",\"channel\":27}}", "CHIRP= err bad-json", "channel 27");
+  expect(T, "{\"thread\":{\"name\":\"n\",\"key\":\"" TKEY "\",\"channel\":10}}", "CHIRP= err bad-json", "channel 10");
+  expect(T, "{\"thread\":{\"name\":\"n\",\"key\":\"" TKEY "\",\"channel\":4294967307}}", "CHIRP= err bad-json",
+         "channel 2^32 + 11 does not wrap to 11");
+  expect(T, "{\"thread\":{\"name\":\"n\",\"key\":\"" TKEY "\",\"panid\":\"12g4\"}}", "CHIRP= err bad-json", "panid not hex");
+  expect(T, "{\"thread\":{\"name\":\"n\",\"key\":\"" TKEY "\",\"xpanid\":\"1111\"}}", "CHIRP= err bad-json", "xpanid short");
+  expect(T, "{\"thread\":{\"dataset\":\"0e0\"}}", "CHIRP= err bad-json", "an odd-length dataset");
+  expect(T, "{\"thread\":\"not-an-object\"}", "CHIRP= err bad-json", "thread must be an object");
+
+  puts("\n--- a stored record ---");
+  expect_held("{\"token\":\"T\",\"level\":1,\"colour\":\"red\"}", "{\"hwid\":\"h\"}", "{\"token\":\"T\",\"hwid\":\"h\"}",
+              "a field the board does not take is not carried over");
+  expect("{\"token\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\"}", "{\"hwid\":\"h\"}",
+         "CHIRP= err missing-field", "a stored token over the bound is not carried: no usable credential");
+
+  puts("\n--- the longest record ---");
+  {
+    /* Every value at its bound, every byte of text one that needs an escape. */
+    char *p = big;
+    int   i;
+    unsigned n = 0u;
+    p += sprintf(p, "{\"aps\":[");
+    for (i = 0; i < 8; i++) {
+      p += sprintf(p, "%s{\"ssid\":\"", i ? "," : "");
+      for (int k = 0; k < 31; k++) { p += sprintf(p, "\\\""); }
+      p += sprintf(p, "%d\",\"pass\":\"", i);
+      for (int k = 0; k < 64; k++) { p += sprintf(p, "\\\\"); }
+      p += sprintf(p, "\"}");
+    }
+    p += sprintf(p, "],\"thread\":{\"dataset\":\"");
+    for (i = 0; i < 508; i++) { *p++ = "0123456789abcdef"[i % 16]; }
+    p += sprintf(p, "\"},\"claim\":\"");
+    for (i = 0; i < 63; i++) { p += sprintf(p, "\\\""); }
+    p += sprintf(p, "\",\"hwid\":\"");
+    for (i = 0; i < 63; i++) { *p++ = 'h'; }
+    p += sprintf(p, "\",\"host\":\"");
+    for (i = 0; i < 63; i++) { *p++ = 'n'; }
+    p += sprintf(p, "\",\"key\":\"" KEY_A "\"}");
+    board_with(NULL);
+    check(strcmp(push(big), "CHIRP= ok") == 0, "the longest push is taken", first_line);
+    (void)cfg_json(&n);
+    printf("      the longest record is %u bytes; CHIRP_RECORD_MAX %u, the store %u\n",
+           n, (unsigned)CHIRP_RECORD_MAX, (unsigned)CFG_MAX_PAYLOAD);
+    check(n > 0u && n <= CHIRP_RECORD_MAX && CHIRP_RECORD_MAX <= CFG_MAX_PAYLOAD,
+          "  ... and fits CHIRP_RECORD_MAX, which fits the store", NULL);
+    check(n + 16u > CHIRP_RECORD_MAX, "  ... and CHIRP_RECORD_MAX is within 16 bytes of it", NULL);
+    {
+      /* What the next start reads is the push's settings, with aps's first
+       * network as the one tried first. */
+      static char want[CHIRP_LINE_MAX + 512];
+      char *w = want;
+      int   k;
+      w += sprintf(w, "{\"ssid\":\"");
+      for (k = 0; k < 31; k++) { w += sprintf(w, "\\\""); }
+      w += sprintf(w, "0\",\"pass\":\"");
+      for (k = 0; k < 64; k++) { w += sprintf(w, "\\\\"); }
+      sprintf(w, "\",%s", big + 1);
+      check(same_record(held_after_restart(), want), "  ... and the next start reads every value of it", NULL);
+    }
+  }
+}
+
+/* ---- the announce ----------------------------------------------------------------- */
+
+/* JSON text with the spaces outside strings taken out. */
+static void compact(const char *in, unsigned n, char *out)
+{
+  int quoted = 0;
+  for (unsigned i = 0; i < n; i++) {
+    char c = in[i];
+    if (c == '"' && (i == 0 || in[i - 1] != '\\')) { quoted = !quoted; }
+    if (quoted || (c != ' ' && c != '\n' && c != '\r' && c != '\t')) { *out++ = c; }
+  }
+  *out = '\0';
+}
+
+static void test_announce(void)
+{
+  char   *doc = read_file("demo.json");
+  js_val  fw, firmware, caps, slug;
+  char    want[1024], fwv[80], slugv[64], capsv[512];
+  const char *line;
+  unsigned n = 0;
+
+  puts("\n--- the announce: v1.8's line, as demo.json declares ---");
+  check(doc != NULL, "demo.json reads", NULL);
+  if (doc == NULL) { return; }
+  if (js_obj_get(doc, (unsigned)strlen(doc), "firmware", &firmware) != 1 ||
+      js_obj_get(firmware.p, firmware.n, "fw", &fw) != 1 || fw.t != JS_STR ||
+      js_obj_get(firmware.p, firmware.n, "capabilities", &caps) != 1 || caps.t != JS_OBJ ||
+      js_obj_get(doc, (unsigned)strlen(doc), "slug", &slug) != 1 || slug.t != JS_STR) {
+    check(0, "demo.json declares its slug, fw and capabilities", NULL);
+    free(doc);
+    return;
+  }
+  js_str_copy(&fw, fwv, sizeof fwv);
+  js_str_copy(&slug, slugv, sizeof slugv);
+  compact(caps.p, caps.n, capsv);
+  check(strcmp(capsv, CHIRP_CAPS) == 0, "CHIRP_CAPS is demo.json's capabilities", capsv);
+  check(strcmp(fwv, CHIRP_FW) == 0, "the Makefile's FW_VERSION is demo.json's fw", fwv);
+  check(strcmp(slugv, DEMO_SLUG) == 0, "the announced slug is demo.json's", slugv);
+
+  board_with("{\"token\":\"tok\",\"hwid\":\"board-1\"}");
+  line = answer_to("CHIRP?\r\n");
+  snprintf(want, sizeof want, "CHIRP! v=2 hw=board-1 fw=%s key_set=0 t=%s caps=%s", fwv, slugv, capsv);
+  check(strcmp(line, want) == 0, "the line: v=2 hw fw key_set t caps, caps last, no radios", line);
+  board_with("{\"token\":\"tok\",\"hwid\":\"board-1\",\"key\":\"" KEY_A "\"}");
+  check(strstr(answer_to("CHIRP?\r\n"), " key_set=1 ") != NULL, "a stored key: key_set=1", first_line);
+  board_with("{\"token\":\"tok\"}");
+  check(strstr(answer_to("CHIRP?\r\n"), " hw=" DIE_ID " ") != NULL, "no id stored: the die's own", first_line);
+  board_with("{\"token\":\"tok\",\"hwid\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde\"}");
+  line = answer_to("CHIRP?\r\n");
+  n = (unsigned)strlen(line);
+  check(n <= 512u && strstr(line, "abcde fw=") != NULL, "with the longest id the line fits 512 bytes", line);
+  push("{\"key\":\"" KEY_A "\"}");
+  check(strstr(answer_to("CHIRP?\r\n"), " key_set=1 ") != NULL, "a key pushed now is announced without a restart",
+        first_line);
+
+  if (s_vectors != NULL) {
+    js_val profiles, relay, vcaps;
+    char   vc[512];
+    if (js_obj_get(s_vectors, (unsigned)strlen(s_vectors), "profiles", &profiles) == 1 &&
+        js_obj_get(profiles.p, profiles.n, "relay", &relay) == 1 &&
+        js_obj_get(relay.p, relay.n, "caps", &vcaps) == 1 && js_str_copy(&vcaps, vc, sizeof vc) > 0) {
+      check(strcmp(vc, CHIRP_CAPS) == 0, "CHIRP_CAPS is the vectors' relay profile", vc);
+    } else {
+      check(0, "the vectors name the relay profile's caps", NULL);
+    }
+  }
+  free(doc);
+}
+
+/* ---- the store -------------------------------------------------------------------- */
+
+static const char OLD[] = "{\"token\":\"tok-old\",\"hwid\":\"board-old\"}";
+static const char NEW[] = "{\"ssid\":\"home\",\"pass\":\"pw\",\"token\":\"tok-new\",\"hwid\":\"board-new\","
+                          "\"key\":\"" KEY_A "\"}";
+
+/* What the next start reads, raw ("" for nothing). */
+static const char *reads(void)
+{
+  static char copy[CFG_MAX_PAYLOAD + 1];
+  const char *j;
+  power_on();
+  (void)cfg_load();
+  j = cfg_json(NULL);
+  snprintf(copy, sizeof copy, "%s", j ? j : "");
+  return copy;
+}
+
+static int blank_page(unsigned i)
+{
+  for (unsigned k = 0; k < CFG_PAGE_SIZE; k++) { if (flash_mem[i][k] != 0xFF) { return 0; } }
+  return 1;
+}
+
+static unsigned crc_add(unsigned c, const unsigned char *d, unsigned n)
+{
+  for (unsigned i = 0; i < n; i++) {
+    c ^= d[i];
+    for (int b = 0; b < 8; b++) { c = (c >> 1) ^ (0xEDB88320u & (unsigned)(-(int)(c & 1u))); }
+  }
+  return c;
+}
+
+/* A record written the way flashcfg.c writes one: 'CWB1', version 2, the
+ * length, seq, and the CRC-32 of seq, length and payload, then the payload. */
+static void put_record(unsigned page, unsigned seq, const char *json)
+{
+  unsigned      len = (unsigned)strlen(json), crc;
+  unsigned char h[16], b[6];
+
+  memset(flash_mem[page], 0xFF, CFG_PAGE_SIZE);
+  memset(flash_torn[page], 0, sizeof flash_torn[page]);
+  for (int i = 0; i < 4; i++) { b[i] = (unsigned char)(seq >> (8 * i)); }
+  b[4] = (unsigned char)len;
+  b[5] = (unsigned char)(len >> 8);
+  crc = ~crc_add(crc_add(0xFFFFFFFFu, b, 6u), (const unsigned char *)json, len);
+  for (int i = 0; i < 4; i++) {
+    h[i]      = (unsigned char)(0x31425743u >> (8 * i));
+    h[8 + i]  = (unsigned char)(seq >> (8 * i));
+    h[12 + i] = (unsigned char)(crc >> (8 * i));
+  }
+  h[4] = 2u; h[5] = 0u;
+  h[6] = (unsigned char)len; h[7] = (unsigned char)(len >> 8);
+  memcpy(flash_mem[page], h, 16u);
+  memset(flash_mem[page] + 16, 0, (len + 15u) & ~15u);
+  memcpy(flash_mem[page] + 16, json, len);
+}
+
+/* The steps a save of NEW takes over OLD: erase, writes, erase. */
+static int save_steps(void)
+{
+  flash_blank();
+  (void)cfg_load();
+  (void)cfg_store(OLD, sizeof OLD - 1u);
+  power_on();
+  (void)cfg_load();
+  steps = 0;
+  (void)cfg_store(NEW, sizeof NEW - 1u);
+  return steps;
+}
+
+static void test_store(void)
+{
+  int  total, k, kind, mode, good;
+  char what[160];
+
+  puts("\n--- the store: two pages, the newest valid record wins ---");
+  flash_blank();
+  check(cfg_load() == -1 && cfg_json(NULL) == NULL, "a blank store holds nothing", NULL);
+  check(cfg_store(OLD, sizeof OLD - 1u) == 0 && strcmp(reads(), OLD) == 0, "a save is read back whole", NULL);
+  check(cfg_page_addr() == FAKE_BASE, "  ... from the first page", NULL);
+  check(cfg_store(NEW, sizeof NEW - 1u) == 0 && strcmp(reads(), NEW) == 0, "a second save is read back", NULL);
+  check(cfg_page_addr() == FAKE_BASE + CFG_PAGE_SIZE && blank_page(0),
+        "  ... from the other page, and the old page is erased", NULL);
+  power_on(); (void)cfg_load();
+  check(cfg_store(OLD, sizeof OLD - 1u) == 0 && strcmp(reads(), OLD) == 0 && cfg_page_addr() == FAKE_BASE,
+        "a third goes back to the first page", NULL);
+
+  /* The format, written by hand: the record the board reads is the one the test wrote. */
+  flash_blank();
+  put_record(1, 41u, NEW);
+  check(strcmp(reads(), NEW) == 0 && cfg_page_addr() == FAKE_BASE + CFG_PAGE_SIZE,
+        "a record in the second page alone is read", NULL);
+  power_on();
+  check(cfg_store(OLD, sizeof OLD - 1u) == 0 && blank_page(1), "the next save goes to the first page", NULL);
+  put_record(1, 41u, NEW);
+  check(strcmp(reads(), OLD) == 0, "  ... with seq 42, so it beats the 41 written back beside it", NULL);
+
+  /* Two valid records: the newer wins, across the wrap of the count too. */
+  {
+    unsigned seqs[3][2] = { {5u, 6u}, {7u, 6u}, {0xFFFFFFFFu, 0u} };
+    for (int c = 0; c < 3; c++) {
+      flash_blank();
+      put_record(0, seqs[c][0], OLD);
+      put_record(1, seqs[c][1], NEW);
+      snprintf(what, sizeof what, "seq %u against seq %u: the newer wins", seqs[c][0], seqs[c][1]);
+      check(strcmp(reads(), ((int)(seqs[c][1] - seqs[c][0]) > 0) ? NEW : OLD) == 0, what, NULL);
+    }
+  }
+
+  /* A newer record that cannot be read, or whose CRC fails: the older one is read. */
+  flash_blank();
+  put_record(0, 1u, OLD);
+  put_record(1, 2u, NEW);
+  flash_torn[1][0] = 1;
+  check(strcmp(reads(), OLD) == 0, "a newer page that cannot be read (ECC): the older record is read", NULL);
+  put_record(1, 2u, NEW);
+  flash_mem[1][20] ^= 1u;
+  check(strcmp(reads(), OLD) == 0, "a newer page whose CRC fails: the older record is read", NULL);
+  flash_torn[0][1] = 1;
+  flash_torn[1][1] = 1;
+  check(cfg_load() == -2 && cfg_json(NULL) == NULL, "neither page readable: nothing held, and said so (-2)", NULL);
+  flash_blank();
+  memcpy(flash_mem[1], "\x43\x57\x42\x31\x01\x00\x10\x00", 8u);    /* version 1, one page: not read */
+  check(cfg_load() == -1, "a record of the one-page store before (version 1) is not read", NULL);
+
+  /* One failed operation at any step of a save: the answer is what the next
+   * start reads, every time. */
+  total = save_steps();
+  printf("      a save of %u bytes over another takes %d flash steps\n", (unsigned)sizeof NEW - 1u, total);
+  good = 1;
+  for (kind = 0; kind < FAIL_KINDS; kind++) {
+    for (k = 0; k < total; k++) {
+      int r;
+      const char *held;
+      flash_blank();
+      (void)cfg_load();
+      (void)cfg_store(OLD, sizeof OLD - 1u);
+      power_on();
+      (void)cfg_load();
+      fail_at = k; fail_kind = kind;
+      r = cfg_store(NEW, sizeof NEW - 1u);
+      held = reads();
+      if (strcmp(held, r == 0 ? NEW : OLD) != 0) {
+        snprintf(what, sizeof what, "failure kind %d at step %d: answered %d, next start read %s", kind, k, r, held);
+        check(0, what, NULL);
+        good = 0;
+      }
+      /* ... and later saves go on. */
+      power_on();
+      (void)cfg_load();
+      if (cfg_store(OLD, sizeof OLD - 1u) != 0 || strcmp(reads(), OLD) != 0) {
+        snprintf(what, sizeof what, "failure kind %d at step %d: the next save did not land", kind, k);
+        check(0, what, NULL);
+        good = 0;
+      }
+    }
+  }
+  check(good, "one failed flash operation at any step: the answer is what the next start reads", NULL);
+
+  /* A power cut at any step: the next start reads the old or the new record,
+   * whole, and the new one whenever the save said ok. */
+  good = 1;
+  for (mode = CUT_TORN; mode <= CUT_CLEAN; mode++) {
+    for (k = 0; k <= total; k++) {
+      int r;
+      const char *held;
+      flash_blank();
+      (void)cfg_load();
+      (void)cfg_store(OLD, sizeof OLD - 1u);
+      power_on();
+      (void)cfg_load();
+      cut_at = k; cut_mode = mode;
+      r = cfg_store(NEW, sizeof NEW - 1u);
+      held = reads();
+      if (!((strcmp(held, OLD) == 0 || strcmp(held, NEW) == 0) && (r != 0 || strcmp(held, NEW) == 0))) {
+        snprintf(what, sizeof what, "power cut (%s) at step %d: answered %d, next start read %s",
+                 mode == CUT_TORN ? "torn" : "clean", k, r, held);
+        check(0, what, NULL);
+        good = 0;
+      }
+      power_on();
+      (void)cfg_load();
+      if (cfg_store(OLD, sizeof OLD - 1u) != 0 || strcmp(reads(), OLD) != 0) { good = 0; }
+    }
+  }
+  check(good, "a power cut at any step, torn or clean: old or new, whole, and new when it said ok", NULL);
+
+  /* Through the console: store-failed leaves the old settings in force. */
+  board_with(OLD);
+  fail_at = 0; fail_kind = FAIL_NOTHING;
+  check(strcmp(push("{\"token\":\"tok-2\"}"), "CHIRP= err store-failed") == 0, "a store the flash refuses: store-failed",
+        first_line);
+  check(strcmp(held_after_restart(), OLD) == 0, "  ... and the next start reads the old settings", NULL);
+}
+
+/* ---- the line ----------------------------------------------------------------------- */
+
+static void test_line(void)
+{
+  static char line[CHIRP_LINE_MAX + 256];
+  const char *inner = "CHIRP+ {\"hwid\":\"board-new\"}";
+  int none = 1;
+
+  puts("\n--- the line ---");
+  /* No tail of an over-long line is a push: an inner push before, across or past the limit. */
+  for (size_t cut = 0; cut < strlen(inner); cut++) {
+    size_t pad = CHIRP_LINE_MAX - 7u - cut;
+    board_with(OLD);
+    memcpy(line, "CHIRP+ ", 7u);
+    memset(line + 7, 'j', pad);
+    sprintf(line + 7 + pad, "%s\r\n", inner);
+    none = none && answer_to(line)[0] == '\0' && strcmp(held_after_restart(), OLD) == 0;
+  }
+  check(none, "a line over the limit gets no answer, and no tail of it is read as a push", NULL);
+  check(strcmp(answer_to("CHIRP+ {\"hwid\":\"board-2\"}\r\n"), "CHIRP= ok") == 0, "the line after it is read", first_line);
+
+  /* The limit counts from "CHIRP": exactly 4096 after stray bytes. */
+  board_with(OLD);
+  memset(line, 'z', 50u);
+  strcpy(line + 50, "CHIRP+ {\"hwid\":\"board-3\"}");
+  {
+    size_t n = strlen(line + 50);
+    memset(line + 50 + n, ' ', CHIRP_LINE_MAX - n);
+    strcpy(line + 50 + CHIRP_LINE_MAX, "\r\n");
+  }
+  check(strcmp(answer_to(line), "CHIRP= ok") == 0, "a line of exactly 4096 from CHIRP, after stray bytes, is read",
+        first_line);
+  line[50 + CHIRP_LINE_MAX] = ' ';
+  strcpy(line + 51 + CHIRP_LINE_MAX, "\r\n");
+  check(answer_to(line)[0] == '\0', "  ... and one of 4097 is thrown away", first_line);
+
+  /* A line that stops for 1.5 s is given up; pieces a second apart land. */
+  board_with(OLD);
+  said_len = 0u; said[0] = '\0';
+  send_text("CHIRP+ {\"hwid\":", 1u);
+  clock_ms += 1500u;
+  send_text("\"board-late\"}\r\n", 1u);
+  check(said_len == 0u, "a line that stopped for 1.5 s is given up, and what follows is not joined to it", said);
+  check(strncmp(answer_to("CHIRP?\r\n"), "CHIRP! ", 7) == 0, "a probe after it is answered", first_line);
+  said_len = 0u;
+  send_text("CHIRP+ {\"hwid\":\"board-paced\"}\r\n", 1000u);
+  check(strncmp(said, "CHIRP= ok", 9) == 0, "a push whose bytes come a second apart lands", said);
+  said_len = 0u;
+  send_text("CHI", 1u);
+  clock_ms += 5000u;
+  send_text("RP?\r\n", 1u);
+  check(strncmp(said, "CHIRP! ", 7) == 0, "a pause before \"CHIRP\" is complete is not a stopped line", said);
+
+  /* Stray bytes in front of a command are dropped, and not kept. */
+  memset(line, 'z', 200u);
+  line[200] = '\0';
+  send_text(line, 1u);
+  check(s_len <= JUNK_KEPT, "stray bytes before CHIRP are not kept (at most 64)", NULL);
+  check(strncmp(answer_to("\x5a\xa6" "CHIRP?\r\n"), "CHIRP! ", 7) == 0, "a probe after stray bytes is answered", first_line);
+
+  /* CR, LF and CRLF each end a line. */
+  said_len = 0u; said[0] = '\0';
+  send_text("CHIRP?\rCHIRP?\nCHIRP?\r\n", 1u);
+  {
+    int count = 0;
+    for (const char *p = said; (p = strstr(p, "CHIRP! ")) != NULL; p++) { count++; }
+    check(count == 3, "CR, LF and CRLF each end a line, once", said);
+  }
+  check(strcmp(answer_to("CHIRP?  \t\r\n"), "") != 0, "trailing spaces after a probe are not part of it", first_line);
+}
+
+/* ---- no request without a credential ------------------------------------------------- */
+
+static void test_no_open(void)
+{
+  puts("\n--- nothing is sent without a credential ---");
+  board_with(NULL);
+  said_len = 0u; said[0] = '\0';
+  chirp_send_init();
+  chirp_send_tick(0u);
+  chirp_send_tick(30000u);
+  chirp_send_tick(60000u);
+  check(strstr(said, "CHIRP^") == NULL && strstr(said, "no credential") != NULL,
+        "no setup: no request, and the console says why", said);
+  check(strcmp(push("{\"token\":\"\"}"), "CHIRP= err bad-json") == 0, "an empty token is refused", first_line);
+  said_len = 0u; said[0] = '\0';
+  chirp_send_tick(90000u);
+  check(strstr(said, "CHIRP^") == NULL, "  ... and still nothing is sent", said);
+  check(strcmp(push("{\"claim\":\"CHIRP-TEST\"}"), "CHIRP= ok") == 0, "a setup code is taken", first_line);
+  said_len = 0u; said[0] = '\0';
+  chirp_send_tick(120000u);
+  check(strstr(said, "CHIRP^ X-Chirp-Claim: CHIRP-TEST\r\n") != NULL && strstr(said, "CHIRP^ body ") != NULL,
+        "  ... and the next report carries it, with no reboot", said);
+}
+
+/* ---- JSON, SHA-256, HMAC, signed input (unchanged from before v1.8) ------------------ */
 
 static void hex_of(const unsigned char *d, unsigned n, char *out)
 {
@@ -24,12 +1016,9 @@ static void hex_of(const unsigned char *d, unsigned n, char *out)
 
 static void check_hex(const char *got, const char *want, const char *why)
 {
-  if (strcmp(got, want) != 0) {
-    printf("FAIL  %s\n      want %s\n      got  %s\n", why, want, got);
-    fails++;
-  } else {
-    printf("ok    %s\n", why);
-  }
+  char detail[200];
+  snprintf(detail, sizeof detail, "want %s\n      got  %s", want, got);
+  check(strcmp(got, want) == 0, why, detail);
 }
 
 /* The contract's example key: 32 ASCII bytes, visibly not a real credential. */
@@ -53,126 +1042,17 @@ static void check_signed(const unsigned char *key, unsigned klen,
   int           plen = chirp_sign_prefix((char *)input, CHIRP_SIGN_PREFIX_MAX, nonce, tag);
 
   if (plen < 0 || blen > BODY_MAX) {
-    printf("FAIL  %s: the signed input did not fit\n", why);
-    fails++;
+    check(0, why, "the signed input did not fit");
     return;
   }
   memcpy(input + plen, body, blen);
   hex_of(input, (unsigned)plen + blen, hex);
   if (strcmp(hex, want_input_hex) != 0) {
-    printf("FAIL  %s: signed input\n      want %s\n      got  %s\n", why, want_input_hex, hex);
-    fails++;
+    check_hex(hex, want_input_hex, why);
     return;
   }
   chirp_sign(key, klen, input, (unsigned)plen + blen, got);
   check_hex(got, want_hmac, why);
-}
-
-/* Config merge checks. */
-
-/* The id the board answers to: the stored hwid, else its die id. */
-static const char *board_id(const char *stored, char *buf, unsigned bufsz)
-{
-  js_val v;
-
-  if (stored && js_obj_get(stored, (unsigned)strlen(stored), "hwid", &v) == 1 &&
-      v.t == JS_STR && js_str_copy(&v, buf, bufsz) > 0) {
-    return buf;
-  }
-  return "wba65-demo-abcdef";
-}
-
-/* Merge and hand back the result, failing loudly if the merge itself refused. */
-static int merged(const char *stored, const char *push, char *out, unsigned outsz,
-                  const char *why)
-{
-  char id[64];
-  int  n = chirp_merge(stored, stored ? (unsigned)strlen(stored) : 0u,
-                       push, (unsigned)strlen(push), out, outsz,
-                       board_id(stored, id, sizeof id));
-  if (n < 0) {
-    printf("FAIL  %s: chirp_merge refused the merge\n", why);
-    fails++;
-  }
-  return n;
-}
-
-/* The merged object's top-level string field `field` must equal `want`
- * (want == NULL means the field must be ABSENT). */
-static void check_merge(const char *stored, const char *push,
-                        const char *field, const char *want, const char *why)
-{
-  char out[1200], got[256];
-  js_val v;
-  int n = merged(stored, push, out, sizeof out, why);
-  if (n < 0) return;
-
-  if (js_obj_get(out, (unsigned)n, field, &v) != 1) {
-    if (want == NULL) { printf("ok    %s\n", why); return; }
-    printf("FAIL  %s: merged object has no %s\n      %s\n", why, field, out);
-    fails++;
-    return;
-  }
-  if (want == NULL) {
-    printf("FAIL  %s: %s should be absent\n      %s\n", why, field, out);
-    fails++;
-    return;
-  }
-  if (js_str_copy(&v, got, sizeof got) < 0 || strcmp(got, want) != 0) {
-    printf("FAIL  %s\n      want %s=%s\n      got  %s\n", why, field, want, out);
-    fails++;
-    return;
-  }
-  printf("ok    %s\n", why);
-}
-
-/* Presence-only, for fields that are not strings (thread, aps). */
-static void check_merge_has(const char *stored, const char *push,
-                            const char *field, int want, const char *why)
-{
-  char out[1200];
-  js_val v;
-  int n = merged(stored, push, out, sizeof out, why);
-  if (n < 0) return;
-
-  int has = js_obj_get(out, (unsigned)n, field, &v) == 1;
-  if (has != want) {
-    printf("FAIL  %s: %s is %s\n      %s\n", why, field,
-           has ? "present" : "absent", out);
-    fails++;
-    return;
-  }
-  printf("ok    %s\n", why);
-}
-
-/* The merged record must pass the full rules, as the firmware asks before writing. */
-static void check_merge_result(const char *stored, const char *push,
-                               const char *want, const char *why)
-{
-  char out[1200];
-  int n = merged(stored, push, out, sizeof out, why);
-  if (n < 0) return;
-
-  const char *got = chirp_validate(out, (unsigned)n);
-  const char *g = got ? got : "ok";
-  const char *w = want ? want : "ok";
-  if (strcmp(g, w) != 0) {
-    printf("FAIL  %-14s got %-14s %s\n      %s\n", w, g, why, out);
-    fails++;
-    return;
-  }
-  printf("ok    %-14s %s\n", g, why);
-}
-
-static void check_merge_ok(const char *stored, const char *push, const char *why)
-{
-  check_merge_result(stored, push, NULL, why);
-}
-
-static void check_merge_err(const char *stored, const char *push,
-                            const char *want, const char *why)
-{
-  check_merge_result(stored, push, want, why);
 }
 
 static void check_sha(const char *msg, const char *want, const char *why)
@@ -184,42 +1064,17 @@ static void check_sha(const char *msg, const char *want, const char *why)
   check_hex(got, want, why);
 }
 
-static void check(const char *json, const char *want, const char *why)
+static void check_summary(void)
 {
-  const char *got = chirp_validate(json, (unsigned)strlen(json));
-  const char *g = got ? got : "ok";
-  const char *w = want ? want : "ok";
-  if (strcmp(g, w) != 0) {
-    printf("FAIL  %-14s got %-14s %s\n     %s\n", w, g, why, json);
-    fails++;
-  } else {
-    printf("ok    %-14s %s\n", g, why);
-  }
-}
+  const char *full = "{\"thread\":{\"name\":\"chirp-lab\",\"key\":\"" TKEY "\",\"channel\":15},\"token\":\"tok\"}";
 
-static void check_summary(const char *json)
-{
-  js_val t, v;
-  unsigned len = (unsigned)strlen(json);
-  char buf[64];
-
-  if (js_obj_get(json, len, "thread", &t) != 1 || t.t != JS_OBJ) {
-    printf("FAIL  summary: no thread object\n");
-    fails++;
-    return;
-  }
-  if (js_obj_get(t.p, t.n, "name", &v) == 1 && js_str_copy(&v, buf, sizeof buf) > 0) {
-    printf("ok    summary name=%s\n", buf);
-  }
-  if (js_obj_get(t.p, t.n, "key", &v) == 1) {
-    char fp[9];
-    chirp_fingerprint(v.p, v.n, fp);
-    printf("ok    summary key fingerprint=sha256:%s\n", fp);
-  }
-  if (js_obj_get(t.p, t.n, "channel", &v) == 1) {
-    long ch = 0;
-    if (js_num_int(&v, &ch) == 0) { printf("ok    summary channel=%ld\n", ch); }
-  }
+  puts("\n--- summary fields (what the boot line prints) ---");
+  board_with(full);
+  said_len = 0u; said[0] = '\0';
+  chirp_prov_init();
+  check(strstr(said, " thread=chirp-lab") != NULL && strstr(said, " ch=15") != NULL &&
+        strstr(said, TKEY) == NULL && strstr(said, " key=sha256:") != NULL,
+        "the boot summary names the network and fingerprints its key", said);
 }
 
 /* js_num_int must refuse, not wrap, a number past LONG_MAX. */
@@ -231,12 +1086,7 @@ static void check_num(const char *text, int want_rc, long want, const char *why)
 
   v.t = JS_NUM; v.p = text; v.n = (unsigned)strlen(text);
   rc = js_num_int(&v, &got);
-  if (rc != want_rc || (rc == 0 && got != want)) {
-    printf("FAIL  js_num_int(%s) = %d, %ld; want %d, %ld  %s\n", text, rc, got, want_rc, want, why);
-    fails++;
-  } else {
-    printf("ok    js_num_int(%s) %s\n", text, why);
-  }
+  check(rc == want_rc && (rc != 0 || got == want), why, text);
 }
 
 static void test_num_limits(void)
@@ -254,249 +1104,10 @@ static void test_num_limits(void)
   check_num(over, -1, 0, "LONG_MAX + 1 is refused, not wrapped");
   check_num(tenfold, -1, 0, "ten times LONG_MAX is refused");
   check_num("99999999999999999999", -1, 0, "twenty nines are refused");
-  check("{\"claim\":\"C\",\"thread\":{\"name\":\"n\",\"key\":\"00112233445566778899aabbccddeeff\","
-        "\"channel\":4294967307}}", "bad-json", "channel 2^32 + 11 does not wrap to 11");
 }
 
-/* A pushed hwid is the platform's grammar or it is refused: it goes into the
- * announce line and the request path, so a space or a line break must not. */
-static void test_hwid(void)
+static void test_sign(void)
 {
-  check("{\"claim\":\"C\",\"hwid\":\"example-board-0000\"}", 0, "hwid: a portal id");
-  check("{\"claim\":\"C\",\"hwid\":\"A.b_c:9-z\"}", 0, "hwid: every allowed punctuation");
-  check("{\"claim\":\"C\",\"hwid\":\"\"}", 0, "hwid: empty means the die's default");
-  check("{\"claim\":\"C\",\"hwid\":"
-        "\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde\"}", 0,
-        "hwid: 63 characters fit");
-  check("{\"claim\":\"C\",\"hwid\":"
-        "\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}", "bad-json",
-        "hwid: 64 characters do not fit");
-  check("{\"claim\":\"C\",\"hwid\":\"two words\"}", "bad-json", "hwid: a space");
-  check("{\"claim\":\"C\",\"hwid\":\"id\\r\\nCHIRP! v=2 hw=other\"}", "bad-json",
-        "hwid: a line break cannot forge an announce");
-  check("{\"claim\":\"C\",\"hwid\":\"caf\\u00e9\"}", "bad-json", "hwid: an escape");
-  check("{\"claim\":\"C\",\"hwid\":\"a/b\"}", "bad-json", "hwid: a slash");
-  check("{\"claim\":\"C\",\"hwid\":7}", "bad-json", "hwid: not a string");
-}
-
-int main(void)
-{
-  const char *full =
-    "{\"host\":\"my-core.example.com\",\"claim\":\"CHIRP-PLACEHOLDER\",\"hwid\":\"wba65-demo-3f9a12\","
-    "\"level\":1,\"thread\":{\"name\":\"chirp-lab\",\"key\":\"00112233445566778899aabbccddeeff\","
-    "\"panid\":\"1234\",\"xpanid\":\"1111111122222222\",\"channel\":15}}";
-
-  const char *dataset =
-    "{\"claim\":\"CHIRP-PLACEHOLDER\",\"thread\":{\"dataset\":\"0e080000000000010000000300001835"
-    "060004001fffe00208111111112222222207081111111122222222051000112233445566778899aabbccddeeff"
-    "030a63686972702d6c6162\"}}";
-
-  puts("--- accepted ---");
-  test_hwid();
-  check(full, 0, "v1.2 thread, discrete fields");
-  check(dataset, 0, "v1.2 thread, dataset form");
-  check("{\"ssid\":\"workshop\",\"pass\":\"hunter2\",\"aps\":[{\"ssid\":\"workshop\",\"pass\":\"\"}],"
-        "\"host\":\"h\",\"claim\":\"C\",\"level\":1}", 0, "v1.1 wifi shape still accepted");
-  check("{\"token\":\"T\",\"ssid\":\"s\",\"pass\":\"\"}", 0, "token instead of claim");
-  check("{\"claim\":\"C\",\"thread\":{\"name\":\"n\",\"key\":\"00112233445566778899AABBCCDDEEFF\"},"
-        "\"unknown\":{\"deep\":[1,2,3]}}", 0, "unknown keys ignored, uppercase key hex");
-  check("{\"claim\":\"C\",\"thread\":{\"dataset\":\"0e08\",\"name\":\"x\",\"key\":\"nope\"}}", 0,
-        "dataset wins over broken discrete fields");
-  check("{\"claim\":\"C\",\"ssid\":\"caf\\u00e9 \\\"guest\\\"\"}", 0, "escapes and \\u in strings");
-
-  /* This relay image needs a credential but no network settings. */
-  puts("\n--- fresh setup, no network (a credential alone is complete) ---");
-  check("{\"claim\":\"C\"}", 0, "a claim alone is a complete config for this image");
-  check("{\"token\":\"T\"}", 0, "a token alone is a complete config for this image");
-  check("{\"claim\":\"CHIRP-PLACEHOLDER\",\"hwid\":\"wba65-demo-3f9a12\",\"host\":\"h\","
-        "\"key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\"}", 0,
-        "what the setup page pushes at a fresh board: credential, no network");
-  check("{\"claim\":\"C\",\"ssid\":\"s\",\"pass\":\"\"}", 0,
-        "a credential beside a network is still accepted");
-
-  puts("\n--- rejected ---");
-  check("{\"claim\":\"X\",\"thread\":{", "bad-json", "truncated object");
-  check("{\"host\":\"h\"}", "missing-field", "no claim/token");
-  check("{\"ssid\":\"s\",\"pass\":\"p\"}", "missing-field",
-        "a network without a credential is still refused");
-  check("{\"key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\"}", "missing-field",
-        "a signing key without a credential is still refused");
-  check("{\"claim\":\"C\",\"token\":\"T\",\"ssid\":\"s\"}", "bad-json", "both claim and token");
-  check("{\"claim\":\"C\",\"thread\":{\"name\":\"n\"}}", "missing-field", "thread name without key");
-  check("{\"claim\":\"C\",\"thread\":{\"key\":\"00112233445566778899aabbccddeeff\"}}",
-        "missing-field", "thread key without name");
-  check("{\"claim\":\"C\",\"thread\":{\"name\":\"n\",\"key\":\"00112233\"}}", "bad-json", "key too short");
-  check("{\"claim\":\"C\",\"thread\":{\"name\":\"n\",\"key\":\"00112233445566778899aabbccddeegg\"}}",
-        "bad-json", "key not hex");
-  check("{\"claim\":\"C\",\"thread\":{\"name\":\"0123456789abcdefg\",\"key\":\"00112233445566778899aabbccddeeff\"}}",
-        "bad-json", "name longer than 16");
-  check("{\"claim\":\"C\",\"thread\":{\"name\":\"n\",\"key\":\"00112233445566778899aabbccddeeff\",\"channel\":27}}",
-        "bad-json", "channel above 26");
-  check("{\"claim\":\"C\",\"thread\":{\"name\":\"n\",\"key\":\"00112233445566778899aabbccddeeff\",\"channel\":10}}",
-        "bad-json", "channel below 11");
-  check("{\"claim\":\"C\",\"thread\":{\"name\":\"n\",\"key\":\"00112233445566778899aabbccddeeff\",\"panid\":\"12g4\"}}",
-        "bad-json", "panid not hex");
-  check("{\"claim\":\"C\",\"thread\":{\"name\":\"n\",\"key\":\"00112233445566778899aabbccddeeff\",\"xpanid\":\"1111\"}}",
-        "bad-json", "xpanid wrong length");
-  check("{\"claim\":\"C\",\"thread\":{\"dataset\":\"0e0\"}}", "bad-json", "odd-length dataset");
-  check("{\"claim\":\"C\",\"thread\":\"not-an-object\"}", "bad-json", "thread must be an object");
-  check("{\"claim\":123,\"ssid\":\"s\"}", "bad-json", "claim must be a string");
-  check("[1,2,3]", "bad-json", "not an object");
-  check("{\"claim\":\"C\",\"ssid\":\"s\",}", "bad-json", "trailing comma");
-  check("{'claim':'C'}", "bad-json", "single quotes");
-  check("{\"claim\":\"C\",\"ssid\":\"s\"} trailing", "bad-json", "junk after the object");
-  check("{\"claim\":\"C\",\"thread\":{\"name\":\"n\",\"key\":\"00112233445566778899aabbccddeeff\"}} {}",
-        "bad-json", "two objects on one line");
-
-  puts("\n--- v1.5 signing key ---");
-  check("{\"claim\":\"C\",\"ssid\":\"s\",\"key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\"}",
-        0, "44-char base64 key accepted");
-  check("{\"claim\":\"C\",\"ssid\":\"s\",\"key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\"}",
-        "bad-json", "key without the '=' pad");
-  check("{\"claim\":\"C\",\"ssid\":\"s\",\"key\":\"c2hvcnQ=\"}",
-        "bad-json", "key that is not 32 bytes");
-  check("{\"claim\":\"C\",\"ssid\":\"s\",\"key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdH!8=\"}",
-        "bad-json", "key with a character outside base64");
-  check("{\"claim\":\"C\",\"ssid\":\"s\",\"key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh-_\"}",
-        "bad-json", "key in the URL-safe alphabet (the contract sends standard base64)");
-  check("{\"claim\":\"C\",\"ssid\":\"s\",\"key\":42}", "bad-json", "key must be a string");
-
-  puts("\n--- host ---");
-  check("{\"claim\":\"C\",\"host\":\"core.example.com\"}", 0, "a host");
-  check("{\"claim\":\"C\",\"host\":\"h0123456789012345678901234567890123456789012345678901234567890123456789.example\"}",
-        0, "a host of 79 characters, the most the board holds");
-  check("{\"claim\":\"C\",\"host\":\"h01234567890123456789012345678901234567890123456789012345678901234567890.example\"}",
-        "bad-json", "a host of 80 characters would be cut short");
-  check("{\"claim\":\"C\",\"host\":5}", "bad-json", "host must be a string");
-
-  puts("\n--- credential length ---");
-  check("{\"token\":\"TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT\"}", 0, "a token of 95 characters, the most the board holds");
-  check("{\"token\":\"TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT\"}", "bad-json", "a token of 96 characters would be dropped");
-  check("{\"claim\":\"TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT\"}", "bad-json", "a claim of 96 characters would be dropped");
-  check_merge_ok("{\"token\":\"TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT\"}", "{\"token\":\"T\"}",
-                 "a stored over-long token is replaced by a pushed one");
-  check_merge_err("{\"token\":\"TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT\"}", "{\"hwid\":\"wba-2\"}", "missing-field",
-                  "a stored over-long token is not carried: the board holds no usable one");
-
-  puts("\n--- v1.3 merges (the portal's L2 elevation flow) ---");
-  {
-    /* Check key-only pushes and pushes containing both a key and a replacement
-     * token. */
-    const char *provisioned =
-      "{\"token\":\"TOK-ONE\",\"ssid\":\"workshop\",\"pass\":\"hunter2\","
-      "\"thread\":{\"name\":\"chirp-lab\",\"key\":\"00112233445566778899aabbccddeeff\"}}";
-    const char *key_only = "{\"key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\"}";
-    const char *key_tok  = "{\"key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\","
-                           "\"token\":\"TOK-TWO\"}";
-
-    check(key_only, "missing-field", "a key-only push is NOT a complete config");
-    printf("      ^ which is why completeness is judged on the merge, not the push\n");
-
-    check_merge(provisioned, key_only, "token", "TOK-ONE",
-                "key-only push keeps the stored token");
-    check_merge(provisioned, key_only, "ssid", "workshop",
-                "key-only push keeps the stored ssid");
-    check_merge(provisioned, key_only, "key",
-                "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
-                "key-only push lands the key");
-    check_merge_has(provisioned, key_only, "thread", 1,
-                    "key-only push keeps the whole thread object");
-    check_merge_ok(provisioned, key_only,
-                   "merged record round-trips through chirp_validate");
-
-    check_merge(provisioned, key_tok, "token", "TOK-TWO",
-                "key+token push replaces the credential");
-    check_merge_ok(provisioned, key_tok, "key+token merge is still valid");
-
-    /* A rotation pushes a token; the stale claim must not survive beside it. */
-    check_merge("{\"claim\":\"CHIRP-OLD\",\"ssid\":\"s\"}",
-                "{\"token\":\"TOK-NEW\"}", "claim", NULL,
-                "a token push evicts the stored claim code");
-    check_merge_ok("{\"claim\":\"CHIRP-OLD\",\"ssid\":\"s\"}",
-                   "{\"token\":\"TOK-NEW\"}", "credential swap stays valid");
-
-    /* A single supplied network replaces the stored list. */
-    check_merge_has("{\"token\":\"T\",\"ssid\":\"old\",\"pass\":\"p\","
-                    "\"aps\":[{\"ssid\":\"old\",\"pass\":\"p\"},{\"ssid\":\"van\",\"pass\":\"\"}]}",
-                    "{\"ssid\":\"new\",\"pass\":\"n\"}", "aps", 0,
-                    "a single-ssid push replaces the whole network list");
-    check_merge("{\"token\":\"T\",\"ssid\":\"old\",\"pass\":\"p\"}",
-                "{\"ssid\":\"new\",\"pass\":\"n\"}", "ssid", "new",
-                "...and the new ssid wins");
-
-    /* Nothing stored: a merged view with no credential is still refused. */
-    check_merge_err(NULL, key_only, "missing-field",
-                    "first-ever key-only push is still refused");
-    check_merge_ok(NULL, "{\"token\":\"T\"}",
-                   "first push with a credential and no network is accepted");
-    check_merge_ok(NULL,
-                   "{\"claim\":\"CHIRP-PLACEHOLDER\",\"hwid\":\"wba65-demo-3f9a12\","
-                   "\"key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\"}",
-                   "empty store + the setup page's push (no network) is accepted");
-    check_merge_ok(NULL, "{\"token\":\"T\",\"ssid\":\"s\",\"pass\":\"\"}",
-                   "first push with a credential and a network is accepted");
-    check_merge_err(NULL, "{\"ssid\":\"s\",\"pass\":\"\"}", "missing-field",
-                    "first push with a network but no credential is refused");
-
-    /* The splice must not mangle what it copies. */
-    check_merge("{\"token\":\"T\",\"ssid\":\"caf\\u00e9 \\\"guest\\\"\"}",
-                "{\"key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\"}",
-                "ssid", "caf\xc3\xa9 \"guest\"",
-                "escapes and \\u survive the merge byte for byte");
-    check_merge_has("{\"token\":\"T\",\"ssid\":\"s\"}",
-                    "{\"thread\":{\"dataset\":\"0e08\"}}", "thread", 1,
-                    "a thread-only push lands against a wifi board");
-
-    /* What an older image stored must not block a later push. */
-    const char *old_key = "{\"token\":\"T\",\"key\":\"-_-_MzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=\"}";
-    check_merge(old_key, "{\"host\":\"core.example.com\"}", "key",
-                "+/+/MzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
-                "a URL-safe key an older image stored goes on in the standard alphabet");
-    check_merge_ok(old_key, "{\"host\":\"core.example.com\"}", "  ... and a host push is taken");
-    check_merge_ok(old_key, "{\"hwid\":\"wba-2\"}", "  ... and an hwid push is taken");
-    const char *old_host = "{\"token\":\"T\",\"host\":"
-        "\"h0123456789012345678901234567890123456789012345678901234567890123456789012345.example\"}";
-    check_merge(old_host, "{\"token\":\"T2\"}", "host", NULL,
-                "a stored host longer than the board holds is not carried");
-    check_merge_ok(old_host, "{\"token\":\"T2\"}", "  ... and a token push is taken");
-    check_merge_ok("{\"token\":\"T\",\"host\":5}", "{\"hwid\":\"wba-2\"}",
-                   "a stored host that is not text is not carried, and the push is taken");
-    check_merge("{\"token\":\"T\",\"host\":\"core.example.com\"}", "{\"hwid\":\"wba-2\"}",
-                "host", "core.example.com", "a stored host that fits is carried");
-
-    /* A new device starts without the old device's signing key: a claim
-     * code, or an id other than the one the board answers to, drops the
-     * stored key unless the push brings one. A token, networks or a key
-     * alone keep it. */
-    const char *signed_cfg = "{\"token\":\"T\",\"hwid\":\"old-id\",\"ssid\":\"s\","
-                             "\"key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\"}";
-    const char *old_k = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
-    const char *new_k = "BBECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
-    check_merge(signed_cfg, "{\"claim\":\"CHIRP-NEW\",\"hwid\":\"new-id\"}", "key", NULL,
-                "a claim and a new id: the old key goes");
-    check_merge(signed_cfg, "{\"claim\":\"CHIRP-NEW\"}", "key", NULL,
-                "a claim alone: the old key goes");
-    check_merge(signed_cfg, "{\"token\":\"T2\",\"hwid\":\"new-id\"}", "key", NULL,
-                "a token with a different id: the old key goes");
-    check_merge(signed_cfg, "{\"claim\":\"CHIRP-NEW\",\"key\":"
-                "\"BBECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\"}", "key", new_k,
-                "a claim that brings its own key: that key is kept");
-    check_merge(signed_cfg, "{\"token\":\"T2\"}", "key", old_k, "a token alone keeps the key");
-    /* Ids are exact in Warblet: `sensor` and `SENSOR` are two devices. */
-    const char *sensor_cfg = "{\"token\":\"T\",\"hwid\":\"sensor\",\"ssid\":\"s\","
-                             "\"key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\"}";
-    check_merge(sensor_cfg, "{\"token\":\"T2\",\"hwid\":\"SENSOR\"}", "key", NULL,
-                "another device whose id differs only in letter case: the key goes");
-    check_merge(sensor_cfg, "{\"token\":\"T2\",\"hwid\":\"sensor\"}", "key", old_k,
-                "the same id, byte for byte, keeps the key");
-    check_merge(signed_cfg, "{\"ssid\":\"cafe\",\"pass\":\"p\"}", "key", old_k,
-                "networks alone keep the key");
-    check_merge("{\"token\":\"T\",\"ssid\":\"s\",\"key\":"
-                "\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\"}",
-                "{\"token\":\"T2\",\"hwid\":\"wba65-demo-abcdef\"}", "key", old_k,
-                "the die id it already answers to keeps the key");
-  }
-
   puts("\n--- sha256 (FIPS 180-4 examples) ---");
   check_sha("abc",
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
@@ -640,12 +1251,21 @@ int main(void)
                  "227c7ed07675979193145d78675ecab09be24ad8eac4d2dc3c777fe01fdadbb6",
                  "X-Chirp-Signature over \"\\ntag=\\n\" + body 00c9");
   }
+}
 
-  puts("\n--- summary fields (what the boot line prints) ---");
-  check_summary(full);
-
+int main(int argc, char **argv)
+{
+  test_vectors(argc > 1 ? argv[1] : NULL);
+  test_rules();
+  test_announce();
+  test_store();
+  test_line();
+  test_no_open();
+  check_summary();
   test_num_limits();
+  test_sign();
 
-  printf("\n%s (%d failure%s)\n", fails ? "FAILED" : "PASSED", fails, fails == 1 ? "" : "s");
+  printf("\nvaltest: %d passed, %d failed\n", passes, fails);
+  printf("%s (%d failure%s)\n", fails ? "FAILED" : "PASSED", fails, fails == 1 ? "" : "s");
   return fails ? 1 : 0;
 }

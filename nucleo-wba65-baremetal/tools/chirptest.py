@@ -68,7 +68,7 @@ def expect(lines, prefix, what):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="CHIRP-PROV v1.5 bench test")
+    ap = argparse.ArgumentParser(description="CHIRP-PROV v1.8 bench test")
     ap.add_argument("port", help="serial port, e.g. COM13 or /dev/ttyACM0")
     ap.add_argument("--claim", default="CHIRP-BENCH0001", help="claim code to push")
     # Use the plain-HTTP host required by this firmware.
@@ -90,7 +90,7 @@ def main():
         "xpanid": SAMPLE["xpanid"],
         "channel": SAMPLE["channel"],
     }
-    cfg = {"host": args.host, "claim": args.claim, "level": 1, "thread": thread}
+    cfg = {"host": args.host, "claim": args.claim, "thread": thread}
     # separators: no spaces — the line must stay one line and stay small
     push = "CHIRP+ " + json.dumps(cfg, separators=(",", ":"))
 
@@ -106,13 +106,13 @@ def main():
         failures += ann is None
         if ann and " v=2" not in ann:
             print("  WARN announce is not v=2 — this firmware predates the thread object")
-        if ann and " sig=1" not in ann:
-            print("  WARN announce has no sig=1 — this firmware predates v1.5 signing")
+        if ann and not (" fw=" in ann and " key_set=" in ann and " caps={" in ann):
+            print("  WARN announce has no fw=, key_set= and caps= — this firmware predates CHIRP-PROV v1.8")
 
         if args.bad:
             # Before a claim is stored. Without --blank, a saved credential may satisfy the merge.
             print("\n[1b] no-credential push (needs a blank store)")
-            send(port, 'CHIRP+ {"level":1}')
+            send(port, 'CHIRP+ {"hwid":"bench-board-1"}')
             got = expect(read_lines(port, 2.0), "CHIRP= ", "reply")
             if got and "err missing-field" in got:
                 print("  OK   no credential stored or pushed: refused")
@@ -137,6 +137,9 @@ def main():
                 ('CHIRP+ {"claim":"X","thread":{"name":"n","key":"tooshort"}}', "err bad-json"),
                 ('CHIRP+ {"claim":"X","thread":{"name":"n"}}', "err missing-field"),
                 ('CHIRP+ {"claim":"X","token":"Y","ssid":"s"}', "err bad-json"),
+                ('CHIRP+ {"token":""}', "err bad-json"),
+                ('CHIRP+ {"level":1}', "err unsupported level"),
+                ('CHIRP+ {"tls":true,"colour":"red"}', "err unsupported colour"),
                 ("CHIRP& nonsense", "err unsupported"),
             ]:
                 send(port, line)

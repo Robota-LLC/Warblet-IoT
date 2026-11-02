@@ -1,6 +1,6 @@
 /* Derived from STM32CubeWBA v1.10.0's STM32WBA65RIVX_FLASH.ld.
- * Reserve the last 8 KB at 0x081FE000 for config and export its geometry symbols.
- * flashcfg.c uses these symbols to locate the page. */
+ * Reserve the last 16 KB at 0x081FC000, two 8 KB pages, for config and export
+ * its geometry symbols. flashcfg.c uses these symbols to locate the pages. */
 /*
 ******************************************************************************
 **
@@ -48,14 +48,14 @@ _Min_Stack_Size = 0x1000; /* required amount of stack */
 MEMORY
 {
   RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 512K
-  FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 2040K   /* 2048K - 8K CHIRP config page */
+  FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 2032K   /* 2048K - 16K CHIRP config pages */
 }
 
 /* CHIRP config store — the single declaration of where the config lives.
- * It is the 8 KB page immediately above the region the linker may fill, so it
- * moves automatically if FLASH LENGTH above ever changes. flashcfg.c reads
- * these; nothing computes the address any other way. */
-_chirp_cfg_size  = 8K;
+ * It is the two 8 KB pages immediately above the region the linker may fill,
+ * so it moves automatically if FLASH LENGTH above ever changes. flashcfg.c
+ * reads these; nothing computes the address any other way. */
+_chirp_cfg_size  = 16K;
 _chirp_cfg_start = ORIGIN(FLASH) + LENGTH(FLASH);
 _chirp_cfg_end   = _chirp_cfg_start + _chirp_cfg_size;
 

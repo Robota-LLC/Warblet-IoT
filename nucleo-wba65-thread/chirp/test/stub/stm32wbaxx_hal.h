@@ -48,3 +48,4 @@ HAL_StatusTypeDef HAL_UART_AbortReceive(UART_HandleTypeDef *h);
 HAL_StatusTypeDef HAL_UARTEx_ReceiveToIdle_DMA(UART_HandleTypeDef *h, uint8_t *buf, uint16_t size);
 void HAL_NVIC_SetPriority(int irq, uint32_t pre, uint32_t sub);
 void HAL_NVIC_EnableIRQ(int irq);
+uint32_t HAL_GetTick(void);

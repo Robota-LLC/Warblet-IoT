@@ -10,7 +10,10 @@
 void chirp_report_setup(otInstance *inst);
 
 /* Load host, identity, credential, and signing key from validated config JSON.
- * Schedule reports with these settings. */
+ * Schedule reports with these settings; with no credential, nothing is sent. */
 void chirp_report_config(const char *json, unsigned len);
+
+/* 1 when a signing key that will sign is held (the announce's key_set=). */
+int chirp_report_key_set(void);
 
 #endif /* CHIRP_REPORT_H */

@@ -1,6 +1,7 @@
 /* json.h — a bounded, hand-rolled, allocation-free JSON reader.
  * Strict: no trailing commas, no comments, no NaN/Inf, depth-limited.
- * It never copies until you ask it to, and every copy is length-checked. */
+ * It never copies until you ask it to, and every copy is length-checked.
+ * The same file in both Nucleo demos. */
 #ifndef JSON_H
 #define JSON_H
 
@@ -28,8 +29,8 @@ int js_obj_get(const char *obj, unsigned len, const char *key, js_val *out);
 int js_obj_next(const char *obj, unsigned len, unsigned *pos,
                 js_val *key, js_val *val);
 
-/* A value's source text, quotes included for a JS_STR. */
-const char *js_raw(const js_val *v, unsigned *len);
+/* Walk array elements the same way: arr points at '['. */
+int js_arr_next(const char *arr, unsigned len, unsigned *pos, js_val *val);
 
 /* Unescape a JS_STR into dst. Returns length, or -1 on overflow/bad escape. */
 int js_str_copy(const js_val *v, char *dst, unsigned dstsz);
