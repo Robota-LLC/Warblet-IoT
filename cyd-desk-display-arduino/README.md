@@ -29,13 +29,13 @@ Close other serial tools while the browser uses the board; unplug other USB seri
 <details>
 <summary>If the board needs BOOT and RST</summary>
 
-Select **Skip automatic reset**, then click Connect or Install. Wait for the page to open the USB connection and show **Put the board in install mode** before pressing the board's buttons:
+Open **ESP32 connection help** and select **Use the BOOT button for installation**. Start the connection or installation, then wait for the page to open the USB port and ask for the button sequence before doing it:
 
 1. Hold **BOOT**.
 2. Press and release **RST**.
 3. Let go of **BOOT**.
 
-Click **Continue**. Repeat the three steps only when the page shows this prompt again. If the page asks you to restart the board, keep BOOT released and press RST.
+Click **Buttons released — continue**. Repeat the three steps only when the page shows this prompt again. If the page asks you to restart the board, keep BOOT released and press RST.
 
 </details>
 

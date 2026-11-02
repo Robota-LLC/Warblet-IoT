@@ -62,8 +62,6 @@ esptool --chip esp32 --port <PORT> write_flash 0x10000 build/freenove-wrover-cam
 
 You can also select the image in https://warbletiot.com/flash. Use `build/freenove-wrover-cam-full.bin` at `0x0` for an initial install, or `build/freenove-wrover-cam-update.bin` at `0x10000` for an app update. A merged-image write can erase stored credentials.
 
-An app-only update to v1.6.0 keeps Wi-Fi, server and device settings. After you send settings under v1.6.0, older firmware needs USB setup if installed again. Returning to v1.6.0 with an app-only write restores its last saved identity and server, with Wi-Fi networks from whichever firmware saved them last.
-
 ## Set up the connection
 
 1. Open https://warbletiot.com/flash in Chrome or Edge and connect the board’s serial port.
@@ -122,7 +120,7 @@ NVS stores Wi-Fi passwords, the device token and signing key unencrypted. USB ac
 | Problem | Check |
 |---|---|
 | No networks stored | Send Wi-Fi settings and a device credential. |
-| JPEG format unsupported at startup | The driver tries RGB565 and software JPEG; check whether the next camera initialization succeeds. |
+| `JPEG format is not supported` at startup | Expected on a GC0308. The next line announces a retry in RGB565 with software JPEG encoding; it does not confirm startup. If that attempt also fails, follow the camera initialization guidance below. |
 | Camera fails to initialize | USB setup stays available, but the board does not join Wi-Fi and appears offline in Warblet. The console repeats the reason once a minute. Power off, check the ribbon seating and PSRAM settings, then restart. |
 | Capture fails | Power off, check the ribbon seating, then restart. Check PSRAM settings too. |
 | Picture is mirrored | Check `CAM_HMIRROR` for software-encoded frames. |

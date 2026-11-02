@@ -72,7 +72,7 @@ For an ESP32, you can use the setup page after installing the files. For manual 
 CHIRP+ {"ssid":"YOUR_WIFI","pass":"YOUR_WIFI_PASSWORD","hwid":"<your-board-id>"}
 ```
 
-If the terminal is blank, type `CHIRP?` and press Enter; your typing may not appear. An unconfigured board replies `CHIRP! v=1 hw= radios=wifi t=demo-open-starter`. If you see `>>>` instead, press **Ctrl-D** to start the program, then send `CHIRP?` and the setup line.
+If the terminal is blank, type `CHIRP?` and press Enter; your typing may not appear. An unconfigured board replies `CHIRP! v=1 hw= fw=v1.6.0 key_set=0 radios=wifi t=demo-open-starter caps={"v":1,"auth":[0],"keyProvisioning":[],"otaKeyRotation":false,"otaFirmwareUpdate":false,"transports":["http"]}`. If you see `>>>` instead, press **Ctrl-D** to start the program, then send `CHIRP?` and the setup line.
 
 The board answers `CHIRP= ok`, saves `open_cfg.json` and restarts. On the Pico 2 W, reconnect the terminal when its USB serial port returns. An `aps` list can hold up to eight networks, tried in order; this firmware refuses `claim` and `token` fields with `CHIRP= err unsupported`.
 
@@ -169,7 +169,7 @@ A board that can only send UDP can send its line with `warblet_post_udp()`, but 
 |---|---|
 | **Transport** | plain HTTP to `http.warbletiot.com`, port 80 |
 | **Security cap** | Open (L0): no token, no signature |
-| **Announce** | `CHIRP! v=1 hw=<id> radios=wifi t=demo-open-starter` |
+| **Announce** | `CHIRP! v=1 hw=<id> fw=v1.6.0 key_set=0 radios=wifi t=demo-open-starter caps={"v":1,"auth":[0],"keyProvisioning":[],"otaKeyRotation":false,"otaFirmwareUpdate":false,"transports":["http"]}` |
 
 Each cycle collects one command, then sends a reading. The optional UDP helper sends data without receiving commands:
 

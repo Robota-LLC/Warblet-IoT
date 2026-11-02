@@ -18,11 +18,11 @@ The [Open starter](open-starter/README.md) sends text and echoes a message with 
 |---|---|---|---|---|
 | [`olimex-esp32c3-lipo/`](olimex-esp32c3-lipo/README.md) | You want a button to send a report and the LED to take commands. | Olimex ESP32-C3-DevKit-Lipo rev C | MicroPython 1.28.0 | HTTPS |
 | [`open-starter/`](open-starter/README.md) | You want the simplest loop: a line of text out, what you type back, in MicroPython, Arduino or C. | ESP32 / S3 / C3 / C5 / C6, or your own Wi-Fi board | MicroPython 1.28.0, Arduino, C | HTTP |
-| [`esp32-generic/`](esp32-generic/README.md) | You want chip temperature and LED commands on an ESP32 board. | ESP32 / S3 / C3 / C5 / C6 | MicroPython 1.28.0 | HTTPS |
-| [`cyd-desk-display/`](cyd-desk-display/README.md) | You have a Cheap Yellow Display and want your messages and your computer's disk on its screen. | Cheap Yellow Display (ESP32-2432S028R) | MicroPython 1.28.0 | HTTPS |
+| [`esp32-generic/`](esp32-generic/README.md) | You want chip temperature and LED commands on an ESP32-S3, C3, C5 or C6. | S3 / C3 / C5 / C6 | MicroPython 1.28.0 | HTTPS |
+| [`cyd-desk-display/`](cyd-desk-display/README.md) | You have a Cheap Yellow Display and want your messages and your computer's disk on its screen. | Cheap Yellow Display (ESP32-2432S028R) | MicroPython 1.28.0 | HTTP |
 | [`cyd-desk-display-arduino/`](cyd-desk-display-arduino/README.md) | You want the same desk display as an Arduino sketch, to change in the Arduino IDE. | Cheap Yellow Display (ESP32-2432S028R) | Arduino core for ESP32 3.3.12 | HTTPS |
 | [`xiao-esp32c6/`](xiao-esp32c6/README.md) | You want temperature, a button, and LED commands pushed to the board. | Seeed XIAO ESP32-C6 | MicroPython 1.28.0 | MQTTS |
-| [`pyboard-d/`](pyboard-d/README.md) | You have a Pyboard D SF2W with MicroPython 1.14. | Pyboard D SF2W | MicroPython 1.14 | HTTP |
+| [`pyboard-d/`](pyboard-d/README.md) | You have a Pyboard D SF2W with MicroPython 1.28.0. | Pyboard D SF2W | MicroPython 1.28.0 | HTTP |
 | [`freenove-wrover-cam/`](freenove-wrover-cam/README.md) | You want scheduled pictures and polled camera commands. | Freenove ESP32-WROVER CAM | ESP-IDF 5.5 | HTTPS |
 | [`freenove-wrover-cam-mqtts/`](freenove-wrover-cam-mqtts/README.md) | You want the camera to receive snap commands over MQTT. | Freenove ESP32-WROVER CAM | ESP-IDF 5.5 | MQTTS |
 | [`xiao-esp32s3-sense-cam/`](xiao-esp32s3-sense-cam/README.md) | You want a doorbell button that sends a photo. | Seeed Studio XIAO ESP32-S3 Sense | ESP-IDF 5.5 | MQTTS |
@@ -52,9 +52,9 @@ See [routine examples](routines/README.md) to pair boards, change the actions, o
 | File or module | Purpose |
 |---|---|
 | `main.py`, `main/main.c`, `src/` or `chirp/src/` | Application, sensor and controls |
-| `chirp_prov` or `open_setup` | USB setup |
-| `chirp_send` or `chirp_mqtt` | Network transport |
-| `chirp_sign` | Message signatures |
+| `warblet.py` or `main/warblet.c` | Setup, credentials and messaging support |
+| `warblet_http.py`, `warblet_https.py` or `warblet_mqtt.py` | MicroPython network transport |
+| `open_setup.py` | Open starter USB setup |
 | `decoder.star` | Payload bytes to named fields |
 | `demo.json` | Supported boards, runtime images, checksums and setup defaults |
 
