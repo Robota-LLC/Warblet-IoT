@@ -8,7 +8,11 @@
 
 /* Interrupt-to-main-loop ring, 1023 bytes: 89 ms of bytes at full speed, more
  * than twice the longest report, and over 15 pieces of a push as the setup
- * page paces it (64 bytes, then 30 ms). Each entry is a byte and its flags. */
+ * page paces it (64 bytes, then 30 ms). Each entry is a byte and its flags.
+ * A flash erase or write masks interrupts, so the ring takes nothing while
+ * one runs; a store runs only between a line's ending and its answer, when a
+ * host keeping the contract is waiting and sends nothing, and a byte that did
+ * come then is an overrun, which marks its line damaged. */
 #define RX_RING 1024u
 
 static volatile unsigned short s_ring[RX_RING];
