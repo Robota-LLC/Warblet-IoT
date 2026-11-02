@@ -51,7 +51,7 @@ The demo detects OV2640 and OV3660 sensors at startup. For OV3660, `camera_init(
 
 `FRAME_SIZE` and `JPEG_QUALITY` in `main/camera.c` set the picture size (640 × 480) and compression. Keep the message within 256 KiB.
 
-`camera_capture()` discards frames older than `FRAME_STALE_MS` (2000 ms), with up to three capture attempts. Repeated frame-age warnings are covered in Troubleshooting.
+`camera_capture()` discards frames older than `FRAME_STALE_MS` (2000 ms), with up to three capture attempts. A frame-age info message is expected on the first capture after an idle spell.
 
 ## Build by hand
 
@@ -165,7 +165,7 @@ NVS stores Wi-Fi passwords, the device token and signing key unencrypted. USB ac
 | Pressing BOOT does nothing | Look for `button pressed (GPIO0)` on the console. Press after the board has started, not while plugging it in. A press within 30 s of the last photo is ignored. |
 | D0 switch does nothing | Check the wire goes to D0 and GND, and that the switch closes. |
 | Photo is upside down | `set_vflip()` in `camera_init()` flips the OV3660 picture; an OV2640 is left as it is. |
-| Frame-age message | Capture is discarding an old queued frame. Repeated stale results can mean the sensor is delivering slowly. |
+| Frame-age message | Expected after an idle spell: capture discards an old queued frame and tries again. |
 | MQTT connection fails | Check Wi-Fi, DNS, the MQTT hostname, and the credential. |
 | Commands do not arrive | Look for a successful subscription on the console; check the device ID and `snap` control text. |
 | No email after a press | Check the account's alert email address, the routine's scope, its minimum interval, the cooldown, and its run log. |
