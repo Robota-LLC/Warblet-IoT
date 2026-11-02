@@ -407,12 +407,14 @@ static bool   wire_lost[WIRE_MAX];  /* dropped: the ring or the FIFO was full */
 #define UART_FIFO        128
 #define UART_FULL_THRESH 120
 #define UART_BYTE_US     87           /* 10 bits at 115200 baud */
+#define UART_TOUT_US     (10 * UART_BYTE_US)   /* the receive timeout: 10 symbols of a quiet line */
 static size_t  uart_ring_end;         /* bytes before this are in the ring (or lost) */
 static size_t  uart_stash_end;        /* [uart_ring_end, uart_stash_end): the stash */
 static size_t  uart_fifo_start;       /* [uart_fifo_start, wire_seen): the FIFO */
 static bool    uart_full;             /* a stash is held; receive interrupts are off */
 static int64_t uart_line_us;          /* when the last byte finished arriving */
 static unsigned uart_stashes, uart_overflows;
+static size_t  uart_ring_at_overflow; /* the ring's fill when the FIFO first overflowed */
 static int64_t reader_stall_ms;       /* the reader's next delay lasts this much longer */
 
 /* Sends n bytes in pieces of `piece`, gap_ms apart, after what was sent
@@ -482,16 +484,30 @@ static void uart_isr_move(void)
     }
 }
 
+/* What makes the receive interrupt due, apart from when it is served: the
+ * FIFO at its threshold (RXFIFO_FULL), or bytes in it and the line quiet for
+ * the receive timeout since the last one (RXFIFO_TOUT). The interrupt is
+ * served only while it is on; whatever latency it has only delays that. */
+static bool uart_due(int64_t now_us)
+{
+    size_t n = wire_seen - uart_fifo_start;
+    return n >= UART_FULL_THRESH || (n > 0 && now_us >= uart_line_us + UART_TOUT_US);
+}
+
 /* uart_check_buf_full(), after a read: the stash into the ring once it fits,
- * the interrupts on again, and the FIFO moved at once. */
+ * and the receive interrupts on again. That is all it does: the FIFO moves
+ * when its interrupt is due, at once only if it already is. Bytes an overflow
+ * dropped after the stash, up to the FIFO, go with it, for reads to pass. */
 static void uart_check_buf_full(void)
 {
     size_t n = kept_between(uart_ring_end, uart_stash_end);
     if (uart_full && ring_fill + n <= console_rx_size) {
         ring_fill += n;
-        uart_ring_end = uart_stash_end;
+        uart_ring_end = uart_fifo_start;
         uart_full = false;
-        uart_isr_move();
+        if (uart_due(clock_ms * 1000)) {
+            uart_isr_move();
+        }
     }
 }
 
@@ -506,6 +522,10 @@ static void uart_takes_in(void)
         if (at > now_us) {
             break;
         }
+        /* A receive timeout that fell due in the quiet before this byte. */
+        if (!uart_full && wire_seen > uart_fifo_start && at >= uart_line_us + UART_TOUT_US) {
+            uart_isr_move();
+        }
         uart_line_us = at;
         wire_lost[wire_seen] = false;
         wire_seen++;
@@ -514,14 +534,16 @@ static void uart_takes_in(void)
             for (size_t i = uart_fifo_start; i < wire_seen; i++) {
                 wire_lost[i] = true;
             }
+            if (uart_overflows++ == 0) {
+                uart_ring_at_overflow = ring_fill;
+            }
             uart_fifo_start = wire_seen;
-            uart_overflows++;
-        } else if (wire_seen - uart_fifo_start >= UART_FULL_THRESH) {
+        } else if (!uart_full && wire_seen - uart_fifo_start >= UART_FULL_THRESH) {
             uart_isr_move();
         }
     }
-    /* The line went quiet (the receive timeout): what the FIFO holds moves. */
-    if (wire_seen == wire_len || wire_at[wire_seen] * 1000 > now_us) {
+    /* A receive timeout that is due by now. */
+    if (!uart_full && uart_due(now_us)) {
         uart_isr_move();
     }
 }
@@ -1015,12 +1037,9 @@ static void test_reader(void)
     check(uart_stashes >= 1 && uart_overflows == 0 && strncmp(said, "CHIRP! ", 7) == 0,
           "UART: a full ring stashes a batch and takes it once the reader is back; nothing is lost", detail);
 
-    /* More than the ring, the stash and the FIFO hold (5,368 bytes) with the
-     * reader kept off: the FIFO overflows and is reset, bytes are lost. What
-     * is lost is a line over the limit, dropped anyway; the probe behind it
-     * is answered. A host sends one line and waits for its answer, and no
-     * legal line comes near 5,368 bytes, so this takes more than the contract
-     * lets a host send. */
+    /* A flood with the reader kept off: the FIFO overflows and is reset, and
+     * bytes are lost. What is lost is a line over the limit, dropped anyway;
+     * the probe behind it is answered. */
     memset(burst, 'z', 6000);
     memcpy(burst + 6000, "\r\nCHIRP?\r\n", 10);
     start_with(&base);
@@ -1047,6 +1066,75 @@ static void test_reader(void)
     snprintf(detail, sizeof(detail), "%u stashed, %u overflows: %s", uart_stashes, uart_overflows, said_len ? said : "no answer");
     check(uart_overflows == 0 && strncmp(said, "CHIRP= ok", 9) == 0 && held.ap_count == CHIRP_MAX_APS,
           "UART: the longest push at once, the reader a second late, lands whole", detail);
+
+    /* Where one burst sent at once starts losing bytes with the reader kept
+     * off for a second: 120-byte batches go into the ring until the next would
+     * not fit (5,040 bytes, 80 of its 5,120 unused), one batch is stashed
+     * (120), and the FIFO fills (128). All 5,288 are kept and read once the
+     * reader runs; byte 5,289 overflows the FIFO, and it and the FIFO's 128
+     * are lost. These are the model's numbers for that burst, not a capacity
+     * a host may count on: a host keeps the contract's pacing. */
+    for (size_t sent = 5288; sent <= 5289; sent++) {
+        memset(burst, 'z', sent);
+        start_with(&base);
+        uart_stashes = uart_overflows = 0;
+        uart_ring_at_overflow = 0;
+        wire_send(burst, sent, sent, 0);
+        reader_stall_ms = 1000;
+        run_reader();
+        size_t lost = 0;
+        for (size_t i = 0; i < wire_len; i++) {
+            lost += wire_lost[i];
+        }
+        snprintf(detail, sizeof(detail), "%u bytes: %u stashed, %u overflows, %u lost, the ring at %u",
+                 (unsigned)sent, uart_stashes, uart_overflows, (unsigned)lost, (unsigned)uart_ring_at_overflow);
+        if (sent == 5288) {
+            check(uart_stashes >= 1 && uart_overflows == 0 && lost == 0 && wire_pos == wire_len,
+                  "UART, the reader a second late: 5,288 bytes at once are all kept", detail);
+        } else {
+            check(uart_overflows == 1 && lost == UART_FIFO + 1 && uart_ring_at_overflow == 5040 &&
+                      wire_pos == wire_len,
+                  "UART, the reader a second late: byte 5,289 at once overflows the FIFO, and 129 are lost",
+                  detail);
+        }
+    }
+
+    /* The receive timeout is due only once the line has been quiet for it:
+     * 50 bytes stay in the FIFO until then, and move when it comes. */
+    start_with(&base);
+    wire_send(burst, 50, 50, 0);
+    clock_ms += 5;                          /* 50 bytes take 4.35 ms */
+    driver_takes_in();
+    size_t early = ring_fill;
+    int64_t quiet_at = uart_line_us + UART_TOUT_US;
+    clock_ms = (quiet_at + 999) / 1000;
+    driver_takes_in();
+    snprintf(detail, sizeof(detail), "in the ring %u bytes before the timeout, %u after", (unsigned)early,
+             (unsigned)ring_fill);
+    check(early == 0 && ring_fill == 50 && quiet_at > (clock_ms - 1) * 1000,
+          "UART: bytes below the threshold move when the receive timeout falls due, not before", detail);
+    wire_pos = wire_len;                    /* the test's bytes are spent */
+
+    /* The interrupts back on serve only what is due: with the ring full, one
+     * batch stashed and 50 bytes in the FIFO, a read lets the stash in, and
+     * the 50 stay until the line has been quiet for the timeout. */
+    start_with(&base);
+    memset(burst, 'z', 5210);
+    wire_send(burst, 5210, 5210, 0);
+    /* The last byte in, and the line quiet since, but not for the timeout. */
+    clock_ms = (wire_at[0] * 1000 + 5209 * UART_BYTE_US + UART_TOUT_US - 1) / 1000;
+    driver_takes_in();
+    bool stashed = uart_full && wire_seen - uart_fifo_start == 50;
+    ring_fill -= 200;                       /* a read */
+    uart_check_buf_full();
+    size_t back_on = ring_fill;
+    clock_ms += 1;
+    driver_takes_in();
+    snprintf(detail, sizeof(detail), "stashed %d; in the ring %u after the stash went in, %u once due",
+             (int)stashed, (unsigned)back_on, (unsigned)ring_fill);
+    check(stashed && back_on == 5040 - 200 + 120 && ring_fill == back_on + 50,
+          "UART: the interrupts back on move the FIFO once it is due, not at once", detail);
+    wire_pos = wire_len;
 }
 
 static void test_vectors(const char *path)
