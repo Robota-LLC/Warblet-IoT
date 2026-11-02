@@ -384,8 +384,8 @@ void board_serial_begin(void (*on_chirp_line)(char *line, unsigned len))
    * (see __wrap_HAL_UART_Receive_IT), but ours is running when OpenThread's
    * reset runs this again. Receive is DMA from here, which is immune to
    * radio-interrupt latency. An abort that fails (its DMA abort timed out)
-   * returns with the receive as it was: input is dead, so say so and start
-   * nothing. */
+   * has turned the receive interrupts and the DMA request off, and stops
+   * there: input is dead, so say so and start nothing. */
   if (HAL_UART_AbortReceive(oTCLIuart) != HAL_OK) {
     board_serial_print("CHIRP. rx dma start failed; serial input is dead\r\n");
     return;
