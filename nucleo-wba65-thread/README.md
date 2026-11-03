@@ -131,5 +131,6 @@ Thread encrypts the local radio link; the UDP route beyond it is unencrypted. Si
 | `CHIRP. input line dropped (overrun)` | Close competing serial tools and resend the whole line; no setup answer is sent. |
 | `CHIRP. input line dropped (too-long)` | Keep the line to 4096 bytes or fewer; no setup answer is sent. |
 | No serial answer | Use CN15 at 115200 baud. A CLI command sent during the first 1.5 seconds after restart is discarded; wait, then type it again. |
+| `CHIRP. rx dma start failed; serial input is dead` or `CHIRP. rx dma init failed; serial input is dead` | Serial input on CN15 failed to start, at power-up or after an OpenThread reset. Output and the rest of the app keep running, but setup, CLI commands and `CHIRP~ dfu` cannot be read. Press RESET or unplug and reconnect USB. For DFU, use the [BOOT0 jumper route](#flash). |
 | Stored key is unusable | Send a valid signing key; confirm acceptance on the device page. |
 | Reports sent but no reading appears | UDP has no delivery acknowledgement. Check the device ID, credential, and rejected-message count. |

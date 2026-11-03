@@ -135,6 +135,8 @@ Replace `pressed()` in `main.py` with your sensor’s true-or-false reading, and
 
 A reed switch or float switch can use the same event counter. For measurements such as distance, change `encode_button_report()` and the decoder together. To drive a relay or a buzzer instead of the LED, change `on_downlink()` and the control text together. A press while the board is busy on the network is seen only if it is still held when that work ends.
 
+On an ESP32-C3 with MicroPython 1.28.0 and these files, HTTPS leaves room for roughly 2,000 bytes of added code in `main.py`, excluding comments, indentation and blank lines. Larger additions can exhaust memory during TLS certificate checks. Trim the code or use a chip with more memory.
+
 ## Security notes
 
 `chirp_cfg.json` stores Wi-Fi passwords, the device token and signing key unencrypted. USB access allows reading or replacing them. Keep this file out of Git, use a separate credential for each device, and protect the console and stored credentials before deploying a product.
@@ -150,6 +152,7 @@ A reed switch or float switch can use the same event counter. For measurements s
 | LED control does nothing | Match the control text to `on_downlink()`. A command is collected at the next check, about every 6 seconds. |
 | Send failed | Check Wi-Fi, DNS, and the stored host. |
 | `TLS … refused` or `no clock` | Allow NTP on the network. A stored `host` needs a certificate from one of the bundled roots. |
+| TLS fails after adding code, with `The certificate is not correctly signed by the trusted CA` or `MBEDTLS_ERR_PK_INVALID_PUBKEY` (`-15104`) | On the C3, this can mean too little memory to check a valid certificate. Reduce the added code or use a chip with more memory; keep HTTPS enabled. |
 | `stopped by an unexpected error` | Read the preceding error. The board restarts after 10 seconds; Ctrl-C stops it for debugging. |
 
 Unexpected presses can mean the input lacks a pull-up. If flashing stops with `No serial data received`, use the default baud rate. If the app does not start after reset, release BUT1 and reset again.

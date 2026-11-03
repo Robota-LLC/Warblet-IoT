@@ -114,6 +114,8 @@ Replace `read_temperature_c()` in `main.py` with your sensor’s Celsius reading
 
 To drive a relay or a buzzer instead of the LED, change `on_downlink()` and the control text together. Put sensor setup near the top of the app. For a different unit or payload shape, change `encode_temperature()` and `decoder.star` together. The encoder clamps values to −3276.8 through 3276.7.
 
+On an ESP32-C3 with MicroPython 1.28.0 and these files, HTTPS leaves room for roughly 3,000 bytes of added code in `main.py`, excluding comments, indentation and blank lines. Larger additions can exhaust memory during TLS certificate checks. Trim the code or use a chip with more memory.
+
 ## Security notes
 
 `chirp_cfg.json` stores Wi-Fi passwords, the device token and signing key unencrypted. USB access allows reading or replacing them. Keep this file out of Git, use a separate credential for each device, and protect the console and stored credentials before deploying a product.
@@ -129,6 +131,7 @@ To drive a relay or a buzzer instead of the LED, change `on_downlink()` and the 
 | LED control does nothing | Check `LED_PIN` and `LED_ACTIVE_LOW`, and match the control text to `on_downlink()`. |
 | Send failed | Check Wi-Fi, DNS, and the stored host. |
 | `TLS … refused` or `no clock` | Allow NTP on the network. A stored `host` needs a certificate from one of the bundled roots. |
+| TLS fails after adding code, with `The certificate is not correctly signed by the trusted CA` or `MBEDTLS_ERR_PK_INVALID_PUBKEY` (`-15104`) | On the C3, this can mean too little memory to check a valid certificate. Reduce the added code or use a chip with more memory; keep HTTPS enabled. |
 | USB console interrupts reporting | Close competing serial tools and reset. Ctrl-C stops the app at the MicroPython prompt. |
 | `stopped by an unexpected error` | Read the preceding error. The board restarts after 10 seconds; Ctrl-C stops it for debugging. |
 
