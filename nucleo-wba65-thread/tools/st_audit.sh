@@ -14,10 +14,13 @@
 #
 # The options are the build's .opts files for ST's objects (OPTFILES): the
 # object's name, then each option it is compiled with, one a line. FLAGS
-# records every one of them but warnings (-W) and dependency output (-M), in
-# their order, each list once with the objects compiled with it: a -D, -U,
-# -include or -std, an include path added or moved, or a target option, each
-# changes what ST's code compiles to.
+# records every one of them, in their order, each list once with the objects
+# compiled with it: a -D, -U, -include or -std, an include path added or
+# moved, a target option, or one handed on to the preprocessor or the
+# assembler (-Wp,... -Wa,...), each changes what ST's code compiles to. Only
+# what cannot is left out: a warning option with no comma (-Wall, -Wno-...,
+# -Werror...) and dependency output (-MD, -MMD, -MP, and -MF, -MT and -MQ
+# with their arguments).
 #
 # check fails the build when one of those files is not in MANIFEST, when a
 # file MANIFEST lists is missing, when a hash differs, when a header from
@@ -63,8 +66,8 @@ outside=$(for d in $depfiles; do [ -f "$d" ] && cat "$d"; done | tr ' \t\\' '\n\
             grep -E '\.h$' | grep -E '^(/|[A-Za-z]:|chirp/|build/|ld/|tools/)' | sort -u)
 
 # The options, as FLAGS records them: each object's in its .opts file's order,
-# warnings and dependency output left out; each list once, then which object
-# is compiled with which.
+# warning options with no comma and dependency output left out; each list
+# once, then which object is compiled with which.
 options() {
   for f in $(printf '%s\n' $optfiles | sort); do
     if [ -f "$f" ]; then printf '@@ '; cat "$f"; else echo "@@ missing $f"; fi
@@ -76,8 +79,11 @@ options() {
       if (!(key in set)) { set[key] = ++sets; list[sets] = key }
       objects = objects "  " set[key] " " object "\n"
     }
-    /^@@ / { close_object(); object = substr($0, 4); n = 0; next }
-    /^-[WM]/ { next }
+    /^@@ / { close_object(); object = substr($0, 4); n = 0; skip = 0; next }
+    skip { skip = 0; next }
+    /^-M[FTQ]$/ { skip = 1; next }
+    /^-M[FTQ]./ || /^-(MD|MMD|MP)$/ { next }
+    /^-W[^,]*$/ { next }
     { opt[++n] = $0 }
     END {
       close_object()
