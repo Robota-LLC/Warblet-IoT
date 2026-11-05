@@ -64,7 +64,9 @@ static int      s_cfg_present;
 /* Merge scratch: a merge that turns out too big must leave s_cfg untouched. */
 static char     s_merged[CFG_MAX_PAYLOAD + 1];
 
-/* Boot join runs exactly once per boot however often the task is set. */
+/* The join runs exactly once per OpenThread init however often the task is
+ * set: at boot, and again after the CLI's reset or factoryreset, which re-init
+ * the stack (otPlatReset) without an MCU reset, so RAM keeps this flag. */
 static int s_join_ran;
 
 /* Read-back timer, and its "what was I verifying" tag. */
@@ -519,10 +521,13 @@ void __wrap_otCliInit(otInstance *aInstance, otCliOutputCallback aCallback, void
 
   chirp_banner();
 
-  /* Queue initialization work for execution after MX_APPE_Init returns. */
+  /* Queue initialization work for execution after MX_APPE_Init returns. A
+   * stack re-init comes back here too, and gets its own join: the join also
+   * registers the role printing, which went with the old instance. */
   UTIL_SEQ_RegTask(CHIRP_TASK_JOIN,   UTIL_SEQ_RFU, chirp_join_task);
   UTIL_SEQ_RegTask(CHIRP_TASK_VERIFY, UTIL_SEQ_RFU, chirp_verify_task);
   chirp_report_setup(aInstance);
+  s_join_ran = 0;
   UTIL_SEQ_SetTask(CHIRP_TASK_JOIN, CFG_SEQ_PRIO_1);
 
   /* The reporter's first run, and its timer, happen on the scheduler after
