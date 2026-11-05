@@ -61,6 +61,8 @@ If Wi-Fi drops, the board retries and keeps the message on screen. A tap made wh
 
 If Wi-Fi stays connected but Warblet gives no answer, the board keeps retrying and leaves the message on screen. Reports and message checks resume when the connection returns.
 
+If the console shows `chirp: connection failed, trying once more:`, the connection failed before the request was sent. The display waits one second and tries once more. Tap again if the screen missed your touch during the wait.
+
 **Not set up** means the board needs USB setup. **Not on an account** means Warblet no longer recognizes its setup; the board stops communicating and needs USB setup again. Deleting a device from the dashboard does not erase its Wi-Fi settings or keys from the board.
 
 This MicroPython demo deliberately uses plain HTTP so there is room for your own code. Signed is the default: it authenticates reports but does not hide traffic or protect replies from tampering. Use the [Arduino Desk display](../cyd-desk-display-arduino/README.md) for HTTPS.

@@ -129,6 +129,7 @@ On an ESP32-C3 with MicroPython 1.28.0 and these files, HTTPS leaves room for ro
 | HTTP 401 | Check the device ID, token, and signing key. |
 | `command check replied 401` | Check the signing key, and that NTP works so the nonce is fresh. |
 | LED control does nothing | Check `LED_PIN` and `LED_ACTIVE_LOW`, and match the control text to `on_downlink()`. |
+| `chirp: connection failed, trying once more:` | The connection failed before the request was sent. The board waits one second and tries once more. |
 | Send failed | Check Wi-Fi, DNS, and the stored host. |
 | `TLS … refused` or `no clock` | Allow NTP on the network. A stored `host` needs a certificate from one of the bundled roots. |
 | TLS fails after adding code, with `The certificate is not correctly signed by the trusted CA` or `MBEDTLS_ERR_PK_INVALID_PUBKEY` (`-15104`) | On the C3, this can mean too little memory to check a valid certificate. Reduce the added code or use a chip with more memory; keep HTTPS enabled. |

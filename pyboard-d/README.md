@@ -88,6 +88,8 @@ Keep Celsius as the return unit, or change `encode_temperature()` and `decoder.s
 | Waiting on USB | Send Wi-Fi settings and the device credential. |
 | No stored network joined | Check the network name, password, and signal. Each attempt can take 12 seconds. |
 | HTTP 401 | Check the device ID, token, and signing key. |
+| `chirp: Wi-Fi power saving off` | This is expected once after boot. The demo disables Wi-Fi power saving to avoid delayed reports. This draws more power on battery. |
+| `chirp: connection failed, trying once more:` | The connection failed before the request was sent. The board waits one second and tries once more. |
 | Send failed | Check Wi-Fi, DNS, and the stored host. |
 | `stopped by an unexpected error` | Read the preceding error. The board restarts after 10 seconds; Ctrl-C stops it for debugging. |
 
