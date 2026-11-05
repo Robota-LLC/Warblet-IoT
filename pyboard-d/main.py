@@ -3,6 +3,7 @@ import struct
 import time
 
 import machine
+import network
 import pyb
 
 import warblet        # USB setup, Wi-Fi, the clock and signing
@@ -21,6 +22,14 @@ LED_ERR = 1
 
 # The internal-channel mask for pyb.ADCAll. See open_sensor().
 ADC_INTERNAL_MASK = 0x70000
+
+# The Wi-Fi chip's power saving, off. On the bench, with its default
+# (0xa11142), about one connection in five was answered late (3 s or more),
+# and on one access point some failed; with power saving off, none failed.
+# Rejoins kept the setting and only a reset brought the default back, so it
+# is checked before every report. The board runs on USB here; on a battery,
+# power saving off draws more.
+WIFI_PM = 0xa11140
 
 
 def open_led(index):
@@ -65,6 +74,14 @@ def encode_temperature(celsius):
     return struct.pack(">h", temperature_tenths_c)
 
 
+def power_saving_off():
+    """Wi-Fi power saving off, unless it already is."""
+    wlan = network.WLAN(network.STA_IF)
+    if wlan.config("pm") != WIFI_PM:
+        wlan.config(pm=WIFI_PM)
+        print("chirp: Wi-Fi power saving off")
+
+
 def main():
     ok_led = open_led(LED_OK)
     err_led = open_led(LED_ERR)
@@ -74,6 +91,7 @@ def main():
     adc = open_sensor()
     while True:
         if warblet.connected():
+            power_saving_off()
             celsius = read_temperature_c(adc)
             if warblet.send(encode_temperature(celsius)):
                 print("chirp: sent {:.1f} C".format(celsius))
