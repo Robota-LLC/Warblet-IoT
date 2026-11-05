@@ -15,6 +15,7 @@
 # send() posts a reading; send_answer() also says whether Warblet knows the
 # board; poll() asks for one waiting command. A signed message always carries
 # a timestamp nonce, so nothing signed is sent without a set clock.
+import gc
 import network
 import socket
 import time
@@ -175,7 +176,16 @@ def _wrap(s, host):
 warblet.HOST = HOST
 warblet.COMMAND_EVERY_S = 5
 
+# Each network wait has its own limit; a request as a whole has none. The
+# connect and its TLS handshake wait up to CONNECT_TIMEOUT_S at each step, and
+# the request and its answer up to TIMEOUT_S, so a handshake that keeps making
+# progress can take longer than either. (The name lookup before them keeps the
+# system's own limits.) A connection that fails before the request is written
+# is tried once more, on a fresh socket, CONNECT_RETRY_S later: nothing has
+# been sent, so the message cannot go twice.
 TIMEOUT_S = 20
+CONNECT_TIMEOUT_S = 7
+CONNECT_RETRY_S = 1
 
 # The most of a command this part reads. Warblet permits up to 8 KiB; a
 # longer reply is refused, said on the console, and that command is gone:
@@ -238,17 +248,39 @@ def _read_reply_body(s):
     return body
 
 
+def _connect(addr, host):
+    # A connection ready for the request: the socket, then this part's (TLS,
+    # or as it is), with the request's limit on its waits. On any failure on
+    # the way, whichever holds the connection is closed (a TLS stream closes
+    # its socket with it).
+    raw = socket.socket()
+    s = raw
+    try:
+        raw.settimeout(CONNECT_TIMEOUT_S)
+        raw.connect(addr)
+        s = _wrap(raw, host)  # this part's connection: TLS, or as it is
+        raw.settimeout(TIMEOUT_S)  # the request and its answer: TIMEOUT_S a wait
+        return s
+    except Exception:
+        s.close()
+        raise
+
+
 def _request(method, host, path, headers, body=None, want_reply=False):
     # One request with `Connection: close`. Returns (HTTP status code,
     # reply body or None). Only a 200 answer to a GET carries a body we use,
     # and a 2xx answer to a POST when the caller wants Warblet's word on it;
     # for anything else the status is enough, so we do not wait for more.
     addr = socket.getaddrinfo(host, PORT)[0][-1]
-    s = socket.socket()
     try:
-        s.settimeout(TIMEOUT_S)
-        s.connect(addr)
-        s = _wrap(s, host)    # this part's connection: TLS, or as it is
+        s = _connect(addr, host)
+    except OSError as e:
+        # Nothing has been written yet, so a second try cannot send twice.
+        print("chirp: connection failed, trying once more:", e)
+        gc.collect()  # what the failed try held (TLS needs it back on a C3)
+        time.sleep(CONNECT_RETRY_S)
+        s = _connect(addr, host)
+    try:
         lines = ["{} {} HTTP/1.1".format(method, path),
                  "Host: {}".format(host),
                  "Connection: close"]
