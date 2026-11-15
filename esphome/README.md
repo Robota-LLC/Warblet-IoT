@@ -2,7 +2,7 @@
 
 ## What happens
 
-Your ESPHome device sends its readings to [Warblet](https://warbletiot.com) once a minute over HTTPS. See them on your dashboard and get an email when a reading passes a limit you choose. Add an optional package to receive commands from Warblet and handle them in your own YAML.
+Your ESPHome device sends its readings to [Warblet](https://warbletiot.com) once a minute over HTTPS. See them on your dashboard and get an alert when a reading passes a limit you choose. Add an optional package to receive commands from Warblet and handle them in your own YAML.
 
 You keep your existing ESPHome project. Warblet supplies the setup code, decoder and alert routine; ESPHome builds and installs the firmware. Incoming messages have up to seven days of history, subject to your plan and available storage.
 
@@ -11,7 +11,7 @@ You keep your existing ESPHome project. Warblet supplies the setup code, decoder
 - An ESP32 board with Wi-Fi, running ESPHome 2026.10 or newer.
 - An ESPHome device YAML with its board and Wi-Fi already configured.
 - Internet access and a Warblet account.
-- An alert email address for the routine's emails.
+- Optional: an alert email address. Without one, alerts appear only in Warblet.
 
 ## Set it up
 

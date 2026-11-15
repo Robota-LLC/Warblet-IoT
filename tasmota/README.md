@@ -2,7 +2,7 @@
 
 ## What happens
 
-Your Tasmota plug sends its power to [Warblet](https://warbletiot.com) once a minute. Warblet shows the readings and their history, and emails you when the power passes a limit. This demo is one way: there is no switch on the dashboard.
+Your Tasmota plug sends its power to [Warblet](https://warbletiot.com) once a minute. Warblet shows the readings and their history, and alerts you when the power passes a limit. This demo is one way: there is no switch on the dashboard.
 
 Paste one line into Tasmota's console; there is nothing to flash. The setup leaves your MQTT configuration unchanged and sets `TelePeriod` to 60: both Warblet posts and MQTT sensor telemetry run once a minute. Tasmota keeps its web page, timers and button.
 
@@ -11,7 +11,7 @@ Paste one line into Tasmota's console; there is nothing to flash. The setup leav
 - A plug with a power meter, such as a Sonoff S31, running Tasmota 16.0.0 or newer.
 - `Rule3` free for this demo.
 - Wi-Fi with internet access and a Warblet account.
-- An alert email address in Warblet to receive the emails.
+- Optional: an alert email address. Without one, alerts appear only in Warblet.
 
 ## Set it up
 
