@@ -15,7 +15,7 @@ You keep your existing ESPHome project. Warblet supplies the setup code, decoder
 
 ## Set it up
 
-1. Open [Set up a device](https://warbletiot.com/flash), choose **Computer & other devices**, then **ESPHome**. Sign in and choose **Prepare setup**.
+1. Open [Set up a device](https://warbletiot.com/flash), choose **Computer & other devices**, then **ESPHome**. Sign in and choose **Prepare setup**. If asked for an alert email, add one or choose **Skip for now**.
 2. Add the first snippet to `secrets.yaml` beside your device's YAML. Keep the generated secret name: it lets several devices share one secrets file.
 3. Add the second snippet to your device's YAML. It includes [warblet.yaml](warblet.yaml) from this repository at the release tag supplied by the page. If you already have a `packages:` section, add its `warblet:` entry there instead of creating a second section.
 4. Install through your ESPHome dashboard, or run `esphome run your-device.yaml` from that folder.
@@ -29,13 +29,13 @@ The package sends named sensors, binary sensors and text sensors, plus **Wi-Fi s
 
 The dashboard receives up to 64 fields, with Wi-Fi signal and uptime first. Units are not included; text readings are shortened to 200 bytes without splitting a character. Uptime comes from the preceding sensor update, so it can run about a minute behind.
 
-## Email alerts
+## Alerts
 
-Setup enables **ESPHome: email when a reading passes a limit**. It emails once when Wi-Fi signal drops below **-80 dBm**. It can email again after the signal returns to **-75 dBm** and drops again, or after a week without that reading.
+Setup enables **ESPHome: email when a reading passes a limit**. It alerts once when Wi-Fi signal drops below **-80 dBm**. It can alert again after the signal returns to **-75 dBm** and drops again, or after a week without that reading.
 
 To watch something else, open the routine in Warblet and change `FIELD`, `LIMIT` and `BELOW` at the top. For a tank, use `"Tank level"`, `20` and `True`; for chip temperature above 70, use `"Chip temperature"`, `70` and `False`. Save the routine in Warblet; editing [limit-email.star](limit-email.star) locally does not update your account.
 
-This routine emails at most once an hour per device. All alert emails, including this routine’s, share the account’s limit of ten per hour. The sample routine stores alert state per device; a large set of active alerts can exceed its memory limit and stop its runs. Adapt it before using it for a larger fleet.
+With an email address set, the routine also emails you, at most once an hour per device. All alert emails share the account’s limit of ten per hour. The sample routine stores alert state per device; a large set of active alerts can exceed its memory limit and stop its runs. Adapt it before using it for a larger fleet.
 
 For loss of reports, enable the quiet alert on the device page. It is off by default and sends another notice when reports resume.
 
@@ -105,6 +105,6 @@ After a failed command check, the package waits for another accepted report befo
 
 ## Make it real
 
-Name the readings that matter, set an email threshold, and connect your own actions to commands from Warblet.
+Name the readings that matter, set an alert threshold, and connect your own actions to commands from Warblet.
 
 Keep application changes in your device YAML so the shared packages can stay unchanged. Update the routine and dashboard controls in Warblet to match the names and command text you choose.

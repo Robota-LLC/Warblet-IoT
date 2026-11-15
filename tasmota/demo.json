@@ -4,7 +4,7 @@
   "board": "A Tasmota plug with a power meter, such as the Sonoff S31",
   "network": "none",
   "starter": false,
-  "result": "See your Tasmota plug's power readings on your dashboard, with their history, and get an email when the power passes a limit.",
+  "result": "See your Tasmota plug's power readings on your dashboard, with their history, and get an alert when the power passes a limit. Email is optional.",
   "firstMessage": "It sends its first report a few seconds after you paste the line, then one a minute.",
   "spec": {
     "transport": "http",

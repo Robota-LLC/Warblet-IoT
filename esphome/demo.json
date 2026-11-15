@@ -10,7 +10,7 @@
   "board": "An ESP32 board running ESPHome 2026.10 or newer",
   "network": "none",
   "starter": false,
-  "result": "See your ESPHome device's readings on your Warblet dashboard, and get an email when one passes a limit.",
+  "result": "See your ESPHome device's readings on your Warblet dashboard, and get an alert when one passes a limit. Email is optional.",
   "firstMessage": "It sends its first report about a minute after it starts, then one a minute.",
   "spec": {
     "transport": "http",

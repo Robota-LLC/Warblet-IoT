@@ -15,7 +15,7 @@ Paste one line into Tasmota's console; there is nothing to flash. The setup leav
 
 ## Set it up
 
-1. Open [Set up a device](https://warbletiot.com/flash) and choose **Tasmota**.
+1. Open [Set up a device](https://warbletiot.com/flash) and choose **Tasmota**. If asked for an alert email, add one or choose **Skip for now**.
 2. Open Tasmota's **Tools → Console** and type `Rule3`. It must show `"Rules":""`; move an existing rule to an empty rule set before continuing.
 3. Paste the page's line unchanged and press Enter. It begins with `Backlog3`, which keeps the command replies off your MQTT server and out of the log.
 4. Check reports on the device page rather than by typing `Rule3`: its answer reveals the code and sends it to your MQTT server. Reports should start within a few seconds, then arrive once a minute.
@@ -38,11 +38,11 @@ One reading: **Power**, in watts. The report contains no Wi-Fi name, plug networ
 
 For Voltage, Current and Energy today, see the longer line and its tradeoffs in [decoder.star](decoder.star).
 
-## Email
+## Alerts
 
-Setup adds **Tasmota: email when the power passes a limit**, switched on. It emails once above 1000 W, then waits until power returns to 900 W or lower before emailing on another rise. If a reading returns above the limit after a week without it, it can email again.
+Setup adds **Tasmota: email when the power passes a limit**, switched on. It alerts once above 1000 W, then waits until power returns to 900 W or lower before alerting on another rise. If a reading returns above the limit after a week without it, it can alert again.
 
-This routine emails at most once an hour per device. All alert emails, including this routine’s, share the account’s limit of ten per hour.
+With an email address set, the routine also emails you, at most once an hour per device. All alert emails share the account’s limit of ten per hour.
 
 ## Go back
 
@@ -68,4 +68,4 @@ This disables and clears the demo's rule and restores Tasmota's five-minute repo
 
 ## Make it real
 
-In Warblet's **Routines**, edit the installed routine's `FIELD`, `LIMIT`, `BELOW` and `MARGIN`; [power-limit.star](power-limit.star) explains them. For a washer, `LIMIT = 5` and `BELOW = True` email on the first idle reading, then after a run that reached `LIMIT + MARGIN`, subject to the same hourly email limit. Editing the file here does not change the routine in your account.
+In Warblet's **Routines**, edit the installed routine's `FIELD`, `LIMIT`, `BELOW` and `MARGIN`; [power-limit.star](power-limit.star) explains them. For a washer, `LIMIT = 5` and `BELOW = True` alert on the first idle reading, then after a run that reached `LIMIT + MARGIN`, with the same hourly limit if email is enabled. Editing the file here does not change the routine in your account.

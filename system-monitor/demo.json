@@ -12,7 +12,7 @@
   "board": "Your computer: Linux, Raspberry Pi OS, macOS or Windows",
   "network": "none",
   "starter": false,
-  "result": "See this computer's disks and vitals on your dashboard, and get an email before a disk fills up.",
+  "result": "See this computer's disks and vitals on your dashboard, and get an alert before a disk fills up. Email is optional.",
   "firstMessage": "It sends its first report as soon as it starts, then one a minute.",
   "spec": {
     "transport": "http",
