@@ -42,7 +42,7 @@ For Voltage, Current and Energy today, see the longer line and its tradeoffs in 
 
 Setup adds **Tasmota: email when the power passes a limit**, switched on. It alerts once above 1000 W, then waits until power returns to 900 W or lower before alerting on another rise. If a reading returns above the limit after a week without it, it can alert again.
 
-With an email address set, the routine also emails you, at most once an hour per device. All alert emails share the account’s limit of ten per hour.
+The routine alerts at most once an hour per device. With an email address set, it also emails you. All alert emails share the account’s limit of ten per hour.
 
 ## Go back
 
@@ -68,4 +68,4 @@ This disables and clears the demo's rule and restores Tasmota's five-minute repo
 
 ## Make it real
 
-In Warblet's **Routines**, edit the installed routine's `FIELD`, `LIMIT`, `BELOW` and `MARGIN`; [power-limit.star](power-limit.star) explains them. For a washer, `LIMIT = 5` and `BELOW = True` alert on the first idle reading, then after a run that reached `LIMIT + MARGIN`, with the same hourly limit if email is enabled. Editing the file here does not change the routine in your account.
+In Warblet's **Routines**, edit the installed routine's `FIELD`, `LIMIT`, `BELOW` and `MARGIN`; [power-limit.star](power-limit.star) explains them. For a washer, `LIMIT = 5` and `BELOW = True` alert on the first idle reading, then after a run that reached `LIMIT + MARGIN`, subject to the same hourly alert limit. Editing the file here does not change the routine in your account.
